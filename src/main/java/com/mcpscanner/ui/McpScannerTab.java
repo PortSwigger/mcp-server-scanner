@@ -1,6 +1,7 @@
 package com.mcpscanner.ui;
 
 import burp.api.montoya.logging.Logging;
+import burp.api.montoya.ui.UserInterface;
 import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.auth.CurrentAuthHolder;
 import com.mcpscanner.auth.oauth.CallbackListener;
@@ -96,9 +97,10 @@ public class McpScannerTab extends JPanel {
                          ScanCheckRegistry checkRegistry, ScanCheckSettings checkSettings,
                          McpEventLog eventLog, CurrentAuthHolder authHolder,
                          CurrentSelectionHolder selectionHolder,
-                         OAuthAuthorizationFlow authorizationFlow) {
+                         OAuthAuthorizationFlow authorizationFlow,
+                         UserInterface userInterface) {
         this(clientManager, scanLauncher, logging, configStore, checkRegistry, checkSettings,
-                eventLog, authHolder, selectionHolder, authorizationFlow, null);
+                eventLog, authHolder, selectionHolder, authorizationFlow, null, userInterface);
     }
 
     public McpScannerTab(McpClientManager clientManager, McpScanLauncher scanLauncher,
@@ -107,12 +109,14 @@ public class McpScannerTab extends JPanel {
                          McpEventLog eventLog, CurrentAuthHolder authHolder,
                          CurrentSelectionHolder selectionHolder,
                          OAuthAuthorizationFlow authorizationFlow,
-                         com.mcpscanner.auth.oauth.discovery.OAuthMetadataDiscoverer discoverer) {
+                         com.mcpscanner.auth.oauth.discovery.OAuthMetadataDiscoverer discoverer,
+                         UserInterface userInterface) {
         this(clientManager, scanLauncher, logging, configStore, checkRegistry, checkSettings,
                 eventLog, authHolder, selectionHolder,
                 discoverer != null
                         ? new ServerConfigPanel(configStore, authorizationFlow, discoverer)
-                        : new ServerConfigPanel(configStore, authorizationFlow));
+                        : new ServerConfigPanel(configStore, authorizationFlow),
+                userInterface);
     }
 
     McpScannerTab(McpClientManager clientManager, McpScanLauncher scanLauncher,
@@ -120,7 +124,8 @@ public class McpScannerTab extends JPanel {
                   ScanCheckRegistry checkRegistry, ScanCheckSettings checkSettings,
                   McpEventLog eventLog, CurrentAuthHolder authHolder,
                   CurrentSelectionHolder selectionHolder,
-                  ServerConfigPanel serverConfigPanel) {
+                  ServerConfigPanel serverConfigPanel,
+                  UserInterface userInterface) {
         super(new BorderLayout());
         this.clientManager = clientManager;
         this.scanLauncher = scanLauncher;
@@ -134,13 +139,13 @@ public class McpScannerTab extends JPanel {
 
         this.serverConfigPanel = Objects.requireNonNull(serverConfigPanel, "serverConfigPanel must not be null");
         this.connectCoordinator = new ConnectCoordinator(serverConfigPanel, clientManager, eventLog);
-        this.scanChecksPanel = new ScanChecksPanel(checkRegistry, checkSettings);
+        this.scanChecksPanel = new ScanChecksPanel(checkRegistry, checkSettings, logging::logToError);
         this.inspectorPanel = new InspectorPanel(serverConfigPanel, scanChecksPanel, eventLog);
-        this.toolTablePanel = new ToolTablePanel();
+        this.toolTablePanel = new ToolTablePanel(userInterface);
         this.resourceTablePanel = new ResourceTablePanel();
         this.resourceTemplateTablePanel = new ResourceTemplateTablePanel();
         this.promptTablePanel = new PromptTablePanel();
-        this.serverInfoPanel = new ServerInfoPanel();
+        this.serverInfoPanel = new ServerInfoPanel(userInterface);
 
         this.endpointField = new JTextField(ENDPOINT_FIELD_COLUMNS);
         this.transportCombo = new JComboBox<>(TransportType.values());
@@ -223,13 +228,15 @@ public class McpScannerTab extends JPanel {
         return statusRow;
     }
 
-    private static JPanel buildSupportLinks() {
+    private JPanel buildSupportLinks() {
         JPanel rightLinks = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         rightLinks.add(new HyperlinkLabel("Report a bug",
-                URI.create("https://github.com/peter-hendy/mcp-server-scanner-extension/issues/new?labels=bug")));
+                URI.create("https://github.com/peter-hendy/mcp-server-scanner-extension/issues/new?labels=bug"),
+                logging::logToError));
         rightLinks.add(new JLabel(" · "));
         rightLinks.add(new HyperlinkLabel("Request a feature",
-                URI.create("https://github.com/peter-hendy/mcp-server-scanner-extension/issues/new?labels=enhancement")));
+                URI.create("https://github.com/peter-hendy/mcp-server-scanner-extension/issues/new?labels=enhancement"),
+                logging::logToError));
         rightLinks.setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 12));
         return rightLinks;
     }

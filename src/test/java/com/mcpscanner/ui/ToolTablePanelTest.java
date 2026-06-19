@@ -1,11 +1,18 @@
 package com.mcpscanner.ui;
 
+import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
+import burp.api.montoya.ui.UserInterface;
+import burp.api.montoya.ui.editor.EditorOptions;
+import burp.api.montoya.ui.editor.RawEditor;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.mcp.ToolAnnotations;
 import com.mcpscanner.config.ExtensionConfigStore;
+import com.mcpscanner.testutil.MontoyaTestFactory;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
@@ -17,8 +24,11 @@ import java.awt.Component;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ToolTablePanelTest {
@@ -28,7 +38,17 @@ class ToolTablePanelTest {
     private static final ToolAnnotations DESTRUCTIVE =
             new ToolAnnotations(null, false, true, null, null);
 
-    private final ToolTablePanel panel = new ToolTablePanel();
+    private final RawEditor parametersEditor = mock(RawEditor.class);
+    private ToolTablePanel panel;
+
+    @BeforeEach
+    void setUp() {
+        MontoyaTestFactory.install();
+        when(parametersEditor.uiComponent()).thenReturn(new javax.swing.JPanel());
+        UserInterface userInterface = mock(UserInterface.class);
+        when(userInterface.createRawEditor(any(EditorOptions[].class))).thenReturn(parametersEditor);
+        panel = new ToolTablePanel(userInterface);
+    }
 
     @Test
     void populateSetsCorrectRowCount() {
@@ -277,6 +297,22 @@ class ToolTablePanelTest {
 
         assertThat(panel.getDetailPanelForTest().nameLabelForTest()
                 .getClientProperty("html.disable")).isEqualTo(Boolean.TRUE);
+    }
+
+    @Test
+    void selectingToolRendersInputSchemaIntoRawEditor() {
+        McpToolDefinition tool = new McpToolDefinition("read", "desc",
+                "{\"properties\":{\"path\":{\"type\":\"string\"},\"depth\":{\"type\":\"integer\"}}}");
+        panel.populate(List.of(tool));
+
+        panel.getTableForTest().setRowSelectionInterval(0, 0);
+
+        ArgumentCaptor<ByteArray> captor = ArgumentCaptor.forClass(ByteArray.class);
+        verify(parametersEditor, atLeastOnce()).setContents(captor.capture());
+        assertThat(captor.getValue().toString())
+                .contains("path")
+                .contains("depth")
+                .contains("integer");
     }
 
     @Test

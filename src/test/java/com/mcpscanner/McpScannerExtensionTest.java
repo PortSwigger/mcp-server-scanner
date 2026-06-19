@@ -51,9 +51,17 @@ class McpScannerExtensionTest {
 
     @BeforeEach
     void setUp() {
+        com.mcpscanner.testutil.MontoyaTestFactory.install();
         when(api.extension()).thenReturn(extension);
         when(api.scanner()).thenReturn(scanner);
         when(api.userInterface()).thenReturn(userInterface);
+        when(userInterface.createRawEditor(any(burp.api.montoya.ui.editor.EditorOptions[].class)))
+                .thenAnswer(inv -> {
+                    burp.api.montoya.ui.editor.RawEditor editor =
+                            mock(burp.api.montoya.ui.editor.RawEditor.class);
+                    when(editor.uiComponent()).thenReturn(new javax.swing.JPanel());
+                    return editor;
+                });
         when(api.http()).thenReturn(http);
         when(api.logging()).thenReturn(logging);
         when(api.persistence()).thenReturn(persistence);

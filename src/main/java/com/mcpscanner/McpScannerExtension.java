@@ -179,7 +179,7 @@ public class McpScannerExtension implements BurpExtension {
             SwingUtilities.invokeAndWait(() -> {
                 McpScannerTab tab = new McpScannerTab(clientManager, scanLauncher, api.logging(), configStore,
                         checkRegistry, checkSettings, eventLog, authHolder, selectionHolder,
-                        authorizationFlow, discoverer);
+                        authorizationFlow, discoverer, api.userInterface());
                 api.userInterface().registerSuiteTab(ExtensionMetadata.NAME, tab);
                 tabHolder[0] = tab;
             });

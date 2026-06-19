@@ -15,13 +15,22 @@ import java.util.function.Consumer;
 
 public final class HyperlinkLabel extends JLabel {
 
-    private final Consumer<URI> launcher;
-
-    public HyperlinkLabel(String text, URI target) {
-        this(text, target, defaultDaemonLauncher());
+    /** Launches the target URI when the label is clicked. */
+    interface Launcher {
+        void launch(URI target);
     }
 
-    HyperlinkLabel(String text, URI target, Consumer<URI> launcher) {
+    private final Launcher launcher;
+
+    public HyperlinkLabel(String text, URI target) {
+        this(text, target, (Consumer<Throwable>) throwable -> {});
+    }
+
+    public HyperlinkLabel(String text, URI target, Consumer<Throwable> errorSink) {
+        this(text, target, daemonLauncher(HyperlinkLabel::browse, errorSink));
+    }
+
+    HyperlinkLabel(String text, URI target, Launcher launcher) {
         super(text);
         this.launcher = launcher;
         setForeground(ThemeColors.hyperlinkColor(ThemeColors.isDark(panelBackground())));
@@ -31,7 +40,7 @@ public final class HyperlinkLabel extends JLabel {
         addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
-                launcher.accept(target);
+                launcher.launch(target);
             }
         });
     }
@@ -46,20 +55,29 @@ public final class HyperlinkLabel extends JLabel {
         return base.deriveFont(attributes);
     }
 
-    private static Consumer<URI> defaultDaemonLauncher() {
-        return uri -> {
-            Thread thread = new Thread(() -> browseQuietly(uri), "hyperlink-launch");
+    static Launcher daemonLauncher(Consumer<URI> browseAction, Consumer<Throwable> errorSink) {
+        return target -> {
+            Thread thread = new Thread(() -> reportingBrowse(browseAction, target, errorSink), "hyperlink-launch");
             thread.setDaemon(true);
             thread.start();
         };
     }
 
-    private static void browseQuietly(URI uri) {
+    private static void reportingBrowse(Consumer<URI> browseAction, URI target, Consumer<Throwable> errorSink) {
+        try {
+            browseAction.accept(target);
+        } catch (Exception e) {
+            errorSink.accept(e);
+        }
+    }
+
+    private static void browse(URI target) {
         try {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                Desktop.getDesktop().browse(uri);
+                Desktop.getDesktop().browse(target);
             }
-        } catch (Exception ignored) {
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
         }
     }
 }

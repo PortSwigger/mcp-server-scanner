@@ -1,5 +1,9 @@
 package com.mcpscanner.ui;
 
+import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.ui.UserInterface;
+import burp.api.montoya.ui.editor.EditorOptions;
+import burp.api.montoya.ui.editor.RawEditor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.mcpscanner.mcp.ServerMetadata;
 import com.mcpscanner.mcp.McpObjectMapper;
@@ -23,17 +27,18 @@ public class ServerInfoPanel extends JPanel {
 
     private final JTextArea serverInfoArea = buildReadOnlyArea();
     private final JTextArea instructionsArea = buildReadOnlyArea();
-    private final JTextArea capabilitiesArea = buildMonospaceArea();
+    private final RawEditor capabilitiesEditor;
 
-    public ServerInfoPanel() {
+    public ServerInfoPanel(UserInterface userInterface) {
         super(new BorderLayout());
+        this.capabilitiesEditor = userInterface.createRawEditor(EditorOptions.READ_ONLY);
         Box stack = Box.createVerticalBox();
         stack.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        stack.add(buildSection("Server Info", serverInfoArea));
+        stack.add(buildSection("Server Info", new JScrollPane(serverInfoArea)));
         stack.add(Box.createVerticalStrut(12));
-        stack.add(buildSection("Instructions", instructionsArea));
+        stack.add(buildSection("Instructions", new JScrollPane(instructionsArea)));
         stack.add(Box.createVerticalStrut(12));
-        stack.add(buildSection("Capabilities", capabilitiesArea));
+        stack.add(buildSection("Capabilities", capabilitiesEditor.uiComponent()));
         add(new JScrollPane(stack), BorderLayout.CENTER);
 
         populate(ServerMetadata.empty());
@@ -44,8 +49,7 @@ public class ServerInfoPanel extends JPanel {
         serverInfoArea.setCaretPosition(0);
         instructionsArea.setText(renderInstructions(metadata.instructions()));
         instructionsArea.setCaretPosition(0);
-        capabilitiesArea.setText(renderCapabilities(metadata.capabilities()));
-        capabilitiesArea.setCaretPosition(0);
+        capabilitiesEditor.setContents(ByteArray.byteArray(renderCapabilities(metadata.capabilities())));
     }
 
     JTextArea serverInfoAreaForTest() {
@@ -56,18 +60,18 @@ public class ServerInfoPanel extends JPanel {
         return instructionsArea;
     }
 
-    JTextArea capabilitiesAreaForTest() {
-        return capabilitiesArea;
+    RawEditor capabilitiesEditorForTest() {
+        return capabilitiesEditor;
     }
 
-    private static Component buildSection(String title, JTextArea content) {
+    private static Component buildSection(String title, Component content) {
         JPanel section = new JPanel(new BorderLayout());
         section.setAlignmentX(Component.LEFT_ALIGNMENT);
         JLabel header = new JLabel(title);
         header.setFont(header.getFont().deriveFont(Font.BOLD, header.getFont().getSize() + 1f));
         header.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
         section.add(header, BorderLayout.NORTH);
-        section.add(new JScrollPane(content), BorderLayout.CENTER);
+        section.add(content, BorderLayout.CENTER);
         return section;
     }
 
@@ -109,13 +113,6 @@ public class ServerInfoPanel extends JPanel {
         area.setEditable(false);
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
-        return area;
-    }
-
-    private static JTextArea buildMonospaceArea() {
-        JTextArea area = new JTextArea();
-        area.setEditable(false);
-        area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         return area;
     }
 }

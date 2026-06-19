@@ -80,6 +80,7 @@ class McpScannerTabTest {
     private PersistedObject store;
     private CurrentAuthHolder authHolder;
     private CurrentSelectionHolder selectionHolder;
+    private burp.api.montoya.ui.UserInterface userInterface;
 
     @BeforeEach
     void setUp() {
@@ -99,18 +100,26 @@ class McpScannerTabTest {
         when(clientManager.isConnected()).thenReturn(true);
         authHolder = new CurrentAuthHolder();
         selectionHolder = new CurrentSelectionHolder();
+        userInterface = mock(burp.api.montoya.ui.UserInterface.class);
+        when(userInterface.createRawEditor(any(burp.api.montoya.ui.editor.EditorOptions[].class)))
+                .thenAnswer(inv -> {
+                    burp.api.montoya.ui.editor.RawEditor editor =
+                            mock(burp.api.montoya.ui.editor.RawEditor.class);
+                    when(editor.uiComponent()).thenReturn(new javax.swing.JPanel());
+                    return editor;
+                });
     }
 
     private McpScannerTab newTab() {
         return new McpScannerTab(clientManager, scanLauncher, logging, configStore,
                 checkRegistry, checkSettings, new McpEventLog(null), authHolder, selectionHolder,
-                TestOAuthFlows.recording());
+                TestOAuthFlows.recording(), userInterface);
     }
 
     private McpScannerTab newTabWith(ServerConfigPanel serverConfigPanel) {
         return new McpScannerTab(clientManager, scanLauncher, logging, configStore,
                 checkRegistry, checkSettings, new McpEventLog(null), authHolder, selectionHolder,
-                serverConfigPanel);
+                serverConfigPanel, userInterface);
     }
 
     @Test
@@ -669,7 +678,7 @@ class McpScannerTabTest {
         invokeAndWait(() -> {
             McpScannerTab tab = new McpScannerTab(clientManager, scanLauncher, logging, configStore,
                     checkRegistry, checkSettings, spyLog, authHolder, selectionHolder,
-                    TestOAuthFlows.recording());
+                    TestOAuthFlows.recording(), userInterface);
             tab.endpointFieldForTest().setText("https://mcp.example.com/mcp");
             tab.setAuthStrategyOverrideForTest(Map::of);
             tab.populateToolsForTest(List.of(readOnlyTool("echo", "")));

@@ -50,9 +50,16 @@ public final class ScanChecksPanel extends JPanel {
     private final JTable table;
     private final JTextArea descriptionArea;
     private final JPanel referencesPanel;
+    private final java.util.function.Consumer<Throwable> linkErrorSink;
 
     public ScanChecksPanel(ScanCheckRegistry registry, ScanCheckSettings settings) {
+        this(registry, settings, throwable -> {});
+    }
+
+    public ScanChecksPanel(ScanCheckRegistry registry, ScanCheckSettings settings,
+                           java.util.function.Consumer<Throwable> linkErrorSink) {
         super(new BorderLayout());
+        this.linkErrorSink = linkErrorSink;
         this.model = new ScanChecksTableModel(registry.all(), settings);
         this.table = buildTable(model);
         this.descriptionArea = buildDescriptionArea();
@@ -226,14 +233,14 @@ public final class ScanChecksPanel extends JPanel {
         return label;
     }
 
-    private static JComponent buildReferenceLabel(String url) {
+    private JComponent buildReferenceLabel(String url) {
         URI uri = parseUriOrNull(url);
         if (uri == null) {
             JLabel fallback = new JLabel(url);
             fallback.setAlignmentX(Component.LEFT_ALIGNMENT);
             return fallback;
         }
-        HyperlinkLabel link = new HyperlinkLabel(url, uri);
+        HyperlinkLabel link = new HyperlinkLabel(url, uri, linkErrorSink);
         link.setAlignmentX(Component.LEFT_ALIGNMENT);
         return link;
     }
