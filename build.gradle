@@ -1,0 +1,108 @@
+import com.github.jengelman.gradle.plugins.shadow.transformers.ApacheNoticeResourceTransformer
+import com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer
+
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '8.3.5'
+}
+
+version = '0.1.0'
+
+// Jackson databind + core ship at 2.21.3 in the BOM; jackson-annotations is published as 2.21
+// (no patch suffix) by upstream as of the 2.21 line — these are the matched coordinates.
+ext.jacksonVersion = '2.21.3'
+ext.jacksonAnnotationsVersion = '2.21'
+
+def gitShortSha = providers.provider {
+    try {
+        providers.exec {
+            commandLine 'git', 'rev-parse', '--short', 'HEAD'
+            ignoreExitValue = true
+        }.standardOutput.asText.map { it.trim() }.getOrElse('unknown')
+    } catch (Exception ignored) {
+        'unknown'
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+dependencies {
+    compileOnly 'net.portswigger.burp.extensions:montoya-api:2026.2'
+
+    implementation 'dev.langchain4j:langchain4j-mcp:1.15.0-beta25'
+    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonAnnotationsVersion}"
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+    implementation 'com.nimbusds:oauth2-oidc-sdk:11.20.1'
+
+    testImplementation 'net.portswigger.burp.extensions:montoya-api:2026.2'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
+    testImplementation 'org.mockito:mockito-core:5.14.0'
+    testImplementation 'org.mockito:mockito-junit-jupiter:5.14.0'
+    testImplementation 'org.assertj:assertj-core:3.26.0'
+    testImplementation 'com.tngtech.archunit:archunit-junit5:1.3.0'
+    testImplementation 'org.awaitility:awaitility:4.2.2'
+}
+
+shadowJar {
+    // Relocate vendored libraries to a project-specific namespace so this extension
+    // does not collide with other Burp extensions that ship different versions of the
+    // same libraries in the same classloader.
+    relocate 'com.fasterxml.jackson', 'com.mcpscanner.shaded.jackson'
+    relocate 'kotlin', 'com.mcpscanner.shaded.kotlin'
+    relocate 'org.slf4j', 'com.mcpscanner.shaded.slf4j'
+    relocate 'okhttp3', 'com.mcpscanner.shaded.okhttp3'
+    relocate 'okio', 'com.mcpscanner.shaded.okio'
+    relocate 'com.nimbusds', 'com.mcpscanner.shaded.nimbusds'
+    mergeServiceFiles()
+    // Ship the project's own LICENSE and NOTICE at the JAR root so downstream
+    // redistributors can see our terms without unpacking META-INF/.
+    from(rootProject.file('LICENSE'))
+    from(rootProject.file('NOTICE'))
+    // Aggregate transitive Apache-2.0 LICENSE files into a single META-INF/LICENSE.
+    // Shadow's ApacheLicenseResourceTransformer in 8.3.5 only deduplicates (drops them entirely);
+    // AppendingTransformer concatenates so attribution from every dep survives.
+    transform(AppendingTransformer) {
+        resource = 'META-INF/LICENSE'
+    }
+    transform(AppendingTransformer) {
+        resource = 'META-INF/LICENSE.txt'
+    }
+    transform(ApacheNoticeResourceTransformer) {
+        projectName = 'MCP Server Scanner'
+        organizationName = 'Peter Hendy'
+        organizationURL = 'https://github.com/peter-hendy/mcp-server-scanner-extension'
+        inceptionYear = '2026'
+        addHeader = false
+    }
+    manifest {
+        attributes(
+                'Implementation-Title': 'MCP Server Scanner',
+                'Implementation-Version': version,
+                'Implementation-Vendor': 'Peter Hendy',
+                'Implementation-Build': gitShortSha
+        )
+    }
+}
+
+tasks.jar.enabled = false
+
+tasks.named('test') {
+    useJUnitPlatform {
+        excludeTags 'live'
+    }
+}

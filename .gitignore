@@ -1,0 +1,22 @@
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+.DS_Store
+
+.worktrees/
+.claude
+
+# Local scratch / notes — not committed.
+/scratch.md
+*.scratch

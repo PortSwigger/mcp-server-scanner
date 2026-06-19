@@ -1,0 +1,104 @@
+MCP Scanner Extension
+Copyright 2026 Peter Hendy
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+------------------------------------------------------------------------
+Third-party software
+------------------------------------------------------------------------
+
+This product bundles, in the shadow JAR distributed to Burp Suite, the
+third-party software listed below. Compile-only dependencies (notably the
+Burp Montoya API) are not redistributed and are therefore not enumerated
+here.
+
+========================================================================
+Apache License, Version 2.0
+    http://www.apache.org/licenses/LICENSE-2.0
+========================================================================
+
+Jackson (https://github.com/FasterXML/jackson)
+Copyright FasterXML, LLC
+    * com.fasterxml.jackson:jackson-bom 2.21.3
+    * com.fasterxml.jackson.core:jackson-annotations 2.21
+    * com.fasterxml.jackson.core:jackson-core 2.21.3
+    * com.fasterxml.jackson.core:jackson-databind 2.21.3
+
+LangChain4j (https://github.com/langchain4j/langchain4j)
+Copyright the LangChain4j authors
+    * dev.langchain4j:langchain4j 1.15.0
+    * dev.langchain4j:langchain4j-core 1.15.0
+    * dev.langchain4j:langchain4j-http-client 1.15.0
+    * dev.langchain4j:langchain4j-http-client-jdk 1.15.0
+    * dev.langchain4j:langchain4j-mcp 1.15.0-beta25
+
+Nimbus OAuth 2.0 SDK / JOSE+JWT (https://connect2id.com/products/nimbus-oauth-openid-connect-sdk)
+Copyright Connect2id Ltd.
+    * com.nimbusds:content-type 2.3
+    * com.nimbusds:lang-tag 1.7
+    * com.nimbusds:nimbus-jose-jwt 9.40
+    * com.nimbusds:oauth2-oidc-sdk 11.20.1
+
+JCIP Annotations under Apache License (https://github.com/stephenc/jcip-annotations)
+Copyright Stephen Connolly; based on work by Brian Goetz and Tim Peierls
+    * com.github.stephenc.jcip:jcip-annotations 1.0-1
+
+OkHttp (https://square.github.io/okhttp/)
+Copyright Square, Inc.
+    * com.squareup.okhttp3:okhttp 4.12.0
+    * com.squareup.okhttp3:okhttp-sse 4.12.0
+
+Okio (https://square.github.io/okio/)
+Copyright Square, Inc.
+    * com.squareup.okio:okio 3.6.0
+    * com.squareup.okio:okio-jvm 3.6.0
+
+JSON Smart (https://urielch.github.io/)
+Copyright Chemouni Uriel
+    * net.minidev:accessors-smart 2.5.1
+    * net.minidev:json-smart 2.5.1
+
+Apache OpenNLP (https://opennlp.apache.org/)
+Copyright The Apache Software Foundation
+    * org.apache.opennlp:opennlp-tools 2.5.9
+
+Kotlin Standard Library (https://kotlinlang.org/)
+Copyright JetBrains s.r.o. and Kotlin Programming Language contributors
+    * org.jetbrains.kotlin:kotlin-stdlib 1.9.10
+    * org.jetbrains.kotlin:kotlin-stdlib-common 1.9.10
+    * org.jetbrains.kotlin:kotlin-stdlib-jdk7 1.9.10
+    * org.jetbrains.kotlin:kotlin-stdlib-jdk8 1.9.10
+
+JetBrains Java Annotations (https://github.com/JetBrains/java-annotations)
+Copyright JetBrains s.r.o.
+    * org.jetbrains:annotations 13.0
+
+JSpecify (https://jspecify.dev/)
+Copyright The JSpecify Authors
+    * org.jspecify:jspecify 1.0.0
+
+========================================================================
+BSD 3-Clause License
+    https://opensource.org/licenses/BSD-3-Clause
+========================================================================
+
+NanoHTTPD (https://github.com/NanoHttpd/nanohttpd)
+Copyright the NanoHTTPD authors. Licensed under the BSD 3-Clause License.
+    * org.nanohttpd:nanohttpd 2.3.1
+
+ASM (https://asm.ow2.io/)
+Copyright INRIA, France Telecom. Licensed under the BSD 3-Clause License.
+    * org.ow2.asm:asm 9.6
+
+========================================================================
+MIT License
+    https://opensource.org/licenses/MIT
+========================================================================
+
+SLF4J (https://www.slf4j.org/)
+Copyright QOS.ch Sarl (Switzerland). Licensed under the MIT License.
+    * org.slf4j:slf4j-api 2.0.18
