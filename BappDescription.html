@@ -1,0 +1,23 @@
+<p>This extension targets Model Context Protocol (MCP) servers, automating discovery of their tools, resources, resource templates, and prompts, then constructing JSON-RPC 2.0 requests with fuzzable insertion points for active and passive scanning.</p>
+
+<h2>Features</h2>
+<ul>
+  <li>Supports both Streamable HTTP and SSE transports, including a local proxy that allows the scanner to consume <code class=InlineCode>text/event-stream</code> responses.</li>
+  <li>Handles multiple authentication schemes: none, Bearer token, custom header, and OAuth 2.1 with PKCE and dynamic client registration via RFC 8414 and RFC 9728 discovery.</li>
+  <li>Runs active checks covering unauthenticated tool discovery, auth bypass, hidden method enumeration, resource path traversal, OAuth token validation, DNS rebinding, OAuth metadata SSRF, DCR misconfiguration, and consent-page reflected XSS.</li>
+  <li>Performs tool-argument fuzzing for path traversal and out-of-band RCE detection backed by Burp Collaborator.</li>
+  <li>Scans discovered MCP metadata for leaked secrets including AWS keys, GitHub tokens, Slack tokens, Stripe keys, GCP credentials, JWTs, and SSH/PGP private keys, as well as unsafe icon URLs.</li>
+  <li>Persists tool toggles and OAuth credentials in the project file across sessions.</li>
+</ul>
+
+<h2>Usage</h2>
+<ol>
+  <li>Open the <strong>MCP Server Scanner</strong> tab that appears after loading the extension.</li>
+  <li>Enter the MCP server endpoint URL in the configuration panel.</li>
+  <li>Select the appropriate authentication method (none, Bearer token, custom header, or OAuth 2.1) and supply any required credentials or registration details.</li>
+  <li>If using OAuth 2.1, optionally set a fixed callback port in the OAuth section before initiating the authorization flow if your authorization server requires strict redirect-URI pre-registration.</li>
+  <li>Click connect to perform the initial <code class=InlineCode>initialize</code> handshake and trigger discovery of tools, resources, resource templates, and prompts.</li>
+  <li>Review discovered MCP capabilities in the extension tab and use the tool toggles to select which tools to include in active scans.</li>
+  <li>Initiate a scan to send fuzzed JSON-RPC 2.0 requests through the active and passive scanner, then review findings in the scanner results panel.</li>
+  <li>Check the Logger sub-tab for proxy startup errors, connection failures, or SSE handshake issues if scans do not produce results.</li>
+</ol>

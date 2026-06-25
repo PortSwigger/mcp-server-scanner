@@ -1,0 +1,13 @@
+Uuid: 331a84edb4134705ad2ef25b90f626f2
+ExtensionType: 1
+Name: MCP server scanner
+RepoName: mcp-server-scanner
+ScreenVersion: 1.0.0
+SerialVersion: 1
+MinPlatformVersion: 29
+ProOnly: True
+Author: peter-hendy
+ShortDescription: Scans Model Context Protocol servers for security vulnerabilities.
+EntryPoint: mcp-server-scanner-extension-1.0.0-all.jar
+BuildCommand: ./gradlew shadowJar
+SupportedProducts: Pro
