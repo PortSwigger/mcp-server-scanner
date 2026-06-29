@@ -6,7 +6,7 @@ ScreenVersion: 1.0.0
 SerialVersion: 2
 MinPlatformVersion: 29
 ProOnly: True
-Author: Pete Hendy, PortSwigger
+Author: Peter Hendy, PortSwigger
 ShortDescription: Scans Model Context Protocol servers for security vulnerabilities.
 EntryPoint: mcp-server-scanner-extension-1.0.0-all.jar
 BuildCommand: ./gradlew shadowJar
