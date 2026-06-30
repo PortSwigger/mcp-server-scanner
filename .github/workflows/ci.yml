@@ -44,9 +44,11 @@ jobs:
         with:
           name: test-reports
           path: build/reports/tests/**
+          retention-days: 7
 
       - name: Upload fat JAR
         uses: actions/upload-artifact@v7
         with:
           name: mcp-server-scanner-extension-jar
           path: build/libs/*-all.jar
+          retention-days: 7
