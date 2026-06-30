@@ -17,6 +17,11 @@ out/
 .worktrees/
 .claude
 
-# Local scratch / notes — not committed.
+# Scratch / one-off research files — never commit.
 /scratch.md
 *.scratch
+# Internal planning / punch-lists / scratch — never commit.
+docs/plans/
+# Internal scan-check reference — kept local, not published.
+docs/scan-checks.md
+docs/scan-check-real-world-validation.json

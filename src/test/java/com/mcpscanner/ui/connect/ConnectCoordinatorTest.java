@@ -19,6 +19,7 @@ import com.mcpscanner.ui.OAuthConnectSupport;
 import com.mcpscanner.ui.ServerConfigPanel;
 import com.mcpscanner.ui.state.ConnectAttempt;
 import com.mcpscanner.ui.state.ConnectPhase;
+import com.nimbusds.oauth2.sdk.as.AuthorizationServerMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -32,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -76,7 +78,7 @@ class ConnectCoordinatorTest {
         assertThat(cfg.getValue().auth()).isSameAs(snapshot);
 
         verify(support, never()).discoverOauthMetadataSync(anyString());
-        verify(support, never()).completeOAuthDance(any(), any(), any());
+        verify(support, never()).completeOAuthDance(any(), any(), any(), any());
     }
 
     @Test
@@ -84,7 +86,7 @@ class ConnectCoordinatorTest {
         OAuthClientHints hints = oauthHints(URI.create("https://manual.issuer.example"));
         OAuthAuthCodeStrategy strategy = mock(OAuthAuthCodeStrategy.class);
         ConnectResult result = emptyResult();
-        when(support.completeOAuthDance(any(), any(), any())).thenReturn(strategy);
+        when(support.completeOAuthDance(any(), any(), any(), any())).thenReturn(strategy);
         when(clientManager.connect(any())).thenReturn(result);
 
         ConnectAttempt attempt = ConnectAttempt.withOauth(
@@ -96,7 +98,7 @@ class ConnectCoordinatorTest {
         assertThat(outcome.result()).isSameAs(result);
         verify(support, never()).discoverOauthMetadataSync(anyString());
         verify(support, never()).applyDiscoveredMetadata(any());
-        verify(support).completeOAuthDance(any(), any(), any());
+        verify(support).completeOAuthDance(any(), any(), any(), isNull());
 
         ArgumentCaptor<McpServerConfig> cfg = ArgumentCaptor.forClass(McpServerConfig.class);
         verify(clientManager).connect(cfg.capture());
@@ -106,31 +108,35 @@ class ConnectCoordinatorTest {
     @Test
     void oauthWithNullIssuerDiscoversAppliesMergesThenDances() throws Exception {
         OAuthClientHints hints = oauthHints(null);
+        AuthorizationServerMetadata asMetadata = mock(AuthorizationServerMetadata.class);
         DiscoveredMetadata metadata = new DiscoveredMetadata(
-                URI.create("https://issuer.example"), DiscoverySource.AS_WELL_KNOWN, null);
+                URI.create("https://issuer.example"), DiscoverySource.AS_WELL_KNOWN, asMetadata);
         OAuthAuthCodeStrategy strategy = mock(OAuthAuthCodeStrategy.class);
         when(support.discoverOauthMetadataSync(anyString())).thenReturn(metadata);
-        when(support.completeOAuthDance(any(), any(), any())).thenReturn(strategy);
+        when(support.completeOAuthDance(any(), any(), any(), any())).thenReturn(strategy);
         when(clientManager.connect(any())).thenReturn(emptyResult());
 
         ConnectAttempt attempt = ConnectAttempt.withOauth(
                 ENDPOINT, TransportType.STREAMABLE_HTTP, HOST, ServerConfigPanel.AUTH_OAUTH, hints, URI.create(ENDPOINT));
 
-        ArgumentCaptor<OAuthClientHints> danced = ArgumentCaptor.forClass(OAuthClientHints.class);
+        ArgumentCaptor<OAuthClientHints> dancedHints = ArgumentCaptor.forClass(OAuthClientHints.class);
+        ArgumentCaptor<AuthorizationServerMetadata> dancedMetadata =
+                ArgumentCaptor.forClass(AuthorizationServerMetadata.class);
 
         ConnectionAttemptResult outcome = coordinator.connect(attempt, (phase, message) -> {}, () -> {});
 
         verify(support).discoverOauthMetadataSync(ENDPOINT);
         verify(support).applyDiscoveredMetadata(metadata);
-        verify(support).completeOAuthDance(danced.capture(), any(), any());
-        assertThat(danced.getValue().issuer()).isEqualTo(URI.create("https://issuer.example"));
+        verify(support).completeOAuthDance(dancedHints.capture(), any(), any(), dancedMetadata.capture());
+        assertThat(dancedHints.getValue().issuer()).isEqualTo(URI.create("https://issuer.example"));
+        assertThat(dancedMetadata.getValue()).isSameAs(asMetadata);
         assertThat(outcome.oauthStrategy()).isSameAs(strategy);
     }
 
     @Test
     void danceFailurePropagates() {
         OAuthClientHints hints = oauthHints(URI.create("https://manual.issuer.example"));
-        when(support.completeOAuthDance(any(), any(), any()))
+        when(support.completeOAuthDance(any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("dance boom"));
 
         ConnectAttempt attempt = ConnectAttempt.withOauth(
@@ -158,7 +164,7 @@ class ConnectCoordinatorTest {
         OAuthClientHints hints = oauthHints(null);
         when(support.discoverOauthMetadataSync(anyString())).thenReturn(new DiscoveredMetadata(
                 URI.create("https://issuer.example"), DiscoverySource.AS_WELL_KNOWN, null));
-        when(support.completeOAuthDance(any(), any(), any())).thenReturn(mock(OAuthAuthCodeStrategy.class));
+        when(support.completeOAuthDance(any(), any(), any(), any())).thenReturn(mock(OAuthAuthCodeStrategy.class));
         when(clientManager.connect(any())).thenReturn(emptyResult());
 
         ConnectAttempt attempt = ConnectAttempt.withOauth(
@@ -174,7 +180,7 @@ class ConnectCoordinatorTest {
     void terminalFailureCallbackWiredOntoStrategy() throws Exception {
         OAuthClientHints hints = oauthHints(URI.create("https://manual.issuer.example"));
         OAuthAuthCodeStrategy strategy = mock(OAuthAuthCodeStrategy.class);
-        when(support.completeOAuthDance(any(), any(), any())).thenReturn(strategy);
+        when(support.completeOAuthDance(any(), any(), any(), any())).thenReturn(strategy);
         when(clientManager.connect(any())).thenReturn(emptyResult());
 
         ConnectAttempt attempt = ConnectAttempt.withOauth(

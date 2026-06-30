@@ -6,7 +6,7 @@ public final class ExtensionMetadata {
     public static final String SCANNER_CLIENT_NAME = NAME + "-scanner";
     public static final String VERSION = resolveVersion();
 
-    private static final String FALLBACK_VERSION = "1.0.0";
+    private static final String FALLBACK_VERSION = "0.1.0";
 
     private ExtensionMetadata() {
     }

@@ -65,7 +65,7 @@ class OAuthConfigPanelTest {
                 new RefreshToken("refresh"),
                 Instant.now().plusSeconds(600),
                 "alice");
-        when(authorizationFlow.connect(any(), any()))
+        when(authorizationFlow.connect(any(), any(), any()))
                 .thenReturn(OAuthSession.withoutDcrCredentials(tokens, "client-id", null));
         OAuthConfigPanel uut = newPanel(authorizationFlow, mock(OAuthMetadataDiscoverer.class));
 
@@ -92,7 +92,7 @@ class OAuthConfigPanelTest {
                 new RefreshToken("refresh"),
                 Instant.now().plusSeconds(600),
                 "alice");
-        when(authorizationFlow.connect(any(), any()))
+        when(authorizationFlow.connect(any(), any(), any()))
                 .thenReturn(OAuthSession.withoutDcrCredentials(tokens, "client-id", null));
         OAuthConfigPanel uut = newPanel(authorizationFlow, mock(OAuthMetadataDiscoverer.class));
 
@@ -192,7 +192,7 @@ class OAuthConfigPanelTest {
                 new RefreshToken("refresh"),
                 Instant.now().plusSeconds(600),
                 "alice");
-        when(authorizationFlow.connect(any(), any()))
+        when(authorizationFlow.connect(any(), any(), any()))
                 .thenReturn(OAuthSession.withoutDcrCredentials(tokens, "client-id", null));
 
         OAuthConfigPanel uut = newPanel(authorizationFlow, discoverer);

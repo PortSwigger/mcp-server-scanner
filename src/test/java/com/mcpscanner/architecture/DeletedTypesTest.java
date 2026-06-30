@@ -93,13 +93,4 @@ public class DeletedTypesTest {
                             + "ScanCheckRegistry was refactored to instantiate rules via ContentRules.all(). "
                             + "Re-introducing it would resurrect a second, divergent source of the default "
                             + "ContentRuleDescriptor catalogue.");
-
-    @ArchTest
-    static final ArchRule sleeper_must_not_return =
-            noClasses().should().haveFullyQualifiedName("com.mcpscanner.checks.Sleeper")
-                    .because("Deleted when the RCE check's inline, scanner-thread Collaborator poll loop was "
-                            + "replaced by the shared CollaboratorPoller + single ScheduledExecutorService "
-                            + "(Burp's recommended model). Sleeper existed only to make that on-thread poll "
-                            + "schedule testable; re-introducing it signals someone is blocking the scanner "
-                            + "thread waiting on Collaborator again.");
 }

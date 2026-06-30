@@ -1,7 +1,6 @@
 package com.mcpscanner.ui;
 
 import burp.api.montoya.logging.Logging;
-import burp.api.montoya.ui.UserInterface;
 import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.auth.CurrentAuthHolder;
 import com.mcpscanner.auth.oauth.CallbackListener;
@@ -97,10 +96,9 @@ public class McpScannerTab extends JPanel {
                          ScanCheckRegistry checkRegistry, ScanCheckSettings checkSettings,
                          McpEventLog eventLog, CurrentAuthHolder authHolder,
                          CurrentSelectionHolder selectionHolder,
-                         OAuthAuthorizationFlow authorizationFlow,
-                         UserInterface userInterface) {
+                         OAuthAuthorizationFlow authorizationFlow) {
         this(clientManager, scanLauncher, logging, configStore, checkRegistry, checkSettings,
-                eventLog, authHolder, selectionHolder, authorizationFlow, null, userInterface);
+                eventLog, authHolder, selectionHolder, authorizationFlow, null);
     }
 
     public McpScannerTab(McpClientManager clientManager, McpScanLauncher scanLauncher,
@@ -109,14 +107,12 @@ public class McpScannerTab extends JPanel {
                          McpEventLog eventLog, CurrentAuthHolder authHolder,
                          CurrentSelectionHolder selectionHolder,
                          OAuthAuthorizationFlow authorizationFlow,
-                         com.mcpscanner.auth.oauth.discovery.OAuthMetadataDiscoverer discoverer,
-                         UserInterface userInterface) {
+                         com.mcpscanner.auth.oauth.discovery.OAuthMetadataDiscoverer discoverer) {
         this(clientManager, scanLauncher, logging, configStore, checkRegistry, checkSettings,
                 eventLog, authHolder, selectionHolder,
                 discoverer != null
                         ? new ServerConfigPanel(configStore, authorizationFlow, discoverer)
-                        : new ServerConfigPanel(configStore, authorizationFlow),
-                userInterface);
+                        : new ServerConfigPanel(configStore, authorizationFlow));
     }
 
     McpScannerTab(McpClientManager clientManager, McpScanLauncher scanLauncher,
@@ -124,8 +120,7 @@ public class McpScannerTab extends JPanel {
                   ScanCheckRegistry checkRegistry, ScanCheckSettings checkSettings,
                   McpEventLog eventLog, CurrentAuthHolder authHolder,
                   CurrentSelectionHolder selectionHolder,
-                  ServerConfigPanel serverConfigPanel,
-                  UserInterface userInterface) {
+                  ServerConfigPanel serverConfigPanel) {
         super(new BorderLayout());
         this.clientManager = clientManager;
         this.scanLauncher = scanLauncher;
@@ -141,11 +136,11 @@ public class McpScannerTab extends JPanel {
         this.connectCoordinator = new ConnectCoordinator(serverConfigPanel, clientManager, eventLog);
         this.scanChecksPanel = new ScanChecksPanel(checkRegistry, checkSettings, logging::logToError);
         this.inspectorPanel = new InspectorPanel(serverConfigPanel, scanChecksPanel, eventLog);
-        this.toolTablePanel = new ToolTablePanel(userInterface);
+        this.toolTablePanel = new ToolTablePanel();
         this.resourceTablePanel = new ResourceTablePanel();
         this.resourceTemplateTablePanel = new ResourceTemplateTablePanel();
         this.promptTablePanel = new PromptTablePanel();
-        this.serverInfoPanel = new ServerInfoPanel(userInterface);
+        this.serverInfoPanel = new ServerInfoPanel();
 
         this.endpointField = new JTextField(ENDPOINT_FIELD_COLUMNS);
         this.transportCombo = new JComboBox<>(TransportType.values());

@@ -253,13 +253,13 @@ class McpActiveResourcePathTraversalCheckTest {
     }
 
     @Test
-    void nonFastMcpEmbeddedTemplateInResourcesList_firesTraversalHigh() {
-        // Reproduces a non-FastMCP plain-MCP-SDK file-server shape: the file:///src/{path}
-        // template is advertised INSIDE the resources/list response, and
-        // resources/templates/list returns -32601. The handler joins the raw remainder under a
-        // deeply-installed project root, so a LITERAL ../ escape reaches the filesystem (literal
-        // slashes are NOT dropped — non-FastMCP routing). Only a deep traversal reaches the
-        // filesystem root from a deep install.
+    void multFetchShape_embeddedTemplateInResourcesList_firesTraversalHigh() {
+        // Real-world reproduction of @lmcc-dev/mult-fetch-mcp-server 1.3.2 (plain MCP SDK, not
+        // FastMCP): the file:///src/{path} template is advertised INSIDE the resources/list
+        // response, and resources/templates/list returns -32601. The handler joins the raw
+        // remainder under a deeply-installed project root, so a LITERAL ../ escape reaches the
+        // filesystem (literal slashes are NOT dropped — non-FastMCP routing). Only a deep
+        // traversal reaches the filesystem root from a deep install.
         stubMcpBaselineRequest();
         stubServer(body -> {
             if (isTemplatesList(body)) {
@@ -289,7 +289,7 @@ class McpActiveResourcePathTraversalCheckTest {
 
     @Test
     void deeplyInstalledSandboxedServerWithEmbeddedTemplateFiresNothing() {
-        // No-FP twin of the non-FastMCP embedded-template shape: same deep install + embedded template, but the
+        // No-FP twin of the mult-fetch shape: same deep install + embedded template, but the
         // handler canonicalises and contains every path under the root. No probe (shallow OR deep,
         // literal OR encoded) escapes, so the corroborated FileSignature oracle never matches.
         stubMcpBaselineRequest();
@@ -764,7 +764,7 @@ class McpActiveResourcePathTraversalCheckTest {
     }
 
     /**
-     * Models a deeply-installed non-FastMCP root-join handler: a LITERAL ../ chain is
+     * Models a deeply-installed non-FastMCP root-join handler (mult-fetch): a LITERAL ../ chain is
      * joined under a project root that is many directories deep, so the escape only reaches
      * /etc/passwd once the chain is at least {@code MIN_DEEP_TRAVERSAL} levels (a shallow ../../../
      * lands inside the install tree and misses). Excess ../ are harmless — path.join clamps at root.

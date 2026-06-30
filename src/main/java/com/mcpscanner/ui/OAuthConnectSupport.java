@@ -6,6 +6,7 @@ import com.mcpscanner.auth.oauth.discovery.DiscoveredMetadata;
 import com.mcpscanner.auth.oauth.discovery.DiscoveryFailedException;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.ui.state.ConnectionStatus;
+import com.nimbusds.oauth2.sdk.as.AuthorizationServerMetadata;
 
 import java.net.URI;
 
@@ -23,6 +24,18 @@ public interface OAuthConnectSupport {
     void applyDiscoveredMetadata(DiscoveredMetadata metadata);
 
     OAuthAuthCodeStrategy completeOAuthDance(OAuthClientHints hints, URI mcpResource, McpEventLog eventLog);
+
+    /**
+     * Overload that accepts pre-discovered AS metadata so the OAuth flow can skip the
+     * redundant re-fetch. Defaults to the 3-arg form for implementations that do not
+     * need the optimization (e.g. when the caller already holds a client_id and there is
+     * no discovery result to thread through).
+     */
+    default OAuthAuthCodeStrategy completeOAuthDance(OAuthClientHints hints, URI mcpResource,
+                                                     McpEventLog eventLog,
+                                                     AuthorizationServerMetadata preDiscovered) {
+        return completeOAuthDance(hints, mcpResource, eventLog);
+    }
 
     void publishOauthStrategy(OAuthAuthCodeStrategy strategy);
 

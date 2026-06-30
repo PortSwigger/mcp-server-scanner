@@ -5,6 +5,7 @@ import com.mcpscanner.auth.OAuthAuthCodeStrategy;
 import com.mcpscanner.auth.oauth.OAuthClientHints;
 import com.mcpscanner.auth.oauth.discovery.DiscoveredMetadata;
 import com.mcpscanner.client.ConnectResult;
+import com.nimbusds.oauth2.sdk.as.AuthorizationServerMetadata;
 import com.mcpscanner.client.McpClientManager;
 import com.mcpscanner.client.McpServerConfig;
 import com.mcpscanner.logging.McpEventLog;
@@ -44,14 +45,16 @@ public final class ConnectCoordinator {
         OAuthAuthCodeStrategy oauthStrategy = null;
         if (ServerConfigPanel.AUTH_OAUTH.equals(attempt.authType())) {
             OAuthClientHints hintsForDance = attempt.oauthHints();
+            DiscoveredMetadata discovered = null;
             if (hintsForDance != null && hintsForDance.issuer() == null) {
                 progress.report(ConnectPhase.DISCOVER, "Discovering OAuth metadata…");
-                DiscoveredMetadata discovered = support.discoverOauthMetadataSync(attempt.endpoint());
+                discovered = support.discoverOauthMetadataSync(attempt.endpoint());
                 support.applyDiscoveredMetadata(discovered);
                 hintsForDance = withDiscovered(hintsForDance, discovered);
             }
             progress.report(ConnectPhase.OAUTH, "OAuth: opening browser…");
-            oauthStrategy = support.completeOAuthDance(hintsForDance, attempt.mcpResource(), eventLog);
+            AuthorizationServerMetadata preDiscovered = discovered != null ? discovered.asMetadata() : null;
+            oauthStrategy = support.completeOAuthDance(hintsForDance, attempt.mcpResource(), eventLog, preDiscovered);
             oauthStrategy.setTerminalFailureListener(terminalFailureCallback);
             resolved = oauthStrategy;
             progress.report(ConnectPhase.CONNECT, "Listing tools…");

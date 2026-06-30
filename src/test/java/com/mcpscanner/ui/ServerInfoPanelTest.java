@@ -1,38 +1,16 @@
 package com.mcpscanner.ui;
 
-import burp.api.montoya.core.ByteArray;
-import burp.api.montoya.ui.UserInterface;
-import burp.api.montoya.ui.editor.EditorOptions;
-import burp.api.montoya.ui.editor.RawEditor;
 import com.mcpscanner.mcp.ServerMetadata;
-import com.mcpscanner.testutil.MontoyaTestFactory;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 class ServerInfoPanelTest {
 
-    private final RawEditor capabilitiesEditor = mock(RawEditor.class);
-    private ServerInfoPanel panel;
-
-    @BeforeEach
-    void setUp() {
-        MontoyaTestFactory.install();
-        when(capabilitiesEditor.uiComponent()).thenReturn(new javax.swing.JPanel());
-        UserInterface userInterface = mock(UserInterface.class);
-        when(userInterface.createRawEditor(any(EditorOptions[].class))).thenReturn(capabilitiesEditor);
-        panel = new ServerInfoPanel(userInterface);
-    }
+    private final ServerInfoPanel panel = new ServerInfoPanel();
 
     @Test
     void initialStateRendersEmptyPlaceholders() {
@@ -40,7 +18,8 @@ class ServerInfoPanelTest {
                 .contains("did not advertise serverInfo");
         assertThat(panel.instructionsAreaForTest().getText())
                 .contains("did not return instructions");
-        assertThat(lastCapabilities()).contains("did not advertise capabilities");
+        assertThat(panel.capabilitiesAreaForTest().getText())
+                .contains("did not advertise capabilities");
     }
 
     @Test
@@ -71,7 +50,7 @@ class ServerInfoPanelTest {
 
         panel.populate(new ServerMetadata(Map.of(), "", capabilities));
 
-        assertThat(lastCapabilities())
+        assertThat(panel.capabilitiesAreaForTest().getText())
                 .contains("tools")
                 .contains("listChanged");
     }
@@ -86,12 +65,7 @@ class ServerInfoPanelTest {
                 .contains("did not advertise serverInfo");
         assertThat(panel.instructionsAreaForTest().getText())
                 .contains("did not return instructions");
-        assertThat(lastCapabilities()).contains("did not advertise capabilities");
-    }
-
-    private String lastCapabilities() {
-        ArgumentCaptor<ByteArray> captor = ArgumentCaptor.forClass(ByteArray.class);
-        verify(capabilitiesEditor, atLeastOnce()).setContents(captor.capture());
-        return captor.getValue().toString();
+        assertThat(panel.capabilitiesAreaForTest().getText())
+                .contains("did not advertise capabilities");
     }
 }

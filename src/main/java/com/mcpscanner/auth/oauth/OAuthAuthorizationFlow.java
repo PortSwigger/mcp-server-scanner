@@ -103,11 +103,29 @@ public class OAuthAuthorizationFlow {
     }
 
     public OAuthSession connect(URI mcpResource, OAuthClientHints hints) {
+        return connect(mcpResource, hints, null);
+    }
+
+    /**
+     * Overload that accepts pre-discovered AS metadata, skipping the redundant re-fetch.
+     * Use this when the caller already holds a valid {@link AuthorizationServerMetadata}
+     * (e.g. from the auto-discovery phase) so that servers whose metadata is only reachable
+     * via the MCP-host well-known URL — but whose declared issuer resolves to a different
+     * host — do not fail the Nimbus-computed re-fetch.
+     */
+    public OAuthSession connect(URI mcpResource, OAuthClientHints hints,
+                                AuthorizationServerMetadata preDiscovered) {
         info("OAuth flow starting - issuer=" + hints.issuer()
                 + ", dcr=" + (hints.allowDcr() && hints.clientId() == null ? "yes" : "no"));
         try (CallbackListener listener = listenerFactory.start(hints.redirectPort(), CALLBACK_PATH)) {
             int boundPort = listener.port();
-            AuthorizationServerMetadata metadata = resolveMetadata(hints.issuer(), mcpResource);
+            AuthorizationServerMetadata metadata;
+            if (preDiscovered != null) {
+                validateMetadataEndpoints(preDiscovered, mcpResource, null, new byte[0]);
+                metadata = preDiscovered;
+            } else {
+                metadata = resolveMetadata(hints.issuer(), mcpResource);
+            }
             ClientCredentials credentials = resolveCredentials(metadata, hints, boundPort);
             OAuthTokens tokens = runAuthorizationDance(mcpResource, hints, metadata, credentials,
                     listener, boundPort);

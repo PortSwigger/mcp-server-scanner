@@ -21,7 +21,7 @@ Aimed at MCP server **operators** auditing their own deployments.
 ./gradlew shadowJar
 ```
 
-Output: `build/libs/mcp-server-scanner-extension-1.0.0-all.jar`.
+Output: `build/libs/mcp-server-scanner-extension-0.1.0-all.jar`.
 
 Requires Java 17.
 

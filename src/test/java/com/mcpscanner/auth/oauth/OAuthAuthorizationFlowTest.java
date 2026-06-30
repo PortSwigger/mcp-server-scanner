@@ -6,6 +6,8 @@ import com.mcpscanner.auth.oauth.safety.SuspiciousDestinationGate;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.RecordingRealHttp;
 import com.mcpscanner.mcp.McpObjectMapper;
+import com.nimbusds.oauth2.sdk.as.AuthorizationServerMetadata;
+import com.nimbusds.oauth2.sdk.util.JSONObjectUtils;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -163,6 +165,69 @@ class OAuthAuthorizationFlowTest {
         assertThat(capturedTokenForm).containsEntry("grant_type", "authorization_code");
         assertThat(capturedTokenForm).containsKey("code_verifier");
         assertThat(capturedTokenForm).containsEntry("client_id", "client-test");
+    }
+
+    /**
+     * When pre-discovered AS metadata is supplied the flow skips the Nimbus well-known re-fetch
+     * entirely. The well-known endpoint is registered to return 404 here — if the fix is absent
+     * the flow would throw; if present it succeeds.
+     */
+    @Test
+    void connectWithPreDiscoveredMetadataSkipsMetadataFetch() throws Exception {
+        String issuer = "http://127.0.0.1:" + authPort;
+        String tokenPath = "/token";
+        String authPath = "/authorize";
+
+        AtomicReference<URI> launchedUri = new AtomicReference<>();
+
+        authServer.createContext("/.well-known/oauth-authorization-server", exchange -> {
+            exchange.sendResponseHeaders(404, 0);
+            exchange.getResponseBody().close();
+        });
+        authServer.createContext(tokenPath, exchange -> {
+            String body = "{\"access_token\":\"pre-disc-token\",\"token_type\":\"Bearer\","
+                    + "\"expires_in\":300,\"refresh_token\":\"ref-pre\"}";
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        authServer.start();
+
+        String metadataJson = "{"
+                + "\"issuer\":\"" + issuer + "\","
+                + "\"authorization_endpoint\":\"" + issuer + authPath + "\","
+                + "\"token_endpoint\":\"" + issuer + tokenPath + "\","
+                + "\"response_types_supported\":[\"code\"],"
+                + "\"grant_types_supported\":[\"authorization_code\",\"refresh_token\"],"
+                + "\"code_challenge_methods_supported\":[\"S256\"]"
+                + "}";
+        AuthorizationServerMetadata preDiscovered = AuthorizationServerMetadata.parse(
+                JSONObjectUtils.parse(metadataJson));
+
+        OAuthAuthorizationFlow flow = newFlow(
+                CallbackListenerFactory.defaultFactory(),
+                uri -> {
+                    launchedUri.set(uri);
+                    new Thread(() -> deliverCallback(uri)).start();
+                },
+                Clock.systemUTC());
+
+        OAuthClientHints hints = new OAuthClientHints(
+                URI.create(issuer),
+                List.of(),
+                "client-prebuilt",
+                null,
+                false,
+                0,
+                Duration.ofSeconds(10));
+
+        OAuthSession session = flow.connect(URI.create("https://mcp.example.com/mcp"), hints, preDiscovered);
+
+        assertThat(session.tokens().accessToken().getValue()).isEqualTo("pre-disc-token");
+        assertThat(session.clientId()).isEqualTo("client-prebuilt");
     }
 
     @Test

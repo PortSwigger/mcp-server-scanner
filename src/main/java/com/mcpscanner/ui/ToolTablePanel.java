@@ -1,9 +1,5 @@
 package com.mcpscanner.ui;
 
-import burp.api.montoya.core.ByteArray;
-import burp.api.montoya.ui.UserInterface;
-import burp.api.montoya.ui.editor.EditorOptions;
-import burp.api.montoya.ui.editor.RawEditor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.mcp.ToolAnnotations;
@@ -65,11 +61,11 @@ public class ToolTablePanel extends JPanel {
     private Consumer<String> statusReporter = message -> {};
     private boolean suppressPersistence;
 
-    public ToolTablePanel(UserInterface userInterface) {
+    public ToolTablePanel() {
         super(new BorderLayout());
         this.tableModel = new ToolTableModel();
         this.table = new JTable(tableModel);
-        this.detailPanel = new ToolDetailPanel(userInterface);
+        this.detailPanel = new ToolDetailPanel();
         this.headerRenderer = new TriStateHeaderRenderer();
         this.selectReadOnlyButton = new JButton("Select read-only tools only");
         this.resetWarningsButton = new JButton("Reset scan warnings");
@@ -499,11 +495,10 @@ public class ToolTablePanel extends JPanel {
         private final CardLayout cardLayout = new CardLayout();
         private final JLabel nameLabel = SwingHtmlGuard.disableHtml(new JLabel());
         private final JTextArea descriptionArea = buildDescriptionArea();
-        private final RawEditor parametersEditor;
+        private final JTextArea parametersArea = buildParametersArea();
 
-        ToolDetailPanel(UserInterface userInterface) {
+        ToolDetailPanel() {
             super();
-            this.parametersEditor = userInterface.createRawEditor(EditorOptions.READ_ONLY);
             setLayout(cardLayout);
             add(buildPlaceholderCard(), CARD_EMPTY);
             add(buildDetailCard(), CARD_DETAIL);
@@ -514,7 +509,8 @@ public class ToolTablePanel extends JPanel {
             nameLabel.setText(tool.name());
             descriptionArea.setText(safeText(tool.description()));
             descriptionArea.setCaretPosition(0);
-            parametersEditor.setContents(ByteArray.byteArray(prettyPrint(tool.inputSchema())));
+            parametersArea.setText(prettyPrint(tool.inputSchema()));
+            parametersArea.setCaretPosition(0);
             cardLayout.show(this, CARD_DETAIL);
         }
 
@@ -530,8 +526,8 @@ public class ToolTablePanel extends JPanel {
             return descriptionArea;
         }
 
-        RawEditor parametersEditorForTest() {
-            return parametersEditor;
+        JTextArea parametersAreaForTest() {
+            return parametersArea;
         }
 
         private JPanel buildPlaceholderCard() {
@@ -549,7 +545,7 @@ public class ToolTablePanel extends JPanel {
 
             JTabbedPane tabs = new JTabbedPane();
             tabs.addTab("Description", new JScrollPane(descriptionArea));
-            tabs.addTab("Parameters", parametersEditor.uiComponent());
+            tabs.addTab("Parameters", new JScrollPane(parametersArea));
 
             JPanel card = new JPanel(new BorderLayout());
             card.add(nameLabel, BorderLayout.NORTH);
@@ -562,6 +558,13 @@ public class ToolTablePanel extends JPanel {
             area.setEditable(false);
             area.setLineWrap(true);
             area.setWrapStyleWord(true);
+            return area;
+        }
+
+        private static JTextArea buildParametersArea() {
+            JTextArea area = new JTextArea();
+            area.setEditable(false);
+            area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
             return area;
         }
 

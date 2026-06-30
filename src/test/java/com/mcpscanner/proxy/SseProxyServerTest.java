@@ -1459,6 +1459,48 @@ class SseProxyServerTest {
                 .doesNotContain("ProxyResponse");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void forwardStreamableHttp_doesNotDuplicateContentTypeOrAcceptWhenInboundRequestCarriesThem()
+            throws Exception {
+        // Regression: RESERVED_FORWARD_HEADERS was missing content-type and accept.
+        // forwardStreamableHttp hardcodes both via builder.header(), then applyForwardHeaders
+        // re-appended them from the inbound Burp request (which buildHeadersBlock always writes).
+        // HttpRequest.Builder.header() appends, not replaces — strict servers received two
+        // Content-Type headers and responded with HTTP 415. Assert allValues, not firstValue,
+        // because firstValue() returns the first occurrence and masks the duplication.
+        HttpResponse<InputStream> upstreamResponse = mockStreamResponse(200, "application/json",
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}");
+        HttpClient httpClient = mock(HttpClient.class);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(upstreamResponse);
+        when(scannerSession.resolvedEndpoint()).thenReturn("http://upstream/mcp");
+        when(scannerSession.transportType()).thenReturn(TransportType.STREAMABLE_HTTP);
+        when(scannerSession.scannerHeaders()).thenReturn(Map.of());
+
+        SseProxyServer proxy = new SseProxyServer(scannerSession, httpClient, logging);
+        NanoHTTPD.IHTTPSession session = mockIHttpSession("{}", Map.of(
+                "Content-Type", "application/json",
+                "Accept", "application/json, text/event-stream"));
+
+        proxy.start();
+        try {
+            proxy.serve(session);
+
+            ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+            verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+            HttpRequest outbound = captor.getValue();
+            assertThat(outbound.headers().allValues("Content-Type"))
+                    .as("Content-Type must appear exactly once — duplicate causes HTTP 415 on strict servers")
+                    .containsExactly("application/json");
+            assertThat(outbound.headers().allValues("Accept"))
+                    .as("Accept must appear exactly once")
+                    .hasSize(1);
+        } finally {
+            proxy.stop();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private HttpResponse<InputStream> mockStreamResponse(int statusCode, String contentType, String body) {
         HttpResponse<InputStream> response = mock(HttpResponse.class);

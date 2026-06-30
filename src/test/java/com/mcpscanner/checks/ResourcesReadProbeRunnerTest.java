@@ -170,7 +170,7 @@ class ResourcesReadProbeRunnerTest {
 
     @Test
     void discoverTemplateUrisReadsEmbeddedTemplatesFromResourcesListResponse() {
-        // Some plain MCP SDK servers (not FastMCP) advertise resourceTemplates INSIDE the
+        // mult-fetch (plain MCP SDK, not FastMCP) advertises its resourceTemplates INSIDE the
         // resources/list response and registers NO resources/templates/list handler (it returns
         // -32601). The runner must still surface the file:///src/{path} template so the check can
         // probe it — otherwise the genuine arbitrary-file-read is a false negative.

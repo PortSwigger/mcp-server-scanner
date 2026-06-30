@@ -65,9 +65,12 @@ public class SseProxyServer extends NanoHTTPD {
     // Hop-by-hop and framing headers must never be copied verbatim onto the outbound
     // HttpClient request — Java's HttpRequest.Builder forbids the full DISALLOWED_HEADERS_SET
     // (see jdk.internal.net.http.common.Utils), including keep-alive/te/trailers, and the
-    // rest are reserved by RFC 7230 / the HTTP/2 upgrade dance.
+    // rest are reserved by RFC 7230 / the HTTP/2 upgrade dance. content-type and accept are
+    // included because forwardStreamableHttp hardcodes canonical MCP values for both; allowing
+    // the scanner-supplied copies through would produce duplicates (HttpRequest.Builder.header
+    // appends, not replaces). Keep in sync with SseScanSession.RESERVED_REQUEST_HEADERS.
     private static final Set<String> RESERVED_FORWARD_HEADERS = caseInsensitiveSet(
-            "host", "content-length", "connection", "upgrade",
+            "host", "content-length", "content-type", "accept", "connection", "upgrade",
             "transfer-encoding", "http2-settings", "proxy-connection", "expect",
             "keep-alive", "te", "trailers",
             "authorization");

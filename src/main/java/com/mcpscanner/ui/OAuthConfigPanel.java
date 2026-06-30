@@ -6,6 +6,7 @@ import com.mcpscanner.auth.oauth.OAuthClientHints;
 import com.mcpscanner.auth.oauth.OAuthSession;
 import com.mcpscanner.auth.oauth.discovery.DiscoveredMetadata;
 import com.mcpscanner.auth.oauth.discovery.DiscoveryFailedException;
+import com.nimbusds.oauth2.sdk.as.AuthorizationServerMetadata;
 import com.mcpscanner.config.ExtensionConfigStore;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.ui.state.ConnectionStatus;
@@ -97,7 +98,14 @@ public class OAuthConfigPanel extends JPanel implements OAuthConnectSupport {
 
     @Override
     public OAuthAuthCodeStrategy completeOAuthDance(OAuthClientHints hints, URI mcpResource, McpEventLog eventLog) {
-        OAuthSession session = authorizationFlow.connect(mcpResource, hints);
+        return completeOAuthDance(hints, mcpResource, eventLog, null);
+    }
+
+    @Override
+    public OAuthAuthCodeStrategy completeOAuthDance(OAuthClientHints hints, URI mcpResource,
+                                                    McpEventLog eventLog,
+                                                    AuthorizationServerMetadata preDiscovered) {
+        OAuthSession session = authorizationFlow.connect(mcpResource, hints, preDiscovered);
         persistDcrCredentials(hints.issuer(), session);
         return new OAuthAuthCodeStrategy(
                 hints.issuer(),

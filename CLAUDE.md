@@ -14,7 +14,7 @@ A Burp Suite extension that security-tests MCP (Model Context Protocol) servers.
 ./gradlew build                  # Compile + test
 ./gradlew test                   # Run all tests
 ./gradlew test --tests McpRequestDetectorTest  # Single test class
-./gradlew shadowJar              # Build fat JAR for Burp (build/libs/mcp-server-scanner-extension-1.0.0-all.jar)
+./gradlew shadowJar              # Build fat JAR for Burp (build/libs/mcp-server-scanner-extension-0.1.0-all.jar)
 ./gradlew dependencies --write-locks  # Regenerate gradle.lockfile after changing dependencies
 ```
 

@@ -42,7 +42,7 @@ public final class ResourcesReadProbeRunner {
     public List<String> discoverTemplateUris(HttpRequest baseline) {
         // Templates are advertised two ways in the wild: the dedicated resources/templates/list
         // method (spec-compliant FastMCP) AND embedded as a resourceTemplates array on the
-        // resources/list response (some plain MCP SDK servers, which
+        // resources/list response (plain MCP SDK servers such as @lmcc-dev/mult-fetch, which
         // register no templates/list handler and return -32601 for it). Reading only the dedicated
         // method silently misses the embedded form, leaving a genuinely vulnerable template
         // unprobed. We read both and merge, deduping by URI template. Discovery broadening only —

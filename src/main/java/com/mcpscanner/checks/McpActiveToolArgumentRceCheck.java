@@ -2,6 +2,7 @@ package com.mcpscanner.checks;
 
 import burp.api.montoya.collaborator.CollaboratorClient;
 import burp.api.montoya.collaborator.CollaboratorPayload;
+import burp.api.montoya.collaborator.Interaction;
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
@@ -9,12 +10,15 @@ import burp.api.montoya.scanner.AuditResult;
 import burp.api.montoya.scanner.ConsolidationAction;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
+import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import burp.api.montoya.scanner.scancheck.ScanCheckType;
 import com.mcpscanner.checks.ToolArgRcePayloads.RcePayloadTemplate;
 import com.mcpscanner.checks.ToolsCallRceProbeRunner.FiredProbe;
 import com.mcpscanner.checks.ToolsListDiscovery.DiscoveredTool;
 import com.mcpscanner.checks.issue.Cwe;
+import com.mcpscanner.checks.issue.IssueBodyBuilder;
+import com.mcpscanner.checks.issue.IssueMetadataRenderer;
 import com.mcpscanner.checks.registry.CheckDescriptor;
 import com.mcpscanner.checks.registry.ManagedActiveCheck;
 import com.mcpscanner.checks.registry.ScanCheckLogging;
@@ -24,22 +28,33 @@ import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.McpRequestDetector;
 import com.mcpscanner.scan.ScanInventory;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 
-/**
- * Fires out-of-band code-execution probes at code-hinted tool arguments and registers each
- * minted Collaborator payload with the shared {@link CollaboratorPoller}, which reports the
- * confirmed issue asynchronously once the matching interaction arrives. The scanner thread
- * never blocks polling Collaborator — per Burp's recommended single-shared-client,
- * scheduled-poller integration model.
- */
 public class McpActiveToolArgumentRceCheck extends ManagedActiveCheck
         implements SessionScopedCheck {
 
     private static final String ISSUE_NAME = "MCP Tool Argument Code Execution";
     static final int MAX_PROBES_PER_SCAN = 100;
+    private static final int MAX_EVIDENCE_ENTRIES = 5;
+    private static final int MAX_CONSECUTIVE_POLL_FAILURES = 3;
+    // Escalating poll schedule with a ~5s total wall-clock deadline. The
+    // intervals get longer because a late-arriving Collaborator interaction is
+    // usually delayed by network/DNS jitter rather than the server still
+    // computing, so back-loaded waits cost less and catch more.
+    static final List<Duration> DEFAULT_POLL_SCHEDULE = List.of(
+            Duration.ofMillis(250),
+            Duration.ofMillis(500),
+            Duration.ofMillis(1000),
+            Duration.ofMillis(1500),
+            Duration.ofMillis(1750)
+    );
 
     private static final CheckDescriptor DESCRIPTOR = new CheckDescriptor(
             "tool-arg-rce",
@@ -62,19 +77,49 @@ public class McpActiveToolArgumentRceCheck extends ManagedActiveCheck
                     new Cwe(94, "Improper Control of Generation of Code ('Code Injection')"))
     );
 
-    private final CollaboratorPoller poller;
+    private static final String REMEDIATION = new IssueBodyBuilder()
+            .paragraph("Never pass tool arguments into language-level evaluators (eval, exec, "
+                    + "Function, system, backticks, child_process, Kernel#eval). Parse them against "
+                    + "an explicit grammar or allow-list.")
+            .paragraph("If dynamic evaluation is genuinely required, run it in a sandboxed process "
+                    + "with no network, no filesystem, and a strict time limit, and validate the "
+                    + "input against a constrained schema before invocation.")
+            .build();
+
+    private final Supplier<CollaboratorClient> collaboratorSupplier;
     private final Supplier<ScanInventory> selectedInventorySupplier;
+    private final Sleeper sleeper;
+    private final List<Duration> pollSchedule;
     private final HostDedup hostDedup = new HostDedup();
 
     public McpActiveToolArgumentRceCheck(ScanCheckSettings settings,
                                          McpEventLog eventLog,
-                                         CollaboratorPoller poller,
+                                         Supplier<CollaboratorClient> collaboratorSupplier) {
+        this(settings, eventLog, collaboratorSupplier, ScanInventory::empty,
+                Sleeper.SYSTEM, DEFAULT_POLL_SCHEDULE);
+    }
+
+    public McpActiveToolArgumentRceCheck(ScanCheckSettings settings,
+                                         McpEventLog eventLog,
+                                         Supplier<CollaboratorClient> collaboratorSupplier,
                                          Supplier<ScanInventory> selectedInventorySupplier) {
+        this(settings, eventLog, collaboratorSupplier, selectedInventorySupplier,
+                Sleeper.SYSTEM, DEFAULT_POLL_SCHEDULE);
+    }
+
+    public McpActiveToolArgumentRceCheck(ScanCheckSettings settings,
+                                         McpEventLog eventLog,
+                                         Supplier<CollaboratorClient> collaboratorSupplier,
+                                         Supplier<ScanInventory> selectedInventorySupplier,
+                                         Sleeper sleeper,
+                                         List<Duration> pollSchedule) {
         super(settings, eventLog);
-        this.poller = poller;
+        this.collaboratorSupplier = collaboratorSupplier;
         this.selectedInventorySupplier = selectedInventorySupplier != null
                 ? selectedInventorySupplier
                 : ScanInventory::empty;
+        this.sleeper = sleeper;
+        this.pollSchedule = List.copyOf(pollSchedule);
     }
 
     @Override
@@ -127,7 +172,7 @@ public class McpActiveToolArgumentRceCheck extends ManagedActiveCheck
             return emptyResult();
         }
 
-        CollaboratorClient client = poller != null ? poller.sharedClient() : null;
+        CollaboratorClient client = obtainClient();
         if (client == null) {
             // Collaborator being unavailable is a transient/environmental condition, not a clean
             // negative from the server — release so a later insertion point retries once it returns.
@@ -135,14 +180,19 @@ public class McpActiveToolArgumentRceCheck extends ManagedActiveCheck
             return emptyResult();
         }
 
-        String baseUrl = McpRequestDetector.extractBaseUrl(baseRequestResponse);
-        int firedProbes = fireAndRegisterProbes(runner, baseline, baseUrl, codeArguments, client);
-        if (firedProbes == 0) {
+        List<FiredProbe> probes = fireAllProbes(runner, baseline, codeArguments, client);
+        if (probes.isEmpty()) {
             releaseIfUnreached(baseRequestResponse, trackedHttp);
+            return emptyResult();
         }
-        // The OOB result, if any, is reported asynchronously by the CollaboratorPoller once the
-        // matching interaction arrives — never synchronously on the scanner thread.
-        return emptyResult();
+
+        List<Interaction> interactions = pollForInteractions(client, probes);
+        if (interactions.isEmpty()) {
+            return emptyResult();
+        }
+
+        List<AuditIssue> issues = buildIssues(baseRequestResponse, probes, interactions);
+        return AuditResult.auditResult(issues);
     }
 
     private void releaseIfUnreached(HttpRequestResponse baseRequestResponse,
@@ -162,37 +212,56 @@ public class McpActiveToolArgumentRceCheck extends ManagedActiveCheck
         }
     }
 
-    private int fireAndRegisterProbes(ToolsCallRceProbeRunner runner,
-                                      HttpRequest baseline,
-                                      String baseUrl,
-                                      List<ToolArgument> codeArguments,
-                                      CollaboratorClient client) {
-        int fired = 0;
+    private CollaboratorClient obtainClient() {
+        if (collaboratorSupplier == null) {
+            logCollaboratorUnavailable("supplier is null");
+            return null;
+        }
+        try {
+            CollaboratorClient client = collaboratorSupplier.get();
+            if (client == null) {
+                logCollaboratorUnavailable("supplier returned null");
+            }
+            return client;
+        } catch (RuntimeException ex) {
+            logCollaboratorUnavailable("supplier threw " + ex.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private void logCollaboratorUnavailable(String reason) {
+        McpEventLog log = eventLog();
+        if (log != null) {
+            log.info("tool-arg-rce: Collaborator unavailable, skipping (" + reason + ")");
+        }
+    }
+
+    private List<FiredProbe> fireAllProbes(ToolsCallRceProbeRunner runner,
+                                           HttpRequest baseline,
+                                           List<ToolArgument> codeArguments,
+                                           CollaboratorClient client) {
+        List<FiredProbe> probes = new ArrayList<>();
         int templateCount = ToolArgRcePayloads.all().size();
         int distinctTools = (int) codeArguments.stream().map(ToolArgument::tool).distinct().count();
         for (ToolArgument argument : codeArguments) {
             for (RcePayloadTemplate payload : ToolArgRcePayloads.all()) {
-                if (fired >= MAX_PROBES_PER_SCAN) {
+                if (probes.size() >= MAX_PROBES_PER_SCAN) {
                     logProbeCapReached(distinctTools, codeArguments.size(), templateCount);
-                    return fired;
+                    return probes;
                 }
                 CollaboratorPayload mintedPayload;
                 try {
                     mintedPayload = client.generatePayload();
                 } catch (RuntimeException ex) {
                     logPayloadGenerationFailed(ex);
-                    return fired;
+                    return probes;
                 }
                 String subdomain = mintedPayload.toString();
-                String payloadId = mintedPayload.id().toString();
-                FiredProbe probe = runner.fire(baseline, argument, payload, subdomain, payloadId);
-                poller.register(payloadId, new ProbeContext(
-                        baseUrl, argument.tool().name(), argument.name(),
-                        payload, subdomain, probe.response()));
-                fired++;
+                String interactionId = mintedPayload.id().toString();
+                probes.add(runner.fire(baseline, argument, payload, subdomain, interactionId));
             }
         }
-        return fired;
+        return probes;
     }
 
     private void logPayloadGenerationFailed(RuntimeException ex) {
@@ -213,7 +282,168 @@ public class McpActiveToolArgumentRceCheck extends ManagedActiveCheck
         }
     }
 
+    private List<Interaction> pollForInteractions(CollaboratorClient client, List<FiredProbe> probes) {
+        Set<String> outstandingIds = outstandingInteractionIds(probes);
+        Map<String, Interaction> matched = new LinkedHashMap<>();
+        int consecutiveFailures = 0;
+        for (Duration interval : pollSchedule) {
+            sleeper.sleep(interval);
+            List<Interaction> latest;
+            try {
+                List<Interaction> raw = client.getAllInteractions();
+                latest = raw != null ? raw : List.of();
+                consecutiveFailures = 0;
+            } catch (RuntimeException ex) {
+                logPollFailure(ex);
+                if (++consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+                    break;
+                }
+                continue;
+            }
+            for (Interaction interaction : latest) {
+                String id = interaction.id().toString();
+                if (outstandingIds.contains(id) && !matched.containsKey(id)) {
+                    matched.put(id, interaction);
+                }
+            }
+            if (matched.size() == outstandingIds.size()) {
+                break;
+            }
+        }
+        return new ArrayList<>(matched.values());
+    }
+
+    private static Set<String> outstandingInteractionIds(List<FiredProbe> probes) {
+        Set<String> ids = new LinkedHashSet<>(probes.size());
+        for (FiredProbe probe : probes) {
+            ids.add(probe.interactionId());
+        }
+        return ids;
+    }
+
+    private void logPollFailure(RuntimeException ex) {
+        McpEventLog log = eventLog();
+        if (log != null) {
+            log.info("tool-arg-rce: Collaborator poll failed ("
+                    + ex.getClass().getSimpleName() + ": " + ex.getMessage() + ")");
+        }
+    }
+
+    private static List<AuditIssue> buildIssues(HttpRequestResponse baseRequestResponse,
+                                                List<FiredProbe> probes,
+                                                List<Interaction> interactions) {
+        Map<String, List<ConfirmedHit>> grouped = groupConfirmedHits(probes, interactions);
+        if (grouped.isEmpty()) {
+            return List.of();
+        }
+        String baseUrl = McpRequestDetector.extractBaseUrl(baseRequestResponse);
+        List<AuditIssue> issues = new ArrayList<>(grouped.size());
+        for (Map.Entry<String, List<ConfirmedHit>> entry : grouped.entrySet()) {
+            issues.add(buildIssue(baseUrl, entry.getKey(), entry.getValue()));
+        }
+        return issues;
+    }
+
+    private static Map<String, List<ConfirmedHit>> groupConfirmedHits(List<FiredProbe> probes,
+                                                                      List<Interaction> interactions) {
+        Map<String, List<ConfirmedHit>> grouped = new LinkedHashMap<>();
+        for (FiredProbe probe : probes) {
+            for (Interaction interaction : interactions) {
+                if (interaction.id().toString().equals(probe.interactionId())) {
+                    String key = issueKey(probe);
+                    grouped.computeIfAbsent(key, ignored -> new ArrayList<>())
+                            .add(new ConfirmedHit(probe, interaction));
+                    break;
+                }
+            }
+        }
+        return grouped;
+    }
+
+    private static String issueKey(FiredProbe probe) {
+        return probe.argument().tool().name() + "::" + probe.argument().name();
+    }
+
+    private static AuditIssue buildIssue(String baseUrl, String issueKey, List<ConfirmedHit> hits) {
+        return AuditIssue.auditIssue(
+                ISSUE_NAME,
+                renderDetail(issueKey, hits),
+                REMEDIATION,
+                baseUrl,
+                AuditIssueSeverity.HIGH, confidenceFor(hits),
+                IssueMetadataRenderer.background(
+                        DESCRIPTOR.issueBackground(), DESCRIPTOR.cwes(), DESCRIPTOR.references()),
+                null, AuditIssueSeverity.HIGH,
+                cappedEvidence(hits)
+        );
+    }
+
+    // A full HTTP callback to the unique payload host is unequivocal code
+    // execution (CERTAIN). A DNS-only lookup is strong but has narrow alternative
+    // explanations (shared resolver, DNS prefetch), so it caps the confidence at
+    // FIRM. A group with any HTTP hit is therefore CERTAIN; an all-DNS group FIRM.
+    private static AuditIssueConfidence confidenceFor(List<ConfirmedHit> hits) {
+        return hasHttpInteraction(hits) ? AuditIssueConfidence.CERTAIN : AuditIssueConfidence.FIRM;
+    }
+
+    private static boolean hasHttpInteraction(List<ConfirmedHit> hits) {
+        return hits.stream().anyMatch(hit -> hit.interaction().type()
+                == burp.api.montoya.collaborator.InteractionType.HTTP);
+    }
+
+    private static String renderDetail(String issueKey, List<ConfirmedHit> hits) {
+        List<String> hitLines = new ArrayList<>(hits.size());
+        for (ConfirmedHit hit : hits) {
+            FiredProbe probe = hit.probe();
+            hitLines.add(probe.payload().language() + " payload triggered a "
+                    + callbackKind(hit.interaction().type()) + " callback: "
+                    + probe.payload().render(probe.collaboratorSubdomain()));
+        }
+        IssueBodyBuilder builder = new IssueBodyBuilder()
+                .paragraph("A string argument passed to this tool was executed as server-side code. "
+                        + "The server made an out-of-band callback to a scanner-controlled host, "
+                        + "evidencing code execution under the server's runtime identity.")
+                .paragraph(evidenceStrengthNote(hits))
+                .paragraph("Tool argument: " + issueKey)
+                .findings(hitLines);
+        if (hits.size() > MAX_EVIDENCE_ENTRIES) {
+            builder.paragraph("Showing first " + MAX_EVIDENCE_ENTRIES + " of " + hits.size()
+                    + " confirmed hits in the evidence panel; " + (hits.size() - MAX_EVIDENCE_ENTRIES)
+                    + " additional hits not shown.");
+        }
+        return builder
+                .build();
+    }
+
+    private static String evidenceStrengthNote(List<ConfirmedHit> hits) {
+        if (hasHttpInteraction(hits)) {
+            return "A full HTTP callback reached the unique payload host, so this is confirmed "
+                    + "arbitrary code execution.";
+        }
+        return "Only a DNS lookup of the unique payload host was observed (no HTTP callback). "
+                + "This is strong evidence of code execution, but a DNS-only interaction has narrow "
+                + "alternative explanations (a shared resolver or DNS prefetch), so the confidence is "
+                + "reported as Firm rather than Certain.";
+    }
+
+    private static String callbackKind(burp.api.montoya.collaborator.InteractionType type) {
+        return switch (type) {
+            case DNS -> "DNS";
+            case HTTP -> "HTTP";
+            default -> "network";
+        };
+    }
+
+    private static List<HttpRequestResponse> cappedEvidence(List<ConfirmedHit> hits) {
+        return hits.stream()
+                .limit(MAX_EVIDENCE_ENTRIES)
+                .map(hit -> hit.probe().response())
+                .toList();
+    }
+
     private static AuditResult emptyResult() {
         return AuditResult.auditResult(List.of());
     }
+
+    private record ConfirmedHit(FiredProbe probe, Interaction interaction) {}
 }

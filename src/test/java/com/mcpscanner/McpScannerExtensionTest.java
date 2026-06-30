@@ -1,7 +1,7 @@
 package com.mcpscanner;
 
 import burp.api.montoya.MontoyaApi;
-import com.mcpscanner.checks.CollaboratorPoller;
+import burp.api.montoya.collaborator.CollaboratorClient;
 import burp.api.montoya.extension.Extension;
 import burp.api.montoya.extension.ExtensionUnloadingHandler;
 import burp.api.montoya.http.Http;
@@ -26,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.awt.*;
 import java.lang.reflect.Field;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -50,17 +51,9 @@ class McpScannerExtensionTest {
 
     @BeforeEach
     void setUp() {
-        com.mcpscanner.testutil.MontoyaTestFactory.install();
         when(api.extension()).thenReturn(extension);
         when(api.scanner()).thenReturn(scanner);
         when(api.userInterface()).thenReturn(userInterface);
-        when(userInterface.createRawEditor(any(burp.api.montoya.ui.editor.EditorOptions[].class)))
-                .thenAnswer(inv -> {
-                    burp.api.montoya.ui.editor.RawEditor editor =
-                            mock(burp.api.montoya.ui.editor.RawEditor.class);
-                    when(editor.uiComponent()).thenReturn(new javax.swing.JPanel());
-                    return editor;
-                });
         when(api.http()).thenReturn(http);
         when(api.logging()).thenReturn(logging);
         when(api.persistence()).thenReturn(persistence);
@@ -163,8 +156,8 @@ class McpScannerExtensionTest {
     void extensionLoadsCleanlyWhenCollaboratorFactoryThrows() throws Exception {
         // Burp Community Edition throws when api.collaborator() is
         // called. The extension must boot without propagating, must still
-        // register the RCE check, and the wired poller must return a null
-        // shared client (not throw) when later asked for one by the scanner.
+        // register the RCE check, and the wired supplier must return null
+        // (not throw) when later invoked by the scanner.
         when(api.collaborator()).thenThrow(new IllegalStateException("Collaborator requires Burp Pro"));
 
         assertThatCode(() -> sut.initialize(api)).doesNotThrowAnyException();
@@ -178,16 +171,17 @@ class McpScannerExtensionTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("RCE check not registered"));
 
-        CollaboratorPoller poller = extractPoller(rceCheck);
-        assertThat(poller).isNotNull();
-        assertThatCode(poller::sharedClient).doesNotThrowAnyException();
-        assertThat(poller.sharedClient()).isNull();
+        Supplier<CollaboratorClient> supplier = extractCollaboratorSupplier(rceCheck);
+        assertThat(supplier).isNotNull();
+        assertThatCode(supplier::get).doesNotThrowAnyException();
+        assertThat(supplier.get()).isNull();
     }
 
-    private static CollaboratorPoller extractPoller(McpActiveToolArgumentRceCheck check)
+    @SuppressWarnings("unchecked")
+    private static Supplier<CollaboratorClient> extractCollaboratorSupplier(McpActiveToolArgumentRceCheck check)
             throws Exception {
-        Field field = McpActiveToolArgumentRceCheck.class.getDeclaredField("poller");
+        Field field = McpActiveToolArgumentRceCheck.class.getDeclaredField("collaboratorSupplier");
         field.setAccessible(true);
-        return (CollaboratorPoller) field.get(check);
+        return (Supplier<CollaboratorClient>) field.get(check);
     }
 }

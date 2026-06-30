@@ -10,6 +10,7 @@ import com.mcpscanner.config.ExtensionConfigStore;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.ui.state.ConnectionStatus;
 import com.mcpscanner.ui.widgets.HeaderTablePanel;
+import com.nimbusds.oauth2.sdk.as.AuthorizationServerMetadata;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
@@ -97,6 +98,13 @@ public class ServerConfigPanel extends JPanel implements OAuthConnectSupport {
     @Override
     public OAuthAuthCodeStrategy completeOAuthDance(OAuthClientHints hints, URI mcpResource, McpEventLog eventLog) {
         return oauthConfigPanel.completeOAuthDance(hints, mcpResource, eventLog);
+    }
+
+    @Override
+    public OAuthAuthCodeStrategy completeOAuthDance(OAuthClientHints hints, URI mcpResource,
+                                                    McpEventLog eventLog,
+                                                    AuthorizationServerMetadata preDiscovered) {
+        return oauthConfigPanel.completeOAuthDance(hints, mcpResource, eventLog, preDiscovered);
     }
 
     @Override

@@ -40,8 +40,13 @@ class SseScanSession implements Closeable {
     // Hop-by-hop / framing headers that Java's HttpRequest.Builder forbids (matches
     // jdk.internal.net.http.common.Utils.DISALLOWED_HEADERS_SET), plus headers we intentionally
     // synthesise on the outbound request and the scanner-internal strip-auth sentinel.
+    // Keep in sync with SseProxyServer.RESERVED_FORWARD_HEADERS — both sets guard the same
+    // class of JDK HttpRequest.Builder header-append duplication for their respective
+    // forward paths (SSE vs Streamable HTTP). "accept" is included here even though
+    // postToMessageEndpoint does not currently hardcode it, so that adding Accept later
+    // cannot silently introduce a duplicate-header regression.
     private static final Set<String> RESERVED_REQUEST_HEADERS = Set.of(
-            "connection", "content-length", "content-type", "date",
+            "connection", "content-length", "content-type", "accept", "date",
             "expect", "from", "host", "upgrade", "via", "warning",
             "keep-alive", "te", "trailers",
             ScannerSentinels.STRIP_AUTH_HEADER.toLowerCase());

@@ -34,6 +34,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Consumer;
 
 public final class ScanChecksPanel extends JPanel {
 
@@ -50,14 +51,15 @@ public final class ScanChecksPanel extends JPanel {
     private final JTable table;
     private final JTextArea descriptionArea;
     private final JPanel referencesPanel;
-    private final java.util.function.Consumer<Throwable> linkErrorSink;
+    private final Consumer<Throwable> linkErrorSink;
 
     public ScanChecksPanel(ScanCheckRegistry registry, ScanCheckSettings settings) {
-        this(registry, settings, throwable -> {});
+        this(registry, settings, throwable -> {
+        });
     }
 
     public ScanChecksPanel(ScanCheckRegistry registry, ScanCheckSettings settings,
-                           java.util.function.Consumer<Throwable> linkErrorSink) {
+                           Consumer<Throwable> linkErrorSink) {
         super(new BorderLayout());
         this.linkErrorSink = linkErrorSink;
         this.model = new ScanChecksTableModel(registry.all(), settings);
