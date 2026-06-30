@@ -30,6 +30,7 @@ import com.mcpscanner.ui.state.UiSideEffect;
 import com.mcpscanner.ui.state.UiStateReducer;
 import com.mcpscanner.ui.widgets.HyperlinkLabel;
 import com.mcpscanner.ui.widgets.StatusCluster;
+import com.mcpscanner.ui.widgets.ThemeColors;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -56,7 +57,8 @@ public class McpScannerTab extends JPanel {
     private static final Color PORTSWIGGER_ORANGE = new Color(0xFF6633);
     private static final Color PORTSWIGGER_ORANGE_HOVER = new Color(0xFF7F4D);
     private static final Color PORTSWIGGER_ORANGE_PRESSED = new Color(0xE65A2D);
-    private static final Color PORTSWIGGER_ORANGE_DISABLED = new Color(0x8A4528);
+    private static final Color PORTSWIGGER_ORANGE_DISABLED_DARK = new Color(0x8A4528);
+    private static final Color PORTSWIGGER_ORANGE_DISABLED_LIGHT = new Color(0xCCCCCC);
 
     private final McpClientManager clientManager;
     private final McpScanLauncher scanLauncher;
@@ -286,11 +288,20 @@ public class McpScannerTab extends JPanel {
         button.setFocusPainted(false);
         button.setBorderPainted(false);
         button.setContentAreaFilled(false);
-        button.setOpaque(false);
         button.setUI(new PrimaryActionButtonUI());
     }
 
     private static final class PrimaryActionButtonUI extends javax.swing.plaf.basic.BasicButtonUI {
+        @Override
+        public void installUI(JComponent c) {
+            super.installUI(c);
+            // Must be opaque so the parent container does not paint its own background
+            // on top of our custom rounded-rect fill. Without this some LAFs (notably
+            // macOS Aqua) leave the button invisible because they composite the toolbar
+            // background over a non-opaque child after our paint() has already run.
+            c.setOpaque(true);
+        }
+
         @Override
         public void paint(java.awt.Graphics g, JComponent c) {
             AbstractButton button = (AbstractButton) c;
@@ -308,7 +319,10 @@ public class McpScannerTab extends JPanel {
 
         private static Color backgroundFor(AbstractButton button) {
             if (!button.isEnabled()) {
-                return PORTSWIGGER_ORANGE_DISABLED;
+                Color panelBg = UIManager.getColor("Panel.background");
+                return ThemeColors.isDark(panelBg)
+                        ? PORTSWIGGER_ORANGE_DISABLED_DARK
+                        : PORTSWIGGER_ORANGE_DISABLED_LIGHT;
             }
             if (button.getModel().isPressed()) {
                 return PORTSWIGGER_ORANGE_PRESSED;
