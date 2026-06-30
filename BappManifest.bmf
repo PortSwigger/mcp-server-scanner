@@ -2,8 +2,8 @@ Uuid: 331a84edb4134705ad2ef25b90f626f2
 ExtensionType: 1
 Name: MCP Server Scanner
 RepoName: mcp-server-scanner
-ScreenVersion: 1.0.0
-SerialVersion: 2
+ScreenVersion: 0.1.0
+SerialVersion: 3
 MinPlatformVersion: 29
 ProOnly: True
 Author: Peter Hendy, PortSwigger
