@@ -2,12 +2,12 @@ Uuid: 331a84edb4134705ad2ef25b90f626f2
 ExtensionType: 1
 Name: MCP Server Scanner
 RepoName: mcp-server-scanner
-ScreenVersion: 0.1.0
-SerialVersion: 4
+ScreenVersion: 2.1.2
+SerialVersion: 5
 MinPlatformVersion: 29
 ProOnly: True
 Author: Peter Hendy, PortSwigger
 ShortDescription: Scans Model Context Protocol servers for security vulnerabilities.
-EntryPoint: mcp-server-scanner-extension-1.0.0-all.jar
+EntryPoint: mcp-server-scanner-extension-2.1.2-all.jar
 BuildCommand: ./gradlew shadowJar
 SupportedProducts: Pro
