@@ -43,7 +43,7 @@ final class AccessPanelFixture implements AutoCloseable {
     final AccessMatrix matrix;
     final OwnerRequests requests;
     private final AccessRuns runs = new AccessRuns(Executors.newSingleThreadExecutor());
-    private int identityCount = 2;
+    private int otherUserCount = 1;
     private AccessPanel panel;
 
     AccessPanelFixture(AccessFixtures fixtures) {
@@ -52,8 +52,8 @@ final class AccessPanelFixture implements AutoCloseable {
         this.requests = new OwnerRequests(AccessPanelFixture::primaryRequest, new IdentityRequests(fixtures::roster));
     }
 
-    AccessPanelFixture identityCount(int count) {
-        identityCount = count;
+    AccessPanelFixture otherUserCount(int count) {
+        otherUserCount = count;
         return this;
     }
 
@@ -72,7 +72,7 @@ final class AccessPanelFixture implements AutoCloseable {
         return new AccessServices(matrix, runner, requests, confirmations, refreshes::incrementAndGet,
                 () -> {
                     panelRefreshes.incrementAndGet();
-                    return identityCount;
+                    return otherUserCount;
                 });
     }
 

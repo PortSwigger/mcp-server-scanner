@@ -18,14 +18,21 @@ final class RouteModelServer implements AutoCloseable {
 
     enum PathBuilding { RAW_JOIN, RAW_JOIN_BEFORE_FIXED_SUFFIX, ENCODED_SEGMENT_RESOLVED, ENCODED_SEGMENT }
 
+    private static final String NOT_FOUND = "{\"error\":\"not found\"}";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final PathBuilding pathBuilding;
+    private final boolean unknownValueIsToolError;
     private final HttpServer server;
     final AtomicInteger requests = new AtomicInteger();
 
     RouteModelServer(PathBuilding pathBuilding) throws IOException {
+        this(pathBuilding, false);
+    }
+
+    RouteModelServer(PathBuilding pathBuilding, boolean unknownValueIsToolError) throws IOException {
         this.pathBuilding = pathBuilding;
+        this.unknownValueIsToolError = unknownValueIsToolError;
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/mcp", this::respond);
         server.start();
@@ -60,7 +67,7 @@ final class RouteModelServer implements AutoCloseable {
         }
         JsonNode arguments = request.path("params").path("arguments");
         return switch (request.path("params").path("name").asText()) {
-            case "get_item" -> text(api(downstreamPath(arguments.path("id").asText())));
+            case "get_item" -> item(api(downstreamPath(arguments.path("id").asText())));
             case "echo" -> text("you said " + arguments.path("text").asText());
             case "normalize" -> text(URI.create(arguments.path("path").asText().replace("?", "")).normalize()
                     .getPath());
@@ -82,8 +89,16 @@ final class RouteModelServer implements AutoCloseable {
         return switch (path) {
             case "/api/", "/api" -> "{\"service\":\"inventory\",\"collections\":[\"items\"]}";
             case "/api/items/A1", "/api/items/A1/profile" -> "{\"item\":\"A1\"}";
-            default -> "{\"error\":\"not found\"}";
+            default -> NOT_FOUND;
         };
+    }
+
+    private JsonNode item(String body) {
+        JsonNode result = text(body);
+        if (unknownValueIsToolError && body.contains(NOT_FOUND)) {
+            ((ObjectNode) result).put("isError", true);
+        }
+        return result;
     }
 
     private static JsonNode text(String text) {

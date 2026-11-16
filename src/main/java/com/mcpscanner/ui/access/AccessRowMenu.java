@@ -13,35 +13,49 @@ import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 final class AccessRowMenu {
+
+    private static final String SHARED_LABEL =
+            ExpectationText.label(AccessExpectation.SHARED_BY_DESIGN, ExpectationText.NEUTRAL_OWNER);
 
     private final AccessMatrix matrix;
     private final OwnerRequests requests;
     private final Supplier<Optional<SendToDestination>> repeater;
     private final CheckAccessControl checkAccess;
     private final Consumer<String> errors;
+    private final Executor sends;
 
     AccessRowMenu(AccessMatrix matrix, OwnerRequests requests, Supplier<Optional<SendToDestination>> repeater,
-                  CheckAccessControl checkAccess, Consumer<String> errors) {
+                  CheckAccessControl checkAccess, Consumer<String> errors, Executor sends) {
         this.matrix = matrix;
         this.requests = requests;
         this.repeater = repeater;
         this.checkAccess = checkAccess;
         this.errors = errors;
+        this.sends = sends;
+    }
+
+    static Executor backgroundSends() {
+        return task -> {
+            Thread thread = new Thread(task, "mcp-send-pair");
+            thread.setDaemon(true);
+            thread.start();
+        };
     }
 
     JPopupMenu menuFor(AccessSnapshot snapshot, AccessRow row, Optional<Principal> clicked) {
         JPopupMenu menu = new JPopupMenu();
-        menu.add(item("Mark shared by design",
+        menu.add(item("Set to “" + SHARED_LABEL + "”",
                 () -> matrix.setExpectation(row.item().key(), AccessExpectation.SHARED_BY_DESIGN),
                 row.expectation() == AccessExpectation.SHARED_BY_DESIGN
-                        ? Optional.of("Already shared by design") : Optional.empty()));
+                        ? Optional.of("Already “" + SHARED_LABEL + "”") : Optional.empty()));
         pairTargets(snapshot, row, clicked).forEach(principal -> menu.add(item(
                 "Send " + row.owner().name() + " / " + principal.name() + " pair to Repeater",
-                () -> sendPair(row, principal), repeaterBlocker(snapshot))));
+                () -> sends.execute(() -> sendPair(row, principal)), repeaterBlocker(snapshot))));
         menu.addSeparator();
         menu.add(item("Check this item", () -> checkAccess.start(List.of(row)), checkAccess.blocker()));
         return menu;

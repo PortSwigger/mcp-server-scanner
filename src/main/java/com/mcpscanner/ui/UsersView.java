@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.ui.widgets.DialogOwner;
 import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.identity.ConnectedIdentity;
 import com.mcpscanner.identity.ConnectionFreshness;
@@ -36,14 +37,14 @@ final class UsersView {
     private final List<Runnable> subscriptions = new ArrayList<>();
     private final PrimaryUserPicker picker;
 
-    UsersView(IdentityDependencies deps, IdentityConnection connection, Component dialogParent,
+    UsersView(IdentityDependencies deps, IdentityConnection connection, DialogOwner dialogOwner, Component dialogParent,
               Consumer<String> declineLog, ServerConfigPanel serverConfig, Runnable openUsers,
               Runnable openOAuthClient) {
         this.registry = deps.registry();
         this.refusals = deps.refusals();
         this.credentialServices = deps.credentialServices().apply(new PanelAuthSettings(serverConfig),
-                new SwingScopeApprovals(dialogParent, declineLog));
-        this.services = new IdentityUiServices(registry, credentialServices, deps.listings(), deps.refusals(),
+                new SwingScopeApprovals(dialogOwner, dialogParent, declineLog));
+        this.services = new IdentityUiServices(registry, credentialServices, deps.listings(), deps.discovery(), deps.refusals(),
                 connection, deps.reconnectPrompt());
         this.panel = new UsersPanel(services, serverConfig.grantForms(), openOAuthClient);
         this.chip = panel.scanAsChip();

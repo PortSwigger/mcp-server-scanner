@@ -97,6 +97,36 @@ class HttpIdentitySessionTest {
         }
     }
 
+    @org.junit.jupiter.api.Test
+    void scannedInitializeRunsInASessionOfItsOwnSoTheLiveSessionKeepsWorking() throws Exception {
+        try (SessionServer server = new SessionServer("2025-11-25")) {
+            HttpClient http = HttpClient.newHttpClient();
+            McpScannerSession managed = new McpScannerSession(http, new McpEventLog(null));
+            managed.connect(new McpServerConfig(server.endpoint(), TransportType.STREAMABLE_HTTP,
+                    new BearerTokenAuthStrategy("A")));
+            SseProxyServer proxy = TestSseProxies.builder(managed).httpClient(http).build();
+            try {
+                var fuzzedInitialize = new HashMap<>(Map.of("Mcp-Session-Id", "session-A-1"));
+                fuzzedInitialize.putAll(proxy.auditHeaders(fuzzedInitialize));
+                var reply = proxy.serve(request(fuzzedInitialize, "{\"jsonrpc\":\"2.0\",\"id\":9,"
+                        + "\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\","
+                        + "\"capabilities\":{\"elicitation\":\"'\"},\"clientInfo\":{\"name\":\"x\",\"version\":\"1\"}}}"));
+
+                var operation = new HashMap<>(Map.of("Mcp-Session-Id", "session-A-1"));
+                operation.putAll(proxy.auditHeaders(operation));
+                assertThat(reply.getStatus().getRequestStatus()).isEqualTo(200);
+                assertThat(proxy.serve(request(operation)).getStatus().getRequestStatus()).isEqualTo(200);
+                assertThat(server.initializations).containsExactly("Bearer A", "Bearer A");
+                assertThat(server.deletedIdentities).containsExactly("Bearer A");
+                assertThat(server.operationSessions).containsExactly("session-A-1");
+                assertThat(managed.scannerHeaders()).containsEntry("Mcp-Session-Id", "session-A-1");
+            } finally {
+                proxy.stop();
+                managed.disconnect();
+            }
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void keepSessionSentinelSendsTheCredentialLessProbeOnTheLiveSession(boolean sessionIsCredential) throws Exception {

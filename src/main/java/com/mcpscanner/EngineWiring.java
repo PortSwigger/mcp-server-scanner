@@ -24,7 +24,8 @@ final class EngineWiring {
 
     static McpScanEngine create(MontoyaApi api, ExtensionFoundation foundation, Http http,
                                 AuditInsertionPointProvider insertionPoints) {
-        return new McpScanEngine(http, insertionPoints, api.siteMap(), workers(foundation.configStore()),
+        return new McpScanEngine(http, insertionPoints, api.siteMap(),
+                extensionScanWorkers(foundation.configStore(), "mcp-scan-engine-"),
                 new EngineEnvironment(foundation.eventLog(), Clock.systemUTC(), new EngineInstrumentation(),
                         new McpRequestNames()::nameOf, foundation.collaboratorWatch()::watchedCount));
     }
@@ -39,14 +40,14 @@ final class EngineWiring {
         return cause == SkipCause.EXTENSION_UNLOADED ? SkipReason.extensionUnloaded() : SkipReason.scanCancelled();
     }
 
-    private static EngineWorkers workers(ExtensionConfigStore configStore) {
-        return ResizableWorkers.sizedBy(configStore::extensionScanWorkers, daemonThreads());
+    static EngineWorkers extensionScanWorkers(ExtensionConfigStore configStore, String threadPrefix) {
+        return ResizableWorkers.sizedBy(configStore::extensionScanWorkers, daemonThreads(threadPrefix));
     }
 
-    private static ThreadFactory daemonThreads() {
+    private static ThreadFactory daemonThreads(String threadPrefix) {
         AtomicInteger threadNumber = new AtomicInteger();
         return runnable -> {
-            Thread thread = new Thread(runnable, "mcp-scan-engine-" + threadNumber.incrementAndGet());
+            Thread thread = new Thread(runnable, threadPrefix + threadNumber.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         };

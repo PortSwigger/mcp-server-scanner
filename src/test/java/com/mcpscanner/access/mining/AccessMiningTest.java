@@ -47,6 +47,7 @@ class AccessMiningTest {
     private final RegistryOwnedValues store = new RegistryOwnedValues(registry);
     private final ScriptedServer server = new ScriptedServer();
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService sendWorkers = Executors.newFixedThreadPool(4);
     private final AtomicReference<Optional<ScanInventory>> inventory = new AtomicReference<>(Optional.of(INVENTORY));
     private Identity alice;
     private Identity bob;
@@ -62,12 +63,13 @@ class AccessMiningTest {
         mining = new AccessMining(new MiningInputs(inventory::get,
                 new IdentityRosterSource(() -> new BearerTokenAuthStrategy("alice-token"), registry),
                 () -> registry.primaryUser().id()), server, new MiningPreferences(config), store, worker,
-                McpEventLog.noop());
+                () -> sendWorkers, McpEventLog.noop());
     }
 
     @AfterEach
     void tearDown() {
         worker.shutdownNow();
+        sendWorkers.shutdownNow();
     }
 
     @Test
@@ -144,7 +146,7 @@ class AccessMiningTest {
         AccessMining slow = new AccessMining(new MiningInputs(inventory::get,
                 new IdentityRosterSource(() -> new BearerTokenAuthStrategy("alice-token"), registry),
                 () -> registry.primaryUser().id()), blocked, new MiningPreferences(config), store, worker,
-                McpEventLog.noop());
+                () -> sendWorkers, McpEventLog.noop());
 
         assertThat(slow.start(MiningListener.NONE, WriteCallApproval.REFUSE)).isPresent();
         assertThat(slow.running()).isTrue();
@@ -165,7 +167,7 @@ class AccessMiningTest {
         AccessMining slow = new AccessMining(new MiningInputs(inventory::get,
                 new IdentityRosterSource(() -> new BearerTokenAuthStrategy("alice-token"), registry),
                 () -> registry.primaryUser().id()), blocked, new MiningPreferences(config), store, worker,
-                McpEventLog.noop());
+                () -> sendWorkers, McpEventLog.noop());
         CompletableFuture<MiningReport> finished = new CompletableFuture<>();
 
         slow.start(listener(finished), WriteCallApproval.REFUSE);
@@ -239,7 +241,7 @@ class AccessMiningTest {
         AccessMining withEmptyBob = new AccessMining(new MiningInputs(inventory::get,
                 new IdentityRosterSource(() -> new BearerTokenAuthStrategy("alice-token"), registry),
                 () -> registry.primaryUser().id()), emptyForBob, new MiningPreferences(config), store, worker,
-                McpEventLog.noop());
+                () -> sendWorkers, McpEventLog.noop());
         CompletableFuture<MiningReport> finished = new CompletableFuture<>();
 
         withEmptyBob.start(listener(finished), WriteCallApproval.REFUSE);
@@ -266,7 +268,7 @@ class AccessMiningTest {
         return new AccessMining(new MiningInputs(inventory::get,
                 new IdentityRosterSource(() -> new BearerTokenAuthStrategy("alice-token"), registry),
                 () -> registry.primaryUser().id()), scripted, new MiningPreferences(config), store, worker,
-                McpEventLog.noop());
+                () -> sendWorkers, McpEventLog.noop());
     }
 
     private static MiningReport runToCompletion(AccessMining run) throws Exception {

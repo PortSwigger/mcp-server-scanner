@@ -9,6 +9,9 @@ import com.mcpscanner.checks.shared.auth.oracle.BaselineEquivalenceOracle;
 import com.mcpscanner.checks.shared.probe.ProbeChannel;
 import com.mcpscanner.checks.shared.probe.ProbeExchange;
 import com.mcpscanner.checks.shared.probe.SimulatedMcpServer;
+import com.mcpscanner.checks.shared.scancontext.CurrentInvocation;
+import com.mcpscanner.http.ExchangeLease;
+import com.mcpscanner.http.ExchangeRetention;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -83,6 +87,78 @@ class EnforcementEvidenceTest {
         await().atMost(Duration.ofSeconds(5)).until(first::isDone);
         assertThat(first.join()).isPresent();
         assertThat(secondDone).isCompleted().isNotCompletedExceptionally();
+    }
+
+    @Test
+    void aCachedRefusalKeepsItsExchangesPastTheInvocationUntilCleared() {
+        SimulatedMcpServer enforcing = SimulatedMcpServer.enforcing();
+        HttpRequestResponse refused = enforcing.exchange(
+                SimulatedMcpServer.request(SimulatedMcpServer.toolCall(), Map.of()));
+        AtomicInteger released = new AtomicInteger();
+        ExchangeLease lease = new ExchangeLease() {
+            @Override
+            public void hold(HttpRequestResponse proxied) {
+            }
+
+            @Override
+            public ExchangeRetention retainBeyondClose() {
+                return released::incrementAndGet;
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        CurrentInvocation.holding(lease, () -> {
+            evidence.recordRefusal(subject(enforcing), ProbeExchange.of(refused));
+            return null;
+        });
+        assertThat(released).hasValue(0);
+
+        evidence.clear();
+
+        assertThat(released).hasValue(1);
+    }
+
+    @Test
+    void aProbeFinishingAfterClearDoesNotLeakItsRetention() throws Exception {
+        SimulatedMcpServer server = SimulatedMcpServer.open().challengingAnonymousPing();
+        AtomicBoolean probing = new AtomicBoolean();
+        CountDownLatch release = new CountDownLatch(1);
+        Http blockingPing = mock(Http.class);
+        when(blockingPing.sendRequest(any(HttpRequest.class))).thenAnswer(invocation -> {
+            HttpRequest request = invocation.getArgument(0);
+            if (request.bodyToString().contains("\"ping\"")) {
+                probing.set(true);
+                release.await(5, TimeUnit.SECONDS);
+            }
+            return server.exchange(request);
+        });
+        AtomicInteger released = new AtomicInteger();
+        ExchangeLease lease = new ExchangeLease() {
+            @Override
+            public void hold(HttpRequestResponse proxied) {
+            }
+
+            @Override
+            public ExchangeRetention retainBeyondClose() {
+                return released::incrementAndGet;
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        AuditSubject subject = subject(server);
+        CompletableFuture<Optional<HttpRequestResponse>> running = CompletableFuture.supplyAsync(() ->
+                CurrentInvocation.holding(lease, () -> evidence.find(subject, probe(blockingPing))));
+        await().atMost(Duration.ofSeconds(5)).untilTrue(probing);
+
+        evidence.clear();
+        release.countDown();
+        running.get(5, TimeUnit.SECONDS);
+
+        assertThat(released).hasValue(1);
     }
 
     private AuditSubject subject(SimulatedMcpServer server) {

@@ -25,6 +25,7 @@ final class StreamingAdmissionServer implements AutoCloseable {
 
     final Http burp = burpWithholdingStreams();
     final List<String> receivedOrigins = new CopyOnWriteArrayList<>();
+    final List<String> preflightOrigins = new CopyOnWriteArrayList<>();
     final List<String> receivedHosts = new CopyOnWriteArrayList<>();
 
     private final HttpServer server;
@@ -80,6 +81,11 @@ final class StreamingAdmissionServer implements AutoCloseable {
         String origin = exchange.getRequestHeaders().getFirst("Origin");
         String host = exchange.getRequestHeaders().getFirst("Host");
         receivedHosts.add(host);
+        if ("OPTIONS".equals(exchange.getRequestMethod())) {
+            preflightOrigins.add(origin);
+            send(exchange, 204, "text/plain", "");
+            return;
+        }
         receivedOrigins.add(origin == null ? "(none)" : origin);
         if (origin != null && unansweredOrigins.contains(origin)) {
             exchange.close();

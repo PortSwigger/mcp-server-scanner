@@ -20,9 +20,14 @@ final class ParallelItems {
 
     static <T, R> void run(List<T> items, Function<T, R> work, BiConsumer<T, R> completed,
                            BooleanSupplier continuing) {
-        ExecutorService pool = Executors.newFixedThreadPool(PARALLELISM, ParallelItems::daemon);
+        run(items, PARALLELISM, work, completed, continuing);
+    }
+
+    static <T, R> void run(List<T> items, int parallelism, Function<T, R> work, BiConsumer<T, R> completed,
+                           BooleanSupplier continuing) {
+        ExecutorService pool = Executors.newFixedThreadPool(parallelism, ParallelItems::daemon);
         try {
-            drain(items.iterator(), new ExecutorCompletionService<>(pool), work, completed, continuing);
+            drain(items.iterator(), parallelism, new ExecutorCompletionService<>(pool), work, completed, continuing);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
         } finally {
@@ -30,12 +35,12 @@ final class ParallelItems {
         }
     }
 
-    private static <T, R> void drain(Iterator<T> pending, CompletionService<Completed<T, R>> completions,
+    private static <T, R> void drain(Iterator<T> pending, int parallelism, CompletionService<Completed<T, R>> completions,
                                      Function<T, R> work, BiConsumer<T, R> completed, BooleanSupplier continuing)
             throws InterruptedException {
         int inFlight = 0;
         while (true) {
-            while (inFlight < PARALLELISM && pending.hasNext() && continuing.getAsBoolean()) {
+            while (inFlight < parallelism && pending.hasNext() && continuing.getAsBoolean()) {
                 T item = pending.next();
                 completions.submit(() -> new Completed<>(item, work.apply(item)));
                 inFlight++;

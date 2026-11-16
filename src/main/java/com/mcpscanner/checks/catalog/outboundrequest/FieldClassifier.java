@@ -3,6 +3,7 @@ package com.mcpscanner.checks.catalog.outboundrequest;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 
+import com.mcpscanner.checks.shared.fetch.OutboundFetchPurpose;
 import com.mcpscanner.checks.shared.field.InsertionPointNames;
 import com.mcpscanner.mcp.BurpNativeJsonRpcFields;
 
@@ -50,7 +51,7 @@ final class FieldClassifier {
         if (CLIENT_METADATA.matcher(fieldName).find()) {
             return FieldCategory.CLIENT_METADATA;
         }
-        return fetchPurpose.fetchesByDesign(envelope, fieldName) ? FieldCategory.FETCH_BY_DESIGN
+        return fetchPurpose.fetchesByDesign(envelope.method(), envelope.target(), fieldName) ? FieldCategory.FETCH_BY_DESIGN
                 : FieldCategory.REQUEST_FIELD;
     }
 

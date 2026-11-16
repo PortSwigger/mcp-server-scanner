@@ -16,6 +16,21 @@ class FindingKindTest {
     }
 
     @ParameterizedTest
+    @EnumSource(value = com.mcpscanner.checks.api.PrincipalRole.class, names = {"PEER", "HIGHER"})
+    void operationAvailableToAPeerOrHigherIdentityIsNotCalledLowerPrivilege(
+            com.mcpscanner.checks.api.PrincipalRole role) {
+        assertThat(FindingKind.OPERATION_AVAILABLE.issueNameFor(role))
+                .isEqualTo("MCP operation available to a disallowed identity");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = com.mcpscanner.checks.api.PrincipalRole.class, names = {"LOWER", "PRIMARY"})
+    void operationAvailableToALowerOrPrimaryIdentityKeepsItsName(com.mcpscanner.checks.api.PrincipalRole role) {
+        assertThat(FindingKind.OPERATION_AVAILABLE.issueNameFor(role))
+                .isEqualTo("MCP operation available to a lower-privilege identity");
+    }
+
+    @ParameterizedTest
     @EnumSource(value = AuditIssueConfidence.class, names = {"CERTAIN", "FIRM"})
     void provenResultIsHigh(AuditIssueConfidence confidence) {
         assertThat(FindingKind.RESULT_AVAILABLE.severity(confidence)).isEqualTo(AuditIssueSeverity.HIGH);

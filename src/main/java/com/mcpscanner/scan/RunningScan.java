@@ -1,7 +1,5 @@
 package com.mcpscanner.scan;
 
-import java.util.function.Consumer;
-
 public interface RunningScan {
 
     ScanActivity activity();
@@ -12,5 +10,16 @@ public interface RunningScan {
 
     void cancel();
 
-    void whenFinished(Consumer<ScanOutcome> listener);
+    default void failWith(String reason) {
+        cancel();
+    }
+
+    default boolean pollEnded() {
+        return isFinished();
+    }
+
+    void whenEnded(Runnable action);
+
+    default void stopWatching() {
+    }
 }

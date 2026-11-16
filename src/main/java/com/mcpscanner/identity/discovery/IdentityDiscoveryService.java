@@ -10,6 +10,7 @@ import com.mcpscanner.identity.Identity;
 import com.mcpscanner.identity.IdentityRegistry;
 import com.mcpscanner.logging.McpEventLog;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -20,13 +21,16 @@ import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 
-public final class IdentityDiscoveryService {
+public final class IdentityDiscoveryService implements ComparedDiscovery, PreComparisonDiscovery {
+
+    private static final Duration DISCOVERY_LIMIT = Duration.ofSeconds(60);
 
     private final IdentityRegistry registry;
     private final Function<McpServerConfig, ConnectResult> discoverer;
     private final IdentityListings listings;
     private final Executor executor;
     private final McpEventLog eventLog;
+    private final SettledListings settled;
     private final Map<String, AuthStrategy> discoveredWith = new HashMap<>();
     private Optional<PrimaryConnection> target = Optional.empty();
     private long generation;
@@ -38,6 +42,7 @@ public final class IdentityDiscoveryService {
         this.listings = Objects.requireNonNull(listings, "listings");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog");
+        this.settled = new SettledListings(listings, DISCOVERY_LIMIT);
     }
 
     public void start() {
@@ -65,13 +70,56 @@ public final class IdentityDiscoveryService {
         }
     }
 
-    private synchronized void onRegistryChanged() {
-        if (target.isEmpty()) {
+    @Override
+    public synchronized void discover(String identityId) {
+        if (target.isPresent()) {
+            registry.compared().stream().filter(identity -> identity.id().equals(identityId))
+                    .forEach(this::discover);
+        }
+    }
+
+    @Override
+    public void discoverMissing() {
+        startDiscoveringMissing();
+        awaitSettled(comparedIds());
+    }
+
+    private synchronized Set<String> comparedIds() {
+        return target.isEmpty() ? Set.of()
+                : registry.compared().stream().map(Identity::id).collect(java.util.stream.Collectors.toSet());
+    }
+
+    @Override
+    public synchronized boolean credentialChangedSinceDiscovery(String identityId) {
+        return discoveredWith.containsKey(identityId)
+                && registry.credential(identityId).orElse(null) != discoveredWith.get(identityId);
+    }
+
+    private synchronized void startDiscoveringMissing() {
+        List<Identity> missing = target.isEmpty() ? List.of() : registry.compared().stream()
+                .filter(identity -> registry.credential(identity.id()).isPresent())
+                .filter(identity -> listings.outcome(identity.id()).isEmpty()).toList();
+        missing.forEach(identity -> {
+            eventLog.info("Discovering " + identity.name() + " before comparing");
+            discover(identity);
+        });
+    }
+
+    private void awaitSettled(Set<String> comparedIds) {
+        if (comparedIds.isEmpty()) {
             return;
         }
-        List<Identity> compared = registry.compared();
-        forgetIdentitiesNoLongerCompared(compared);
-        compared.stream().filter(this::credentialChangedSinceDiscovery).forEach(this::discover);
+        try {
+            settled.await(comparedIds::contains);
+        } catch (IllegalStateException unsettled) {
+            eventLog.warn("Comparing without waiting for discovery: " + unsettled.getMessage());
+        }
+    }
+
+    private synchronized void onRegistryChanged() {
+        if (target.isPresent()) {
+            forgetIdentitiesNoLongerCompared(registry.otherUsers().stream().filter(Identity::compared).toList());
+        }
     }
 
     private void resetFor(Optional<PrimaryConnection> connection) {
@@ -87,10 +135,6 @@ public final class IdentityDiscoveryService {
         compared.forEach(identity -> kept.add(identity.id()));
         discoveredWith.keySet().retainAll(kept);
         listings.retainOnly(kept);
-    }
-
-    private boolean credentialChangedSinceDiscovery(Identity identity) {
-        return registry.credential(identity.id()).orElse(null) != discoveredWith.get(identity.id());
     }
 
     private void discover(Identity identity) {

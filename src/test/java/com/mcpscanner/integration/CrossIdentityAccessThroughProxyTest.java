@@ -65,6 +65,25 @@ class CrossIdentityAccessThroughProxyTest {
         }
     }
 
+    @Test
+    void identityNotExpectedToBeBlockedStillReportsAScopedToolReachedOnlyAtTheLegacyVersionThroughTheProxy()
+            throws Exception {
+        try (IdentityFixtureServer server = IdentityFixtureServer.statelessVersionScoped();
+             ScannerProxyFixture proxy = ScannerProxyFixture.connect(server.endpoint(), TransportType.STREAMABLE_HTTP)) {
+            Http http = proxy.routed(new VerbatimHeaderHttp());
+
+            List<AuditIssue> issues;
+            try (AccessComparisonRun run = comparison(List.of(identity("bob", PrincipalRole.PEER)),
+                    AccessExpectation.ANY_SIGNED_IN).begin(http)) {
+                issues = run.compare(base(http, proxy, "admin_report"));
+            }
+
+            assertThat(decisions()).contains("operation_level:refused_at_captured_protocol_version");
+            assertThat(issues).singleElement().extracting(AuditIssue::name)
+                    .isEqualTo("MCP operation available to a disallowed identity");
+        }
+    }
+
     private CrossIdentityComparison comparison(List<Principal> compared, AccessExpectation expectation) {
         return new CrossIdentityComparison(eventLog, () -> new BearerTokenAuthStrategy("alice-token"),
                 () -> PrincipalRoster.of(ALICE, compared),

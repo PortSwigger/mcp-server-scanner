@@ -16,11 +16,16 @@ final class VisibilityClassifier {
 
     private final List<IdentityRun> runs;
     private final Map<ArgumentValue, Set<String>> seenBy = new HashMap<>();
+    private final Map<ArgumentValue, Set<String>> attributedTo = new HashMap<>();
 
     VisibilityClassifier(List<IdentityRun> runs) {
         this.runs = List.copyOf(runs);
         runs.forEach(run -> run.sightings().seen().forEach(value ->
                 seenBy.computeIfAbsent(value, seen -> new HashSet<>()).add(run.identityId())));
+        runs.forEach(run -> run.sightings().byArgument().forEach((argument, sightings) -> sightings.stream()
+                .filter(Sighting::ownerAttributed)
+                .forEach(sighting -> attributedTo.computeIfAbsent(new ArgumentValue(argument, sighting.value()),
+                        value -> new HashSet<>()).add(run.identityId()))));
     }
 
     List<IdentityMining> identities() {
@@ -30,7 +35,7 @@ final class VisibilityClassifier {
     List<MiningWarning> warnings() {
         List<IdentityRun> users = runs.stream().filter(run -> !Principal.isAnonymous(run.identityId())).toList();
         boolean mined = users.stream().anyMatch(run -> !valuesOf(run).isEmpty());
-        boolean anyPrivate = users.stream().flatMap(run -> valuesOf(run).stream()).anyMatch(this::privateValue);
+        boolean anyPrivate = users.stream().flatMap(run -> valuesOf(run).stream()).anyMatch(this::owned);
         return users.size() > 1 && mined && !anyPrivate ? List.of(new MiningWarning(MiningWarning.Kind.SAME_TENANT,
                 null, "no user has a private value: every ID collected was seen by more than one user; add a user "
                         + "from another tenant, or give each user data of their own"))
@@ -42,12 +47,19 @@ final class VisibilityClassifier {
         run.sightings().byArgument().forEach((argument, sightings) -> sightings.forEach(sighting ->
                 values.add(new MinedValue(argument, sighting.value(),
                         new MinedSource(sighting.operation(), sighting.path()),
-                        scope(new ArgumentValue(argument, sighting.value()))))));
+                        scope(new ArgumentValue(argument, sighting.value()), run.identityId(), sighting)))));
         return new IdentityMining(run.identityId(), values, run.requestsSent(), warnings(run, values));
     }
 
-    private ValueScope scope(ArgumentValue value) {
-        return privateValue(value) ? ValueScope.PRIVATE : ValueScope.SHARED;
+    private ValueScope scope(ArgumentValue value, String identityId, Sighting sighting) {
+        if (privateValue(value)) {
+            return ValueScope.PRIVATE;
+        }
+        return sighting.ownerAttributed() && attributedTo.get(value).equals(Set.of(identityId)) ? ValueScope.ATTRIBUTED : ValueScope.SHARED;
+    }
+
+    private boolean owned(ArgumentValue value) {
+        return privateValue(value) || attributedTo.getOrDefault(value, Set.of()).size() == 1;
     }
 
     private boolean privateValue(ArgumentValue value) {
@@ -60,10 +72,7 @@ final class VisibilityClassifier {
             warnings.add(new MiningWarning(MiningWarning.Kind.EMPTY, run.identityId(),
                     "collecting found no IDs for this user, so every other user's IDs look private; give this user some data"));
         }
-        if (run.limitReached()) {
-            warnings.add(new MiningWarning(MiningWarning.Kind.REQUEST_LIMIT, run.identityId(),
-                    "stopped at the request limit after " + run.requestsSent() + " requests"));
-        }
+        run.limitWarning().ifPresent(warnings::add);
         return warnings;
     }
 

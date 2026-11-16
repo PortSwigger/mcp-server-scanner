@@ -49,6 +49,10 @@ final class InjectionReply {
         return reply.message().map(node -> ReplyText.anyContains(node, text)).orElse(false);
     }
 
+    String text() {
+        return reply.message().map(ReplyText::joined).orElse("");
+    }
+
     private static boolean reportsNoError(JsonNode result) {
         return !result.path("error").asBoolean(false)
                 && !ReplyText.contentTextStartsWith(result, TOOL_INVOCATION_FAILURE_PREFIX);

@@ -8,15 +8,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-record ScanReadiness(boolean connected, ScanInventory selection, Optional<Integer> requestCount) {
+record ScanReadiness(boolean connected, ScanInventory selection, Optional<PlannedRequests> planned) {
 
     private static final String CONNECT_FIRST = "Connect to an MCP server first";
     private static final String NOTHING_TO_SEND =
             "Tick a tool, resource, template or prompt, or turn on a request family under Requests";
     static final String COUNTING = "Counting requests…";
+    private static final String PROTOCOL_ONLY_EXPLANATION =
+            "No items are ticked, so no tool, resource or prompt is called. Choose these under Requests.";
 
-    ScanReadiness(boolean connected, ScanInventory selection, int requestCount) {
-        this(connected, selection, Optional.of(requestCount));
+    ScanReadiness(boolean connected, ScanInventory selection, PlannedRequests planned) {
+        this(connected, selection, Optional.of(planned));
     }
 
     Optional<String> blocker() {
@@ -51,16 +53,24 @@ record ScanReadiness(boolean connected, ScanInventory selection, Optional<Intege
     }
 
     String tooltip(ScanMode mode) {
-        return blocker().orElseGet(() -> launchDescription() + " with " + ScanModeText.of(mode).label());
+        return blocker().orElseGet(() -> itemsTicked() ? itemScanDescription(mode) : protocolScanDescription(mode));
     }
 
-    private String launchDescription() {
-        return itemsTicked() ? "Scan the " + describe(selection).replaceFirst(" item", " selected item")
-                : "Send " + requests() + " (no items ticked)";
+    private String itemScanDescription(ScanMode mode) {
+        return "Scan the " + describe(selection).replaceFirst(" item", " selected item") + withMode(mode);
+    }
+
+    private String protocolScanDescription(ScanMode mode) {
+        return "Send " + requests() + withMode(mode) + ": " + planned.orElseThrow().listing() + ". "
+                + PROTOCOL_ONLY_EXPLANATION;
+    }
+
+    private static String withMode(ScanMode mode) {
+        return " with " + ScanModeText.of(mode).label();
     }
 
     private String requests() {
-        return Plurals.count(requestCount.orElse(0), "request");
+        return Plurals.count(planned.map(PlannedRequests::count).orElse(0), "protocol request");
     }
 
     private boolean itemsTicked() {
@@ -68,11 +78,11 @@ record ScanReadiness(boolean connected, ScanInventory selection, Optional<Intege
     }
 
     private boolean sendsNothing() {
-        return requestCount.filter(count -> count == 0).isPresent();
+        return planned.filter(requests -> requests.count() == 0).isPresent();
     }
 
     private boolean counting() {
-        return requestCount.isEmpty();
+        return planned.isEmpty();
     }
 
     static String describe(ScanInventory inventory) {

@@ -33,6 +33,8 @@ import java.util.concurrent.Executor;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class IdentityDiscoveryServiceTest {
 
@@ -112,14 +114,195 @@ class IdentityDiscoveryServiceTest {
     }
 
     @Test
-    void discoversAnIdentityThatGainsCredentialsWhileConnected() {
+    void anIdentityThatGainsCredentialsWhileConnectedWaitsForAnExplicitDiscover() {
         service.onPrimaryConnected(primaryConnection("search"));
         serves("bob", "search");
 
         Identity bob = withToken(peer("bob"), "bob");
 
+        assertThat(discoveredConfigs).isEmpty();
+        assertThat(listings.outcome(bob.id())).isEmpty();
+    }
+
+    @Test
+    void discoverMissingDiscoversACredentialedComparedIdentityNeverDiscovered() {
+        service.onPrimaryConnected(primaryConnection("search"));
+        serves("bob", "search", "delete_project");
+        Identity bob = withToken(peer("bob"), "bob");
+
+        service.discoverMissing();
+
+        assertThat(listings.lists(bob.id(), ADMIN_TOOL)).contains(true);
+        assertThat(discoveredConfigs).extracting(config -> config.auth().headers().get("Authorization"))
+                .containsExactly("Bearer bob");
+    }
+
+    @Test
+    void discoverMissingLogsWhoIsDiscoveredBeforeComparing() {
+        McpEventLog eventLog = mock(McpEventLog.class);
+        service = newService(eventLog);
+        service.onPrimaryConnected(primaryConnection("search"));
+        withToken(peer("bob"), "bob");
+
+        service.discoverMissing();
+
+        verify(eventLog).info("Discovering bob before comparing");
+    }
+
+    @Test
+    void discoverMissingSkipsIdentitiesWithoutCredentialsOrNotCompared() {
+        service.onPrimaryConnected(primaryConnection("search"));
+        registry.add(peer("dave"));
+        Identity erin = withToken(peer("erin"), "erin");
+        registry.update(erin.withCompared(false));
+
+        service.discoverMissing();
+
+        assertThat(discoveredConfigs).isEmpty();
+    }
+
+    @Test
+    void discoverMissingDoesNotRediscoverListedOrFailedIdentities() {
+        withToken(peer("bob"), "bob");
+        serverByToken.put("Bearer carol", config -> {
+            throw new IllegalStateException("401 Unauthorized");
+        });
+        withToken(peer("carol"), "carol");
+        service.onPrimaryConnected(primaryConnection("search"));
+        discoveredConfigs.clear();
+
+        service.discoverMissing();
+
+        assertThat(discoveredConfigs).isEmpty();
+    }
+
+    @Test
+    void discoverMissingDoesNothingWhileDisconnected() {
+        withToken(peer("bob"), "bob");
+
+        service.discoverMissing();
+
+        assertThat(discoveredConfigs).isEmpty();
+    }
+
+    @Test
+    void discoverMissingWaitsUntilTheDiscoveryHasSettled() {
+        executor = pending::add;
+        service = newService();
+        service.onPrimaryConnected(primaryConnection("search"));
+        serves("bob", "search");
+        Identity bob = withToken(peer("bob"), "bob");
+
+        List<DiscoveryOutcome> shownWhileWaiting = new java.util.concurrent.CopyOnWriteArrayList<>();
+        Thread runner = new Thread(() -> {
+            while (listings.outcome(bob.id()).isEmpty()) {
+                Thread.onSpinWait();
+            }
+            listings.outcome(bob.id()).ifPresent(shownWhileWaiting::add);
+            runPending();
+        });
+        runner.start();
+        service.discoverMissing();
+
+        assertThat(shownWhileWaiting).containsExactly(DiscoveryOutcome.Discovering.INSTANCE);
+        assertThat(listings.outcome(bob.id())).get().isInstanceOf(DiscoveryOutcome.Listed.class);
+    }
+
+    @Test
+    void discoverMissingAlsoWaitsForADiscoveryTheUserStartedByHand() {
+        executor = pending::add;
+        service = newService();
+        service.onPrimaryConnected(primaryConnection("search"));
+        serves("bob", "search");
+        Identity bob = withToken(peer("bob"), "bob");
+        service.discover(bob.id());
+
+        List<DiscoveryOutcome> shownWhileWaiting = new java.util.concurrent.CopyOnWriteArrayList<>();
+        Thread runner = new Thread(() -> {
+            listings.outcome(bob.id()).ifPresent(shownWhileWaiting::add);
+            runPending();
+        });
+        runner.start();
+        service.discoverMissing();
+
+        assertThat(shownWhileWaiting).containsExactly(DiscoveryOutcome.Discovering.INSTANCE);
+        assertThat(listings.outcome(bob.id())).get().isInstanceOf(DiscoveryOutcome.Listed.class);
+    }
+
+    @Test
+    void discoverMissingDoesNotWaitForADiscoveryOfAUserNobodyCompares() {
+        executor = pending::add;
+        service = newService();
+        service.onPrimaryConnected(primaryConnection("search"));
+        serves("erin", "search");
+        Identity erin = withToken(peer("erin"), "erin");
+        service.discover(erin.id());
+        registry.update(erin.withCompared(false));
+
+        long started = System.nanoTime();
+        service.discoverMissing();
+
+        assertThat(java.time.Duration.ofNanos(System.nanoTime() - started)).isLessThan(java.time.Duration.ofSeconds(5));
+    }
+
+    @Test
+    void discoverListsOnlyTheRequestedIdentity() {
+        Identity bob = withToken(peer("bob"), "bob");
+        withToken(peer("carol"), "carol");
+        service.onPrimaryConnected(primaryConnection("search"));
+        discoveredConfigs.clear();
+        serves("bob", "search");
+
+        service.discover(bob.id());
+
+        assertThat(discoveredConfigs).extracting(config -> config.auth().headers().get("Authorization"))
+                .containsExactly("Bearer bob");
         assertThat(listings.lists(bob.id(), SHARED_TOOL)).contains(true);
+    }
+
+    @Test
+    void editingACredentialMarksTheListingStaleWithoutDiscovering() {
+        Identity bob = withToken(peer("bob"), "bob");
+        service.onPrimaryConnected(primaryConnection("search"));
+
+        registry.setCredential(bob.id(), new BearerTokenAuthStrategy("b"));
+        registry.setCredential(bob.id(), new BearerTokenAuthStrategy("bo"));
+
         assertThat(discoveredConfigs).hasSize(1);
+        assertThat(service.credentialChangedSinceDiscovery(bob.id())).isTrue();
+    }
+
+    @Test
+    void discoveringAgainClearsTheStaleMark() {
+        Identity bob = withToken(peer("bob"), "bob");
+        service.onPrimaryConnected(primaryConnection("search"));
+        registry.setCredential(bob.id(), new BearerTokenAuthStrategy("bob-2"));
+
+        service.discover(bob.id());
+
+        assertThat(service.credentialChangedSinceDiscovery(bob.id())).isFalse();
+        assertThat(discoveredConfigs).extracting(config -> config.auth().headers().get("Authorization"))
+                .containsExactly("Bearer bob", "Bearer bob-2");
+    }
+
+    @Test
+    void anIdentityNeverDiscoveredIsNotStale() {
+        Identity bob = withToken(peer("bob"), "bob");
+
+        assertThat(service.credentialChangedSinceDiscovery(bob.id())).isFalse();
+    }
+
+    @Test
+    void discoverDoesNothingWhileDisconnectedOrForIdentitiesNotCompared() {
+        Identity bob = withToken(peer("bob"), "bob");
+        service.discover(bob.id());
+        service.onPrimaryConnected(primaryConnection("search"));
+        discoveredConfigs.clear();
+        registry.update(registry.find(bob.id()).orElseThrow().withCompared(false));
+
+        service.discover(bob.id());
+
+        assertThat(discoveredConfigs).isEmpty();
     }
 
     @Test
@@ -167,6 +350,19 @@ class IdentityDiscoveryServiceTest {
     }
 
     @Test
+    void untickingCompareForgetsTheListingButClearingTheCredentialMarksItStale() {
+        Identity bob = withToken(peer("bob"), "bob");
+        service.onPrimaryConnected(primaryConnection("search"));
+
+        registry.removeCredential(bob.id());
+        assertThat(listings.outcome(bob.id())).isPresent();
+        assertThat(service.credentialChangedSinceDiscovery(bob.id())).isTrue();
+
+        registry.update(registry.find(bob.id()).orElseThrow().withCompared(false));
+        assertThat(listings.outcome(bob.id())).isEmpty();
+    }
+
+    @Test
     void notifiesListenersWhenListingsChange() {
         List<Map<String, DiscoveryOutcome>> published = new ArrayList<>();
         listings.addListener(() -> published.add(listings.outcomes()));
@@ -178,8 +374,12 @@ class IdentityDiscoveryServiceTest {
     }
 
     private IdentityDiscoveryService newService() {
+        return newService(McpEventLog.noop());
+    }
+
+    private IdentityDiscoveryService newService(McpEventLog eventLog) {
         IdentityDiscoveryService created = new IdentityDiscoveryService(registry, this::discover, listings,
-                command -> executor.execute(command), McpEventLog.noop());
+                command -> executor.execute(command), eventLog);
         created.start();
         return created;
     }

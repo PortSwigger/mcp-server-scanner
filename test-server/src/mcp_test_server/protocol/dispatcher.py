@@ -14,11 +14,17 @@ from mcp_test_server.protocol.jsonrpc import (
     JsonRpcError,
     failure,
     is_notification,
+    is_reply,
     params_of,
+    readable_id,
     success,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _invalid_request(message_id: object) -> JsonObject:
+    return failure(message_id, JsonRpcError(INVALID_REQUEST, "Invalid JSON-RPC message"))
 
 
 class Dispatcher:
@@ -37,10 +43,12 @@ class Dispatcher:
         return handler is not None and self._families.enabled(handler.family)
 
     async def dispatch(self, message: object, context: CallContext) -> JsonObject | None:
-        if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
-            return failure(None, JsonRpcError(INVALID_REQUEST, "Invalid JSON-RPC message"))
-        if "method" not in message:
+        if not isinstance(message, dict):
+            return _invalid_request(None)
+        if is_reply(message):
             return None
+        if message.get("jsonrpc") != "2.0" or "method" not in message:
+            return _invalid_request(readable_id(message))
         self._notify_observers(message, context)
         reply = await self._invoke(message, context)
         return None if is_notification(message) else reply

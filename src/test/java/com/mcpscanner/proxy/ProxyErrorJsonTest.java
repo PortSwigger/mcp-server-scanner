@@ -64,6 +64,33 @@ class ProxyErrorJsonTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void noResponseThroughBurpFailuresAreReportedToTheConnectionLossWatch() throws Exception {
+        HttpClient httpClient = mock(HttpClient.class);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenThrow(new IOException("No response from http://127.0.0.1:8651/mcp through Burp: the connection"
+                        + " or TLS handshake failed, or no complete reply arrived within 30 s"));
+        when(scannerSession.resolvedEndpoint()).thenReturn("http://upstream/mcp");
+        when(scannerSession.transportType()).thenReturn(TransportType.STREAMABLE_HTTP);
+        java.util.concurrent.atomic.AtomicInteger losses = new java.util.concurrent.atomic.AtomicInteger();
+        SseProxyServer proxy = TestSseProxies.builder(scannerSession).httpClient(httpClient)
+                .connectionLossWatch(new com.mcpscanner.client.ConnectionLossWatch(2,
+                        java.time.Duration.ofSeconds(60), java.time.Clock.systemUTC(),
+                        () -> com.mcpscanner.client.PingOutcome.SESSION_REFUSED, 1, () -> { }, Runnable::run,
+                        losses::incrementAndGet)).build();
+        try {
+            proxy.serve(request("/mcp", ScannerSentinels.stripAuthOnly()));
+            assertThat(losses.get()).isZero();
+
+            proxy.serve(request("/mcp", ScannerSentinels.stripAuthOnly()));
+
+            assertThat(losses.get()).isEqualTo(1);
+        } finally {
+            proxy.stop();
+        }
+    }
+
+    @Test
     void sseForwardFailureMessageIsEscapedIntoValidJson() throws Exception {
         SseScanSession managed = mock(SseScanSession.class);
         when(managed.forwardRequest(anyString(), anyMap())).thenThrow(new IOException(HOSTILE_MESSAGE));

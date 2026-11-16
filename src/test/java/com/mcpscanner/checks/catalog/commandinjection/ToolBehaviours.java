@@ -3,6 +3,7 @@ package com.mcpscanner.checks.catalog.commandinjection;
 import com.mcpscanner.checks.catalog.commandinjection.SimulatedToolServer.ToolReply;
 
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.MatchResult;
@@ -118,6 +119,35 @@ final class ToolBehaviours {
             String rendered = decoder.find() ? decoder.replaceAll(match -> decoded(match.group(1))) : value;
             return ToolReply.ok(rendered.replace("\\${", "${"));
         };
+    }
+
+    static Function<String, ToolReply> optionParsingProgram(String help, String version) {
+        return value -> switch (value) {
+            case "--help" -> ToolReply.ok(help);
+            case "--version" -> ToolReply.ok(version);
+            default -> value.startsWith("-") ? ToolReply.toolError("error: unknown flag: " + value)
+                    : ToolReply.ok("NAME   READY\n" + value + "   1/1");
+        };
+    }
+
+    static Function<String, ToolReply> optionParsingProgramPrintingUsageOnAnyUnknownFlag(String usage) {
+        return value -> value.startsWith("-") ? ToolReply.toolError("error: unknown flag: " + value + "\n" + usage)
+                : ToolReply.ok("NAME   READY\n" + value + "   1/1");
+    }
+
+    static Function<String, ToolReply> printingUsageForAnyUnknownValue(String usage) {
+        return value -> value.equals(SimulatedToolServer.BASE_VALUE) ? ToolReply.ok("NAME   READY\n" + value + "   1/1")
+                : ToolReply.toolError("error: unknown value " + value + "\n" + usage);
+    }
+
+    static Function<String, ToolReply> answeringADashedValueWithAFreshVersion() {
+        AtomicInteger calls = new AtomicInteger();
+        return value -> value.startsWith("-") ? ToolReply.ok("sample: pkg 1.0." + calls.incrementAndGet())
+                : ToolReply.ok("NAME   READY\n" + value + "   1/1");
+    }
+
+    static Function<String, ToolReply> namingItsVersionInEveryReply(String version) {
+        return value -> ToolReply.ok("server " + version + ": no match for " + value);
     }
 
     static Function<String, ToolReply> rejectingEverything() {

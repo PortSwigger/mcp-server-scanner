@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.ui.widgets.DialogOwner;
 import com.mcpscanner.auth.grants.ClientAuthenticationProviderRegistry;
 import com.mcpscanner.auth.grants.EnterpriseIdentityProviderRegistry;
 import com.mcpscanner.auth.oauth.OAuthAuthorizationFlow;
@@ -27,16 +28,12 @@ public class ServerConfigPanel extends JPanel {
     }
 
     public static ServerConfigPanel create(ExtensionConfigStore configStore, OAuthAuthorizationFlow authorizationFlow,
-                                           OAuthMetadataDiscoverer discoverer) {
-        return create(configStore, authorizationFlow, discoverer, () -> { });
-    }
-
-    public static ServerConfigPanel create(ExtensionConfigStore configStore, OAuthAuthorizationFlow authorizationFlow,
-                                           OAuthMetadataDiscoverer discoverer, Runnable signInAttemptStart) {
+                                           OAuthMetadataDiscoverer discoverer, Runnable signInAttemptStart,
+                                           DialogOwner dialogOwner) {
         OAuthMetadataDiscoverer effectiveDiscoverer =
                 Objects.requireNonNullElseGet(discoverer, OAuthMetadataDiscoverer::defaultInstance);
         OAuthConfigPanel oauth = new OAuthConfigPanel(authorizationFlow, new OAuthDiscoveryPresenter(effectiveDiscoverer),
-                signInAttemptStart);
+                signInAttemptStart, dialogOwner);
         oauth.bindConfigStore(configStore);
         return new ServerConfigPanel(oauth, ClientAuthenticationProviderRegistry.load(),
                 EnterpriseIdentityProviderRegistry.loadOrEmpty());

@@ -29,10 +29,10 @@ final class CommandInjectionDescriptor {
     static final CheckDescriptor DESCRIPTOR = new CheckDescriptor(
             ID,
             "MCP command injection",
-            "Sends shell arithmetic, interpreter character-code and Burp Collaborator payloads to every MCP field, "
-                    + "and reports a field only when the reply contains a uniquely computed result that its "
-                    + "baseline, matched and quoted-literal controls lack, or when a shell-reconstructed "
-                    + "Collaborator hostname is contacted.",
+            "Sends shell arithmetic, interpreter character-code, command-line option and Burp Collaborator "
+                    + "payloads to every MCP field, and reports a field only when the reply contains a uniquely "
+                    + "computed result, or option names or a version number that an option disclosed, that its "
+                    + "baseline and controls lack, or when a shell-reconstructed Collaborator hostname is contacted.",
             CheckKind.INSERTION_POINT,
             AuditIssueSeverity.HIGH,
             AuditIssueConfidence.FIRM,

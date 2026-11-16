@@ -47,6 +47,9 @@ final class AccessDetailText {
                     + principal.name() + " another account's credentials on the Users tab to compare it.");
         } else {
             lines.add(BULLET + identityOutcome(row, cell, principal));
+            if (row.unconfirmedSameResult(principal)) {
+                lines.add(BULLET + unconfirmedSameResult(row, principal));
+            }
             lines.add(BULLET + expectation(row) + verdict(cell));
             AccessFindingText.lines(row, cell).forEach(line -> lines.add(BULLET + line));
         }
@@ -55,7 +58,7 @@ final class AccessDetailText {
 
     private static String anonymous(AccessRow row) {
         AccessCell cell = row.anonymous();
-        String outcome = cell.outcome().map(value -> anonymousOutcome(row, value))
+        String outcome = cell.outcome().map(value -> anonymousOutcome(row, cell, value))
                 .orElse("Not called yet. Check access also replays this " + method(row) + " with no credentials.");
         return String.join("\n", name(row) + " — Anonymous (no credentials)", BULLET + outcome,
                 BULLET + expectation(row) + verdict(cell));
@@ -78,26 +81,36 @@ final class AccessDetailText {
                     + owner + "'s.";
             case REFUSED -> "Calling it as " + principal.name() + " was refused.";
             case SKIPPED_WRITE -> "Not replayed: it is a write tool and replaying it was not confirmed.";
-            case NOT_RUN -> "Not compared: " + owner + "'s own call gave no stable result, or Anonymous already "
-                    + "reaches it.";
+            case NOT_RUN -> notCompared(cell, "Not compared");
             case ERROR -> "The replay as " + principal.name() + " got no answer.";
         }).orElse("Not called yet. Check access replays this " + method(row) + " as " + principal.name()
                 + " and compares it with " + owner + ".");
     }
 
-    private static String anonymousOutcome(AccessRow row, AccessOutcome outcome) {
+    private static String anonymousOutcome(AccessRow row, AccessCell cell, AccessOutcome outcome) {
         return switch (outcome) {
             case SAME_RESULT -> "Without credentials the call returned the same result as " + row.owner().name()
                     + ". Scan this item with the unauthenticated request execution check to report it.";
             case DIFFERENT_RESULT -> "Without credentials the call succeeded with a different result.";
             case REFUSED -> "Without credentials the call was refused, so this is not an unauthenticated-access issue.";
-            case SKIPPED_WRITE, NOT_RUN -> "Not compared without credentials.";
+            case SKIPPED_WRITE -> "Not compared without credentials.";
+            case NOT_RUN -> notCompared(cell, "Not compared without credentials");
             case ERROR -> "The anonymous replay got no answer.";
         };
     }
 
+    private static String unconfirmedSameResult(AccessRow row, Principal principal) {
+        return "Same result as " + row.owner().name() + " — allowed? " + principal.name() + " is lower privilege "
+                + "and the expectation is only inferred. If " + principal.name() + " should not reach it, set Who "
+                + "should reach it (double-click this cell).";
+    }
+
+    private static String notCompared(AccessCell cell, String lead) {
+        return lead + cell.notComparedReason().map(reason -> ": " + reason).orElse("") + ".";
+    }
+
     private static String expectation(AccessRow row) {
-        return "Expected: “" + row.expectation().label() + "”"
+        return "Expected: “" + ExpectationText.label(row) + "”"
                 + (row.inferred() ? " (inferred from which identities list it)." : " (set by you).");
     }
 

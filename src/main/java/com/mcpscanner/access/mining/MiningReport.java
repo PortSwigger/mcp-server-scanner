@@ -1,11 +1,18 @@
 package com.mcpscanner.access.mining;
 
 import java.util.List;
+import java.util.Set;
 
-public record MiningReport(MiningStop stop, List<String> warnings, int privateValues, int sharedValues) {
+public record MiningReport(MiningStop stop, List<String> warnings, int privateValues, int sharedValues,
+                           Set<String> usersWithoutIds) {
 
     public MiningReport {
         warnings = List.copyOf(warnings);
+        usersWithoutIds = Set.copyOf(usersWithoutIds);
+    }
+
+    public MiningReport(MiningStop stop, List<String> warnings, int privateValues, int sharedValues) {
+        this(stop, warnings, privateValues, sharedValues, Set.of());
     }
 
     static MiningReport failed(String reason) {

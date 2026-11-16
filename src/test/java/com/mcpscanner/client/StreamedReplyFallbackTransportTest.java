@@ -11,6 +11,11 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,6 +115,51 @@ class StreamedReplyFallbackTransportTest {
     }
 
     @Test
+    void anEmptyReplyIsNotResentWhenNothingShowsTheRouteStreams() {
+        ScriptedProtocolTransport emptying = new ScriptedProtocolTransport(request -> {
+            throw new ScriptedIoFailure(new ConnectionClosedBeforeReplyException(request.uri()));
+        });
+        StreamedReplyFallbackTransport unproven =
+                new StreamedReplyFallbackTransport(emptying, jdk, forwarding::get, eventLog);
+
+        assertThatThrownBy(() -> unproven.send(toolsCall(STREAMING), TIMEOUT))
+                .isInstanceOf(ConnectionClosedBeforeReplyException.class);
+        assertThat(jdk.requests()).isEmpty();
+    }
+
+    @Test
+    void anEmptyReplyToASendInFlightWhenAnotherLearnedTheRouteStreamsIsNeverResentBecauseTheCallMayHaveWritten()
+            throws Exception {
+        CountDownLatch secondInFlight = new CountDownLatch(1);
+        CountDownLatch firstLearnedTheRoute = new CountDownLatch(1);
+        ScriptedProtocolTransport racing = new ScriptedProtocolTransport(request -> {
+            if (request.body().contains("\"id\":1,")) {
+                await(secondInFlight);
+                throw new ScriptedIoFailure(new BurpStreamingResponseException(request.uri()));
+            }
+            secondInFlight.countDown();
+            await(firstLearnedTheRoute);
+            throw new ScriptedIoFailure(new ConnectionClosedBeforeReplyException(request.uri()));
+        });
+        StreamedReplyFallbackTransport concurrent =
+                new StreamedReplyFallbackTransport(racing, jdk, forwarding::get, eventLog);
+        ExecutorService senders = Executors.newFixedThreadPool(2);
+        try {
+            Future<ProtocolHttpResponse> second = senders.submit(() -> concurrent.send(toolsCall(STREAMING, 2), TIMEOUT));
+            Future<ProtocolHttpResponse> first = senders.submit(() -> concurrent.send(toolsCall(STREAMING, 1), TIMEOUT));
+            first.get(10, TimeUnit.SECONDS).close();
+            firstLearnedTheRoute.countDown();
+
+            assertThatThrownBy(() -> second.get(10, TimeUnit.SECONDS))
+                    .hasRootCauseInstanceOf(ConnectionClosedBeforeReplyException.class);
+        } finally {
+            senders.shutdownNow();
+        }
+
+        assertThat(jdk.requests()).containsExactly(toolsCall(STREAMING, 1));
+    }
+
+    @Test
     void leavesTheStreamingRefusalToTheCallerOutsideAForward() {
         forwarding.set(false);
 
@@ -124,7 +174,23 @@ class StreamedReplyFallbackTransportTest {
     }
 
     private static ProtocolHttpRequest toolsCall(URI target) {
-        return post(target, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"t\"}}");
+        return toolsCall(target, 1);
+    }
+
+    private static ProtocolHttpRequest toolsCall(URI target, int id) {
+        return post(target, "{\"jsonrpc\":\"2.0\",\"id\":" + id
+                + ",\"method\":\"tools/call\",\"params\":{\"name\":\"t\"}}");
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("timed out");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        }
     }
 
     private static ProtocolHttpRequest toolsList(URI target) {

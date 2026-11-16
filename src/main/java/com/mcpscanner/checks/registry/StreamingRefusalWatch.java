@@ -24,6 +24,12 @@ final class StreamingRefusalWatch extends ForwardingHttp {
     }
 
     @Override
+    public void streamRefused() {
+        refused.set(true);
+        super.streamRefused();
+    }
+
+    @Override
     public HttpRequestResponse sendRequest(HttpRequest request) {
         return watching(() -> super.sendRequest(request));
     }

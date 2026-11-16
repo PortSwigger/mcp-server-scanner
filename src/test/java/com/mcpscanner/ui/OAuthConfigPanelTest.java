@@ -126,7 +126,8 @@ class OAuthConfigPanelTest {
     void beginningASignInAttemptRunsTheGivenAttemptStart() {
         java.util.concurrent.atomic.AtomicInteger attemptsStarted = new java.util.concurrent.atomic.AtomicInteger();
         OAuthConfigPanel withAttemptStart = new OAuthConfigPanel(TestOAuthFlows.recording(),
-                new OAuthDiscoveryPresenter(mock(OAuthMetadataDiscoverer.class)), attemptsStarted::incrementAndGet);
+                new OAuthDiscoveryPresenter(mock(OAuthMetadataDiscoverer.class)), attemptsStarted::incrementAndGet,
+                TestDialogOwners.withoutSuiteFrame());
 
         withAttemptStart.beginSignInAttempt();
 
@@ -141,7 +142,8 @@ class OAuthConfigPanelTest {
     }
 
     private static OAuthConfigPanel newPanel(OAuthAuthorizationFlow flow, OAuthMetadataDiscoverer discoverer) {
-        return new OAuthConfigPanel(flow, new OAuthDiscoveryPresenter(discoverer));
+        return new OAuthConfigPanel(flow, new OAuthDiscoveryPresenter(discoverer),
+                TestDialogOwners.withoutSuiteFrame());
     }
 
     private static OAuthConfigPanel newPanelWithStore(

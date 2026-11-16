@@ -2,6 +2,7 @@ package com.mcpscanner.ui.access;
 
 import com.mcpscanner.identity.EnteredValue;
 import com.mcpscanner.mcp.McpToolDefinition;
+import com.mcpscanner.ui.widgets.DialogOwner;
 
 import java.awt.Component;
 import java.util.List;
@@ -10,11 +11,13 @@ import java.util.Set;
 
 public interface MiningDialogs {
 
-    MiningDialogs MODAL = new ModalMiningDialogs();
+    static MiningDialogs modal(DialogOwner owner) {
+        return new ModalMiningDialogs(owner);
+    }
 
-    MineFirstChoice mineFirst(Component parent, List<String> tools);
+    MineFirstChoice mineFirst(Component parent, ToolsToCall tools);
 
-    boolean confirmMining(Component parent, List<String> tools);
+    boolean confirmMining(Component parent, ToolsToCall tools);
 
     ClearChoice clearMined(Component parent, String userName);
 

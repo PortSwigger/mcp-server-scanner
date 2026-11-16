@@ -145,7 +145,7 @@ class CheckAccessAutomationWiringTest {
     }
 
     private int initializeWithAutomation() {
-        new McpScannerExtension(new TestAutomationSwitch(Map.of(TestAutomationSwitch.PORT_PROPERTY, "0")::get))
+        new McpScannerExtension(new TestAutomationWiring(new TestAutomationSwitch(Map.of(TestAutomationSwitch.PORT_PROPERTY, "0")::get)))
                 .initialize(api);
         ArgumentCaptor<String> output = ArgumentCaptor.forClass(String.class);
         verify(api.logging(), atLeastOnce()).logToOutput(output.capture());

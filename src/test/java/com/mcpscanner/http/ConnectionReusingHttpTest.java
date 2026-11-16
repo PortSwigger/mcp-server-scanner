@@ -65,8 +65,27 @@ class ConnectionReusingHttpTest {
         http.sendRequest(request());
 
         ArgumentCaptor<HttpRequest> sent = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(delegate).sendRequest(sent.capture(), eq(HttpMode.HTTP_1), eq(ConnectionReuse.CONNECTION_ID));
+        String connectionId = ConnectionReuse.connectionIdFor(request().httpService());
+        verify(delegate).sendRequest(sent.capture(), eq(HttpMode.HTTP_1), eq(connectionId));
         assertThat(sent.getValue().hasHeader("Connection")).isFalse();
+    }
+
+    @Test
+    void neverReusesOneOriginsConnectionIdForAnotherOrigin() {
+        when(delegate.sendRequest(any(HttpRequest.class))).thenReturn(http1Reply);
+        when(delegate.sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1), anyString()))
+                .thenReturn(http1Reply);
+        HttpRequest previous = HttpRequest.httpRequestFromUrl("http://localhost:8651/mcp");
+        HttpRequest current = HttpRequest.httpRequestFromUrl("http://127.0.0.1:8652/mcp");
+
+        http.sendRequest(previous);
+        http.sendRequest(previous);
+        http.sendRequest(current);
+        http.sendRequest(current);
+
+        ArgumentCaptor<String> connectionIds = ArgumentCaptor.forClass(String.class);
+        verify(delegate, times(2)).sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1), connectionIds.capture());
+        assertThat(connectionIds.getAllValues()).doesNotHaveDuplicates();
     }
 
     @Test
@@ -201,7 +220,7 @@ class ConnectionReusingHttpTest {
         RecordingRequestOptions reused = RecordingRequestOptions.recorded(options.getAllValues().get(1));
         assertThat(fresh.httpMode()).isEmpty();
         assertThat(reused.httpMode()).contains(HttpMode.HTTP_1);
-        assertThat(reused.connectionId()).contains(ConnectionReuse.CONNECTION_ID);
+        assertThat(reused.connectionId()).contains(ConnectionReuse.connectionIdFor(request().httpService()));
         assertThat(reused.redirectionMode()).contains(RedirectionMode.NEVER);
     }
 

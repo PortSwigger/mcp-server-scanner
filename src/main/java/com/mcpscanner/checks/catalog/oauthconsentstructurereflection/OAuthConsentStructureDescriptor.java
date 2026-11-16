@@ -26,8 +26,7 @@ final class OAuthConsentStructureDescriptor {
                     "https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization",
                     "https://datatracker.ietf.org/doc/html/rfc7591#section-2",
                     "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1",
-                    "https://www.w3.org/TR/CSP3/",
-                    "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"),
+                    "https://www.w3.org/TR/CSP3/"),
             "OAuth authorization servers that support dynamic client registration let anyone choose a client's "
                     + "display metadata, and the authorization request's state is chosen by whoever builds the "
                     + "link. A consent or authorization page that writes either value without encoding lets an "

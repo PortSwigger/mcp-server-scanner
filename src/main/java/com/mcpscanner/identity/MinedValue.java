@@ -11,7 +11,7 @@ public record MinedValue(String argument, String value, MinedSource source, Valu
         Objects.requireNonNull(scope, "scope must not be null");
     }
 
-    boolean isPrivate() {
-        return scope == ValueScope.PRIVATE;
+    public boolean isOwned() {
+        return scope == ValueScope.PRIVATE || scope == ValueScope.ATTRIBUTED;
     }
 }

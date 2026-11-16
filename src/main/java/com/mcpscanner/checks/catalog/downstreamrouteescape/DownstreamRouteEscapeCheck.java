@@ -24,12 +24,12 @@ public final class DownstreamRouteEscapeCheck implements InsertionPointCheck {
             SkipReason.notApplicable("protocol metadata field, not a call argument");
     private static final SkipReason NOT_A_CALL =
             SkipReason.notApplicable("not a tools/call, prompts/get or resources/read");
-    private static final SkipReason CALL_FAILED = SkipReason.prerequisiteMissing("the base call did not succeed");
+    private static final SkipReason NO_REPLY = SkipReason.prerequisiteMissing("the server gave no reply to the base call");
 
     private final CheckLog log;
     private final RateLimitedProbing rateLimited;
     private final ReplySignature signatures = new ReplySignature(new PayloadMask());
-    private final CallRequests calls = new CallRequests(signatures);
+    private final CallRequests calls = new CallRequests();
     private final RouteDifferential differential = new RouteDifferential(signatures, new RejectionWording());
     private final DownstreamRouteEscapeIssues issues =
             new DownstreamRouteEscapeIssues(DownstreamRouteEscapeDescriptor.DESCRIPTOR);
@@ -74,8 +74,8 @@ public final class DownstreamRouteEscapeCheck implements InsertionPointCheck {
         if (!calls.isCall(base)) {
             return Optional.of(NOT_A_CALL);
         }
-        if (!calls.succeeded(base, insertionPoint.baseValue())) {
-            return Optional.of(CALL_FAILED);
+        if (!calls.answered(base)) {
+            return Optional.of(NO_REPLY);
         }
         return Optional.empty();
     }

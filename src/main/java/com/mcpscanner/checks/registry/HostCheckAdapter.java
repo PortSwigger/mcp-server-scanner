@@ -42,8 +42,15 @@ public final class HostCheckAdapter extends McpCheckAdapter<HostCheck> {
     public HostCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, HostCheck check,
                 CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
                 ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices) {
+        this(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                auditNotices, ProbeCalls.NONE);
+    }
+
+    public HostCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, HostCheck check,
+                CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
+                ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices, ProbeCalls probeCalls) {
         super(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
-                auditNotices);
+                auditNotices, probeCalls);
         this.hostAudits = new HostAudits(check, log());
     }
 

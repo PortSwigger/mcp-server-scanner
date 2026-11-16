@@ -54,6 +54,7 @@ class ServerConfigPanelTest {
     private static OAuthConfigPanel spyOauthPanel() {
         return spy(new OAuthConfigPanel(
                 TestOAuthFlows.recording(),
-                new OAuthDiscoveryPresenter(mock(OAuthMetadataDiscoverer.class))));
+                new OAuthDiscoveryPresenter(mock(OAuthMetadataDiscoverer.class)),
+                TestDialogOwners.withoutSuiteFrame()));
     }
 }

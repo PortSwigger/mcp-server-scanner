@@ -29,6 +29,13 @@ final class IdentityReplay {
         return replay.reply().success() ? IdentityReach.unreached(replay.reply(), captured) : downgraded();
     }
 
+    IdentityReach atOlderVersions() {
+        if (replay.request().isEmpty() || replay.reply().success()) {
+            return IdentityReach.unreached(replay.reply(), ProtocolVariant.asCaptured());
+        }
+        return downgraded();
+    }
+
     private IdentityReach downgraded() {
         IdentityReach reach = IdentityReach.unreached(replay.reply(), ProtocolVariant.asCaptured());
         for (ProtocolVariant variant : ProtocolVariant.downgradesFor(probe.kit().seed())) {

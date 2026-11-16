@@ -15,6 +15,7 @@ final class AccessOutcomes {
     private final Map<CellKey, AccessOutcome> identities = new HashMap<>();
     private final Map<AccessItemKey, AccessOutcome> anonymous = new HashMap<>();
     private final Map<CellKey, List<AccessFinding>> findings = new HashMap<>();
+    private final Map<AccessItemKey, String> notCompared = new HashMap<>();
 
     synchronized void record(AccessItemKey item, String principalId, AccessOutcome outcome) {
         CellKey cell = new CellKey(item, principalId);
@@ -24,6 +25,15 @@ final class AccessOutcomes {
 
     synchronized void recordAnonymous(AccessItemKey item, AccessOutcome outcome) {
         anonymous.put(item, outcome);
+        notCompared.remove(item);
+    }
+
+    synchronized void recordNotCompared(AccessItemKey item, String reason) {
+        notCompared.put(item, reason);
+    }
+
+    synchronized Optional<String> notCompared(AccessItemKey item) {
+        return Optional.ofNullable(notCompared.get(item));
     }
 
     synchronized void recordFinding(AccessItemKey item, String principalId, AccessFinding finding) {
@@ -46,6 +56,7 @@ final class AccessOutcomes {
         identities.clear();
         anonymous.clear();
         findings.clear();
+        notCompared.clear();
     }
 
     private record CellKey(AccessItemKey item, String principalId) {

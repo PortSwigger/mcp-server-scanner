@@ -62,7 +62,7 @@ public final class OAuthMetadataDiscoverer {
 
     public AuthRequirement requirementFor(URI mcpResource, ChallengeStrategy strategy) {
         Objects.requireNonNull(defaultProbeHttp, "Http is required to probe the auth requirement");
-        return new AuthRequirementProbe(defaultProbeHttp, this).probe(mcpResource, strategy);
+        return new AuthRequirementProbe(defaultProbeHttp, this, eventLog).probe(mcpResource, strategy);
     }
 
     private void logSuccess(DiscoveredMetadata metadata) {

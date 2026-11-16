@@ -27,6 +27,15 @@ class OwnedArgumentsTest {
     }
 
     @Test
+    void aBlankOwnedValueLeavesTheArgumentToTheSynthesisedPlaceholder() throws Exception {
+        McpToolDefinition tool = OwnedArguments.apply(new McpToolDefinition("get_document", "", SCHEMA),
+                Map.of("doc_id", "  "));
+
+        assertThat(JsonSchemaDefaults.requiredArguments(tool.inputSchema()).path("doc_id").asText())
+                .isEqualTo("test");
+    }
+
+    @Test
     void numericArgumentsKeepANumericOwnedValue() throws Exception {
         McpToolDefinition tool = OwnedArguments.apply(new McpToolDefinition("get_document", "", SCHEMA),
                 Map.of("page", "7"));
@@ -44,5 +53,18 @@ class OwnedArgumentsTest {
         assertThat(OwnedArguments.apply(plain, Map.of("doc_id", "x"))).isSameAs(plain);
         assertThat(OwnedArguments.apply(broken, Map.of("doc_id", "x"))).isSameAs(broken);
         assertThat(OwnedArguments.apply(plain, Map.of())).isSameAs(plain);
+    }
+
+    @Test
+    void anObjectArrayArgumentGetsTheOwnedArrayFittedToItsItemSchema() throws Exception {
+        String schema = "{\"type\":\"object\",\"properties\":{\"files\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
+                + "\"properties\":{\"path\":{\"type\":[\"string\",\"null\"]},\"mimeType\":{\"type\":[\"string\",\"null\"]},"
+                + "\"url\":{\"type\":[\"string\",\"null\"]}}}}},\"required\":[\"files\"]}";
+
+        McpToolDefinition tool = OwnedArguments.apply(new McpToolDefinition("readAttachment", "", schema),
+                Map.of("files", "[{\"path\":\"download/a.txt\",\"mimetype\":\"text/plain\",\"id\":\"x\"}]"));
+
+        assertThat(JsonSchemaDefaults.requiredArguments(tool.inputSchema()).path("files")).isEqualTo(McpObjectMapper.INSTANCE
+                .readTree("[{\"path\":\"download/a.txt\",\"mimeType\":\"text/plain\",\"url\":null}]"));
     }
 }

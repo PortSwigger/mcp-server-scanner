@@ -3,6 +3,7 @@ package com.mcpscanner.ui;
 import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.scan.CredentialedHeaders;
+import com.mcpscanner.scan.OutcomeReportingScan;
 import com.mcpscanner.scan.RunningScan;
 import com.mcpscanner.scan.ScanConnection;
 import com.mcpscanner.scan.ScanInventory;
@@ -46,7 +47,7 @@ final class ScanLaunchPresenter {
     private final Component parent;
     private final Host host;
     private final DestructiveScanGate destructiveScans;
-    private final PlannedRequestCounts plannedCounts;
+    private final PlannedRequestCounts<PlannedRequests> plannedCounts;
     private Consumer<List<McpToolDefinition>> confirmedWrites = tools -> { };
     private LaunchGate launchGate = LaunchGate.DIRECT;
     private boolean inFlight;
@@ -59,7 +60,7 @@ final class ScanLaunchPresenter {
         this.host = host;
         this.destructiveScans = new DestructiveScanGate(deps.configStore(), deps.destructiveScanPrompt(),
                 () -> ScanModeText.of(deps.scanModeSetting().current()).invoker());
-        this.plannedCounts = new PlannedRequestCounts(deps.uiReads());
+        this.plannedCounts = new PlannedRequestCounts<>(deps.uiReads());
     }
 
     void onRequestsCounted(Runnable listener) {
@@ -86,8 +87,8 @@ final class ScanLaunchPresenter {
         return new ItemScanner();
     }
 
-    Optional<Integer> plannedRequestCount(ScanInventory selection) {
-        return plannedCounts.count(selection, () -> planner.planSelection(selection).messages().size());
+    Optional<PlannedRequests> plannedRequests(ScanInventory selection) {
+        return plannedCounts.count(selection, () -> PlannedRequests.of(planner.planSelection(selection)));
     }
 
     void scanSelection(ScanInventory selection) {
@@ -100,7 +101,7 @@ final class ScanLaunchPresenter {
             deps.logging().logToError("Scan skipped: nothing to send");
             return;
         }
-        launch(scan, new ScanReadiness(true, selection, scan.messages().size()).summary());
+        launch(scan, new ScanReadiness(true, selection, PlannedRequests.of(scan)).summary());
     }
 
     private void launch(GeneratedScan scan, String summary) {
@@ -149,11 +150,11 @@ final class ScanLaunchPresenter {
             return new ScanReadiness(host.isConnected(), target.inventory(), plannedCount(target)).blocker();
         }
 
-        private Optional<Integer> plannedCount(ScanTarget target) {
+        private Optional<PlannedRequests> plannedCount(ScanTarget target) {
             if (!host.isConnected()) {
                 return Optional.empty();
             }
-            return plannedCounts.count(target, () -> planner.planItem(target).messages().size());
+            return plannedCounts.count(target, () -> PlannedRequests.of(planner.planItem(target)));
         }
 
         @Override
@@ -205,7 +206,9 @@ final class ScanLaunchPresenter {
 
         private void watch(RunningScan running) {
             latest = running;
-            running.whenFinished(outcome -> Edt.run(() -> reportEnded(running, outcome)));
+            if (running instanceof OutcomeReportingScan reporting) {
+                reporting.whenCompleted(outcome -> Edt.run(() -> reportEnded(running, outcome)));
+            }
         }
 
         private void reportEnded(RunningScan running, ScanOutcome outcome) {

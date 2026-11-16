@@ -3,6 +3,8 @@ package com.mcpscanner.checks.api.crossidentity;
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.mcpscanner.checks.shared.session.SessionHeaders;
+import com.mcpscanner.mcp.HeaderMutation;
+import com.mcpscanner.mcp.ScannerSentinels;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,9 +36,14 @@ public final class OpenedSessions {
 
     private static void delete(Http http, HttpRequest inSession) {
         try {
-            http.sendRequest(inSession.withMethod(DELETE).withRemovedHeader(CONTENT_TYPE).withBody(""));
+            http.sendRequest(directDelete(inSession));
         } catch (RuntimeException unreachable) {
             return;
         }
+    }
+
+    private static HttpRequest directDelete(HttpRequest inSession) {
+        return HeaderMutation.apply(inSession, ScannerSentinels.ALL, ScannerSentinels.directDeliveryOnly())
+                .withMethod(DELETE).withRemovedHeader(CONTENT_TYPE).withBody("");
     }
 }

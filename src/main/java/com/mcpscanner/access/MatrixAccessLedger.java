@@ -37,6 +37,11 @@ public final class MatrixAccessLedger implements AccessLedger {
     }
 
     @Override
+    public void recordNotCompared(AccessItemKey item, String reason) {
+        matrix.recordNotCompared(item, reason);
+    }
+
+    @Override
     public boolean permitsReplay(AccessItemKey item) {
         return item.kind() == AccessItemKey.Kind.RESOURCE || knownRead(item) || confirmations.confirmed(item.name());
     }

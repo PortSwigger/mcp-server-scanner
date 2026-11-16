@@ -24,10 +24,7 @@ final class FileTraversalDescriptor {
             AuditIssueConfidence.FIRM,
             true,
             List.of(
-                    "https://portswigger.net/web-security/file-path-traversal",
-                    "https://owasp.org/www-community/attacks/Path_Traversal",
-                    "https://nvd.nist.gov/vuln/detail/CVE-2025-53110",
-                    "https://nvd.nist.gov/vuln/detail/CVE-2025-5273"),
+                    "https://portswigger.net/web-security/file-path-traversal"),
             "MCP tools, resources and prompts often take file paths from the client. When the server does not "
                     + "confine a path to its intended root, a client can read arbitrary files on the server host.",
             List.of(new Cwe(22, "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')")));

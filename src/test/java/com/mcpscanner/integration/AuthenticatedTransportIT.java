@@ -222,7 +222,8 @@ class AuthenticatedTransportIT {
                         new com.mcpscanner.scan.EngineScans(mock(com.mcpscanner.engine.McpScanEngine.class),
                                 new com.mcpscanner.scan.ScanLabels(com.mcpscanner.scan.FixedConnectionFacts.NONE,
                                         new com.mcpscanner.mcp.McpRequestNames())), () -> { }),
-                new com.mcpscanner.scan.RunningScans(McpEventLog.noop()));
+                new com.mcpscanner.scan.RunningScans(McpEventLog.noop(),
+                        mock(burp.api.montoya.burpsuite.BurpSuite.class, org.mockito.Answers.RETURNS_DEEP_STUBS)));
         var tool = new com.mcpscanner.mcp.McpToolDefinition("protected_echo", "fixture",
                 "{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}}}");
         launcher.captureScan(com.mcpscanner.scan.ScanMode.MCP_AND_BURP, session.resolvedEndpoint(),

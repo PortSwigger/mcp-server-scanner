@@ -8,20 +8,21 @@ import com.mcpscanner.checks.api.Principal;
 import javax.swing.table.AbstractTableModel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiConsumer;
 
 final class AccessTableModel extends AbstractTableModel {
 
     private final BiConsumer<AccessItemKey, AccessExpectation> expectationEdits;
-    private List<AccessColumn> columns = columnsFor(List.of());
+    private List<AccessColumn> columns = columnsFor(List.of(), Set.of());
     private List<AccessRow> rows = List.of();
 
     AccessTableModel(BiConsumer<AccessItemKey, AccessExpectation> expectationEdits) {
         this.expectationEdits = expectationEdits;
     }
 
-    void show(List<Principal> principals, List<AccessRow> visibleRows) {
-        List<AccessColumn> next = columnsFor(principals);
+    void show(List<Principal> principals, List<AccessRow> visibleRows, Set<String> usersWithoutIds) {
+        List<AccessColumn> next = columnsFor(principals, usersWithoutIds);
         boolean structureChanged = !next.equals(columns);
         columns = next;
         rows = List.copyOf(visibleRows);
@@ -38,6 +39,10 @@ final class AccessTableModel extends AbstractTableModel {
 
     AccessColumn columnAt(int index) {
         return columns.get(index);
+    }
+
+    int expectationColumn() {
+        return columns.size() - 1;
     }
 
     @Override
@@ -77,10 +82,11 @@ final class AccessTableModel extends AbstractTableModel {
         }
     }
 
-    private static List<AccessColumn> columnsFor(List<Principal> principals) {
+    private static List<AccessColumn> columnsFor(List<Principal> principals, Set<String> usersWithoutIds) {
         List<AccessColumn> columns = new ArrayList<>();
         columns.add(new AccessColumn.Item());
-        principals.forEach(principal -> columns.add(new AccessColumn.Identity(principal)));
+        principals.forEach(principal -> columns.add(
+                new AccessColumn.Identity(principal, usersWithoutIds.contains(principal.id()))));
         columns.add(new AccessColumn.Anonymous());
         columns.add(new AccessColumn.Expectation());
         return columns;

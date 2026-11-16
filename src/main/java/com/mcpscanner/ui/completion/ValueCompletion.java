@@ -1,5 +1,6 @@
 package com.mcpscanner.ui.completion;
 
+import com.mcpscanner.ui.widgets.DialogOwner;
 import com.mcpscanner.client.McpClientManager;
 import com.mcpscanner.ui.detail.RowMenu;
 
@@ -24,9 +25,10 @@ public final class ValueCompletion implements CompletionMenus {
         this.dialogs = Objects.requireNonNull(dialogs, "dialogs");
     }
 
-    public static ValueCompletion forClient(McpClientManager clientManager, BooleanSupplier connectedInUi) {
+    public static ValueCompletion forClient(McpClientManager clientManager, BooleanSupplier connectedInUi,
+                                            DialogOwner owner) {
         return new ValueCompletion(new ClientCompletionGateway(clientManager, connectedInUi),
-                new SwingWorkerBackgroundText(), new SwingCompletionDialogs());
+                new SwingWorkerBackgroundText(), new SwingCompletionDialogs(owner));
     }
 
     @Override

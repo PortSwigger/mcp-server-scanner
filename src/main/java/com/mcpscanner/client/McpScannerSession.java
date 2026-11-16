@@ -343,7 +343,7 @@ public class McpScannerSession implements ConnectedEndpoint, McpOperationFraming
         if (transportType() != TransportType.SSE || target == null) {
             return Optional.empty();
         }
-        return Optional.of(headers -> sseBringUp.openProbeStream(target, headers));
+        return Optional.of(SseProbeStreams.at(target, headers -> sseBringUp.openProbeStream(target, headers)));
     }
 
     public String sseUrl() {

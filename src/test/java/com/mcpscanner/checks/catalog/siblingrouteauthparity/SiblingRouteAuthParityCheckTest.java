@@ -6,6 +6,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import com.mcpscanner.auth.BearerTokenAuthStrategy;
 import com.mcpscanner.checks.api.CheckKind;
+import com.mcpscanner.checks.api.HostAudits;
 import com.mcpscanner.checks.issue.IssueRating;
 import com.mcpscanner.checks.shared.auth.CatalogAccess;
 import com.mcpscanner.checks.shared.probe.SimulatedMcpServer;
@@ -267,6 +268,32 @@ class SiblingRouteAuthParityCheckTest {
         assertThat(check(Optional.empty()).audit(base, server.http())).singleElement()
                 .satisfies(issue -> assertThat(issue.detail()).contains("/messages"));
     }
+
+    @Test
+    void triesTheNextListingWhenTheFirstOneCarriesNoCatalogToCompare() {
+        SimulatedMcpServer server = SimulatedMcpServer.enforcing().withUnguardedPath("/messages");
+        HttpRequestResponse emptyListing = server.exchange(request(RESOURCES_LIST, AUTHENTICATED));
+        HttpRequestResponse toolsListing = server.exchange(request(toolsList(), AUTHENTICATED));
+        HostAudits audits = new HostAudits(check(Optional.empty()));
+
+        assertThat(audits.audit(emptyListing, server.http())).isEmpty();
+        assertThat(audits.audit(toolsListing, server.http())).singleElement()
+                .satisfies(issue -> assertThat(issue.detail()).contains("/messages"));
+    }
+
+    @Test
+    void settlesOnTheFirstListingThatCarriesACatalog() {
+        SimulatedMcpServer server = SimulatedMcpServer.enforcing();
+        HostAudits audits = new HostAudits(check(Optional.empty()));
+
+        audits.audit(server.exchange(request(toolsList(), AUTHENTICATED)), server.http());
+        int sentForTheFirstListing = server.received().size();
+        audits.audit(server.exchange(request(toolsList(), AUTHENTICATED)), server.http());
+
+        assertThat(server.received()).hasSize(sentForTheFirstListing + 1);
+    }
+
+    private static final String RESOURCES_LIST = "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"resources/list\",\"params\":{}}";
 
     private static HttpRequestResponse exchange(HttpRequest request) {
         return SimulatedMcpServer.enforcing().exchange(request);

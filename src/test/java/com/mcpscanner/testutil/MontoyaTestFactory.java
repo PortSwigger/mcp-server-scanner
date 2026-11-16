@@ -375,6 +375,16 @@ public final class MontoyaTestFactory {
         lenient().when(response.headerValue(anyString()))
                 .thenAnswer(inv -> headers.get((String) inv.getArgument(0)));
         lenient().when(response.headers()).thenReturn(headerList);
+        lenient().when(response.hasHeader(anyString())).thenAnswer(inv -> headers.containsKey((String) inv.getArgument(0)));
+        lenient().when(response.withRemovedHeaders(anyList())).thenAnswer(inv -> {
+            java.util.Set<String> removed = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            ((java.util.List<HttpHeader>) inv.getArgument(0)).forEach(header -> removed.add(header.name()));
+            String kept = java.util.Arrays.stream(lines).skip(1)
+                    .filter(line -> !removed.contains(line.split(":", 2)[0].trim()))
+                    .map(line -> line + "\r\n").collect(java.util.stream.Collectors.joining());
+            String rest = raw.contains("\r\n\r\n") ? raw.split("\r\n\r\n", 2)[1] : "";
+            return buildHttpResponseMock(lines[0] + "\r\n" + kept + "\r\n" + rest);
+        });
         return response;
     }
 

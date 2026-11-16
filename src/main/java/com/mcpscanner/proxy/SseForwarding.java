@@ -3,6 +3,7 @@ package com.mcpscanner.proxy;
 import com.mcpscanner.client.HttpAuthResponses;
 import com.mcpscanner.client.McpScannerSession;
 import com.mcpscanner.mcp.McpHeaders;
+import com.mcpscanner.mcp.McpRequestDetector;
 import com.mcpscanner.core.connection.ConnectionAuthException;
 import com.mcpscanner.core.connection.OperationRecovery;
 import com.mcpscanner.core.connection.RecoveryResult;
@@ -47,7 +48,17 @@ final class SseForwarding implements ForwardingStrategy {
         if (audit.status() == AuditProvenance.Status.MANUAL) {
             return sessions.forwardIsolated(audit.connection(), headers, body, headers);
         }
+        if (McpRequestDetector.isInitializeBody(body)) {
+            return forwardOnAStreamOfItsOwn(body, headers, audit);
+        }
         return forwardManaged(body, headers, audit);
+    }
+
+    private ProxyResponse forwardOnAStreamOfItsOwn(String body, Map<String, String> headers, AuditRequest audit)
+            throws IOException, InterruptedException {
+        Map<String, String> sessionHeaders = sessions.managed(audit.connection()).headers();
+        return sessions.forwardIsolated(audit.connection(), sessionHeaders, body,
+                operation(headers, sessionHeaders, audit.isManaged()).headers());
     }
 
     private ProxyResponse forwardOnLiveStream(String body, Map<String, String> headers, AuditRequest audit)

@@ -10,7 +10,7 @@ EXPECTED = {
     "origin_admission", "host_admission",
     "traversal_plain", "traversal_encoded", "traversal_prefix_sibling",
     "shell_command_injection", "blind_shell_command_injection", "python_eval_injection",
-    "javascript_eval_injection",
+    "javascript_eval_injection", "sql_table_injection", "sql_literal_injection",
     "fetch_tool_arguments", "fetch_resource_uri", "fetch_list_cursor", "fetch_meta", "fetch_client_info",
     "fetch_headers", "fetch_oauth_client_metadata",
     "downstream_route_escape", "downstream_raw_segment", "downstream_encoded_dot_segment",

@@ -3,6 +3,7 @@ package com.mcpscanner.ui.access;
 import com.mcpscanner.access.AccessFixtures;
 import com.mcpscanner.access.AccessMatrix;
 import com.mcpscanner.access.AccessRow;
+import com.mcpscanner.checks.api.AccessExpectation;
 import com.mcpscanner.checks.api.AccessFinding;
 import com.mcpscanner.checks.api.AccessOutcome;
 import com.mcpscanner.checks.api.Principal;
@@ -17,6 +18,7 @@ import java.util.Optional;
 
 import static com.mcpscanner.access.AccessFixtures.ALICE;
 import static com.mcpscanner.access.AccessFixtures.BOB;
+import static com.mcpscanner.access.AccessFixtures.CAROL;
 import static com.mcpscanner.access.AccessFixtures.readOnlyTool;
 import static com.mcpscanner.access.AccessFixtures.toolKey;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -132,6 +134,74 @@ class AccessDetailTextTest {
         assertThat(AccessDetailText.describe(row(matrix), new AccessColumn.Item()))
                 .contains("No identity reaches it against the expectation. 1 issue reported in Burp's site map. "
                         + "1 possible leak to confirm with a private marker.");
+    }
+
+    @Test
+    void aNotComparedCellNamesTheReasonInTheDetailAndTooltip() {
+        AccessMatrix matrix = notCompared("Primary's own call returned isError: sql parameter cannot be empty");
+
+        assertThat(identityDetail(matrix, BOB))
+                .contains("Not compared: Primary's own call returned isError: sql parameter cannot be empty.")
+                .doesNotContain("gave no stable result");
+        assertThat(AccessDetailText.describe(row(matrix), new AccessColumn.Anonymous())).contains(
+                "Not compared without credentials: Primary's own call returned isError: sql parameter cannot be "
+                        + "empty.");
+        assertThat(AccessCellRenderer.tooltip("— not compared", Optional.of(row(matrix).cell(BOB.id()))))
+                .isEqualTo("— not compared: Primary's own call returned isError: sql parameter cannot be empty");
+    }
+
+    @Test
+    void theReasonOnlyAttachesToNotComparedCells() {
+        AccessMatrix matrix = everyoneListsSearch(BOB);
+        matrix.record(toolKey("search"), BOB.id(), AccessOutcome.NOT_RUN);
+        matrix.recordAnonymous(toolKey("search"), AccessOutcome.ERROR);
+        matrix.recordNotCompared(toolKey("search"), "the call without credentials got no response");
+
+        assertThat(row(matrix).cell(BOB.id()).notComparedReason()).isPresent();
+        assertThat(row(matrix).anonymous().notComparedReason()).isEmpty();
+    }
+
+    @Test
+    void aLaterComparisonClearsTheReason() {
+        AccessMatrix matrix = notCompared("Primary's own call got no response");
+
+        matrix.recordAnonymous(toolKey("search"), AccessOutcome.REFUSED);
+        matrix.record(toolKey("search"), BOB.id(), AccessOutcome.SAME_RESULT);
+
+        assertThat(row(matrix).cell(BOB.id()).notComparedReason()).isEmpty();
+    }
+
+    @Test
+    void aLowerUserGettingTheOwnersResultUnderAnInferredExpectationAsksWhetherThatIsAllowed() {
+        AccessMatrix matrix = everyoneListsSearch(CAROL);
+        matrix.record(toolKey("search"), CAROL.id(), AccessOutcome.SAME_RESULT);
+        AccessRow row = row(matrix);
+
+        assertThat(row.inferred()).isTrue();
+        assertThat(AccessCellText.identity(row, CAROL))
+                .contains("? same result as Primary — allowed? Set Who should reach it");
+        assertThat(identityDetail(matrix, CAROL)).contains("Same result as Primary — allowed? carol is lower "
+                + "privilege and the expectation is only inferred.");
+    }
+
+    @Test
+    void aSetExpectationOrAPeerUserIsNotQuestioned() {
+        AccessMatrix peer = everyoneListsSearch(BOB);
+        peer.record(toolKey("search"), BOB.id(), AccessOutcome.SAME_RESULT);
+        AccessMatrix set = everyoneListsSearch(CAROL);
+        set.setExpectation(toolKey("search"), AccessExpectation.ANY_SIGNED_IN);
+        set.record(toolKey("search"), CAROL.id(), AccessOutcome.SAME_RESULT);
+
+        assertThat(AccessCellText.identity(row(peer), BOB)).doesNotContain("allowed?");
+        assertThat(AccessCellText.identity(row(set), CAROL)).doesNotContain("allowed?");
+    }
+
+    private static AccessMatrix notCompared(String reason) {
+        AccessMatrix matrix = everyoneListsSearch(BOB);
+        matrix.record(toolKey("search"), BOB.id(), AccessOutcome.NOT_RUN);
+        matrix.recordAnonymous(toolKey("search"), AccessOutcome.NOT_RUN);
+        matrix.recordNotCompared(toolKey("search"), reason);
+        return matrix;
     }
 
     private static AccessMatrix everyoneListsSearch(Principal compared) {

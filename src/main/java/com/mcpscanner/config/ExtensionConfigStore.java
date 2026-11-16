@@ -8,8 +8,10 @@ import com.mcpscanner.mcp.McpObjectMapper;
 import com.mcpscanner.core.oauth.RegistrationMode;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
@@ -61,6 +63,7 @@ public final class ExtensionConfigStore {
 
     private final PersistedObject store;
     private final Logging logging;
+    private final Map<String, String> dcrManagementTokens = new ConcurrentHashMap<>();
     private final List<Runnable> settingsChangeListeners = new CopyOnWriteArrayList<>();
     private final List<Runnable> endpointChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -68,6 +71,7 @@ public final class ExtensionConfigStore {
         this.store = store;
         this.logging = logging;
         migrateRegistrationMode();
+        deleteDcrManagementTokensSavedByOlderVersions();
     }
 
     public ClientIdentity clientIdentity() {
@@ -160,7 +164,7 @@ public final class ExtensionConfigStore {
         } else if (cap.accepts(value)) {
             store.setLong(cap.key(), value);
         } else {
-            throw new IllegalArgumentException(cap.label() + " must be between 1 and " + cap.maxValue());
+            throw new IllegalArgumentException(cap.label() + " must be between " + cap.minValue() + " and " + cap.maxValue());
         }
         notifySettingsChanged();
     }
@@ -300,11 +304,20 @@ public final class ExtensionConfigStore {
     }
 
     public String dcrRegistrationManagementToken(String issuer) {
-        return readString(dcrRegTokenKey(issuer));
+        return dcrManagementTokens.get(dcrRegTokenKey(issuer).canonical());
     }
 
     public void setDcrRegistrationManagementToken(String issuer, String value) {
-        store.setString(dcrRegTokenKey(issuer).canonical(), value);
+        dcrManagementTokens.put(dcrRegTokenKey(issuer).canonical(), value);
+    }
+
+    private void deleteDcrManagementTokensSavedByOlderVersions() {
+        store.stringKeys().stream().filter(ExtensionConfigStore::isDcrRegTokenKey).toList()
+                .forEach(store::deleteString);
+    }
+
+    private static boolean isDcrRegTokenKey(String key) {
+        return key.startsWith(KEY_DCR_PREFIX) && key.endsWith(KEY_DCR_REG_TOKEN_SUFFIX);
     }
 
     public String dcrRegistrationClientUri(String issuer) {

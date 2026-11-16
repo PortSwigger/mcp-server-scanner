@@ -22,7 +22,8 @@ record SseSessionContext(HttpClient httpClient,
                          Duration handshakeTimeout,
                          ServerPings serverPings,
                          UpstreamCaptures captures,
-                         LegacySseRoutes legacySseRoutes) {
+                         LegacySseRoutes legacySseRoutes,
+                         MalformedRequestWaits malformedRequestWaits) {
 
     static final Duration DEFAULT_RESPONSE_TIMEOUT = Duration.ofSeconds(30);
     static final Duration DEFAULT_HANDSHAKE_TIMEOUT = Duration.ofSeconds(5);
@@ -39,5 +40,6 @@ record SseSessionContext(HttpClient httpClient,
         Objects.requireNonNull(serverPings, "serverPings");
         Objects.requireNonNull(captures, "captures");
         Objects.requireNonNull(legacySseRoutes, "legacySseRoutes");
+        Objects.requireNonNull(malformedRequestWaits, "malformedRequestWaits");
     }
 }

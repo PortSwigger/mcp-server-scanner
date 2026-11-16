@@ -13,7 +13,8 @@ final class OutboundRequestDescriptor {
     static final CheckDescriptor DESCRIPTOR = new CheckDescriptor(
             "outbound-request",
             "MCP outbound request",
-            "Places a unique Burp Collaborator host, as an absolute URL and as a bare host, in every MCP request "
+            "Places a unique Burp Collaborator host, as an absolute URL, as a bare host, in command-line flag shapes "
+                    + "and, in a URL value, after the value's own host (to pass prefix allowlists), in every MCP request "
                     + "field and header one at a time, and in the URL fields of OAuth client registration and "
                     + "authorization requests, then reports when the server resolves or requests that host.",
             CheckKind.INSERTION_POINT,

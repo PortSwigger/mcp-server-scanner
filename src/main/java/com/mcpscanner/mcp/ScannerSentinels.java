@@ -41,7 +41,7 @@ public final class ScannerSentinels {
             AUDIT_CAPABILITY_HEADER, STRIP_AUTH_HEADER, IDENTITY_HEADER, KEEP_SESSION_HEADER, ROUTED_HEADER);
 
     public static final Set<String> ALL = withStrippedBeforeUpstream(
-            DIRECT_DELIVERY_HEADER, GENERATED_REGISTRATION_HEADER);
+            DIRECT_DELIVERY_HEADER, GENERATED_REGISTRATION_HEADER, EXCHANGE_HEADER);
 
     private ScannerSentinels() {}
 

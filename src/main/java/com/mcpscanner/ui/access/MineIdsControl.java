@@ -13,7 +13,6 @@ import com.mcpscanner.ui.widgets.Edt;
 import com.mcpscanner.ui.widgets.PrimaryActionButton;
 import com.mcpscanner.ui.widgets.ThemeColors;
 import com.mcpscanner.ui.widgets.WrapLayout;
-import com.mcpscanner.ui.widgets.WrappingText;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -43,6 +42,7 @@ final class MineIdsControl extends JPanel {
     private final Runnable storeChanged = () -> Edt.run(this::minedValuesChanged);
     private final MiningConsent consent;
     private final WriteCallApproval approval;
+    private final Runnable reportChanged;
     private final List<Runnable> queued = new ArrayList<>();
     private Optional<MiningReport> lastReport = Optional.empty();
     private Set<String> reportedHolders = Set.of();
@@ -52,15 +52,16 @@ final class MineIdsControl extends JPanel {
     private final JSpinner passes;
     private final WriteToolOptInControl writeTools;
     private final JCheckBox minedInWriteTools = new JCheckBox(MINED_IN_WRITE_TOOLS);
-    private final WrappingText report = new WrappingText("").muted();
 
-    MineIdsControl(MiningServices services, MiningConsent consent, WriteCallApproval approval) {
+    MineIdsControl(MiningServices services, MiningConsent consent, WriteCallApproval approval,
+                   Runnable reportChanged) {
         super(new BorderLayout());
         this.mining = services.mining();
         this.store = services.ownedValues();
         this.users = services.users();
         this.consent = consent;
         this.approval = approval;
+        this.reportChanged = reportChanged;
         this.passes = new JSpinner(new SpinnerNumberModel(mining.preferences().passes(), MiningSettings.MIN_PASSES,
                 MiningSettings.MAX_PASSES, 1));
         this.writeTools = new WriteToolOptInControl(mining, services.dialogs(), this);
@@ -75,7 +76,6 @@ final class MineIdsControl extends JPanel {
                 mining.preferences().setMinedIdsInWriteTools(minedInWriteTools.isSelected()));
         progress.setForeground(ThemeColors.muted());
         add(controls(), BorderLayout.NORTH);
-        add(report, BorderLayout.CENTER);
         store.addListener(storeChanged);
         refresh();
     }
@@ -100,6 +100,10 @@ final class MineIdsControl extends JPanel {
 
     Optional<MiningReport> lastReport() {
         return lastReport;
+    }
+
+    Set<String> usersWithoutIds() {
+        return lastReport.map(MiningReport::usersWithoutIds).orElse(Set.of());
     }
 
     private void confirmThenMine() {
@@ -142,10 +146,6 @@ final class MineIdsControl extends JPanel {
         return writeTools;
     }
 
-    WrappingText report() {
-        return report;
-    }
-
     private JPanel controls() {
         JPanel row = new JPanel(new WrapLayout(FlowLayout.LEADING, 8, 4));
         row.add(mine);
@@ -177,7 +177,7 @@ final class MineIdsControl extends JPanel {
     private void clearReport() {
         lastReport = Optional.empty();
         reportedHolders = Set.of();
-        report.setText("");
+        reportChanged.run();
     }
 
     private Set<String> minedHolders() {
@@ -188,22 +188,14 @@ final class MineIdsControl extends JPanel {
     private void finish(MiningReport finished) {
         lastReport = Optional.of(finished);
         reportedHolders = minedHolders();
-        showReport(finished);
+        progress.setText(finished.summary());
+        refresh();
+        reportChanged.run();
         List<Runnable> continuations = List.copyOf(queued);
         queued.clear();
         if (finished.stop().completed()) {
             continuations.forEach(Runnable::run);
         }
-    }
-
-    private void showReport(MiningReport finished) {
-        progress.setText(finished.summary());
-        report.setText(String.join("\n", lines(finished)));
-        refresh();
-    }
-
-    private static List<String> lines(MiningReport finished) {
-        return finished.warnings().stream().map(warning -> "⚠ " + warning).toList();
     }
 
     private final class Progress implements MiningListener {

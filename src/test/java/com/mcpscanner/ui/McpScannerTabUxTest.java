@@ -9,7 +9,7 @@ import com.mcpscanner.mcp.McpResourceDefinition;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.mcp.ServerMetadata;
 import com.mcpscanner.mcp.ToolAnnotations;
-import com.mcpscanner.scan.RunningScan;
+import com.mcpscanner.scan.OutcomeReportingScan;
 import com.mcpscanner.scan.ScanActivity;
 import com.mcpscanner.scan.ScanInventory;
 import com.mcpscanner.scan.ScanMode;
@@ -244,11 +244,11 @@ class McpScannerTabUxTest {
     @Test
     void finishedScanReplacesTheStartedStatusWithItsIssueCount() throws Exception {
         AtomicReference<Consumer<ScanOutcome>> finish = new AtomicReference<>();
-        RunningScan running = mock(RunningScan.class);
+        OutcomeReportingScan running = mock(OutcomeReportingScan.class);
         doAnswer(call -> {
             finish.set(call.getArgument(0));
             return null;
-        }).when(running).whenFinished(any());
+        }).when(running).whenCompleted(any());
         when(fixture.scanLauncher.launchScan(any(ScanMode.class), anyString(), any(GeneratedScan.class), anyMap()))
                 .thenReturn(running);
         McpScannerTab tab = fixture.connected(inventory(List.of(READ_ONLY), List.of(), List.of()));

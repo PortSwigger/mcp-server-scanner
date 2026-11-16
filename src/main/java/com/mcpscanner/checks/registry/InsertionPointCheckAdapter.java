@@ -36,8 +36,16 @@ public final class InsertionPointCheckAdapter extends McpCheckAdapter<InsertionP
     public InsertionPointCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, InsertionPointCheck check,
                 CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
                 ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices) {
+        this(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                auditNotices, ProbeCalls.NONE);
+    }
+
+    public InsertionPointCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, InsertionPointCheck check,
+                CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
+                ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices,
+                ProbeCalls probeCalls) {
         super(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
-                auditNotices);
+                auditNotices, probeCalls);
     }
 
     @Override

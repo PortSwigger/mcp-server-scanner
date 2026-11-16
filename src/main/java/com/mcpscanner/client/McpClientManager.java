@@ -18,6 +18,8 @@ import java.util.function.ToLongFunction;
 
 public class McpClientManager {
 
+    public static final String CONNECTION_LOST = "Connection lost: the MCP session ended";
+
     private static final String COMPLETIONS_CAPABILITY = "completions";
     private static final String NOT_CONNECTED = "Not connected to an MCP server";
 
@@ -28,6 +30,7 @@ public class McpClientManager {
     private volatile ServerMetadata serverMetadata = ServerMetadata.empty();
     private volatile boolean connected;
     private final CopyOnWriteArrayList<Runnable> disconnectListeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Runnable> connectionLostListeners = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Consumer<PrimaryConnection>> connectListeners = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Consumer<List<McpToolDefinition>>> knownToolsListeners =
             new CopyOnWriteArrayList<>();
@@ -172,6 +175,24 @@ public class McpClientManager {
         }
     }
 
+
+    public void addConnectionLostListener(Runnable listener) {
+        connectionLostListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
+    public void connectionLost() {
+        if (!connected) {
+            return;
+        }
+        for (Runnable listener : connectionLostListeners) {
+            try {
+                listener.run();
+            } catch (Exception e) {
+                eventLog.warn("Connection-lost listener failed: " + e.getMessage());
+            }
+        }
+        disconnect();
+    }
 
     public void addDisconnectListener(Runnable listener) {
         if (listener != null) {

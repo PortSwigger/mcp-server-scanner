@@ -46,7 +46,7 @@ class ScanBarRequestsAndPausedTasksTest {
 
         onEdt(() -> {
             assertThat(scanButton(tab).isEnabled()).isTrue();
-            assertThat(scanButton(tab).getText()).isEqualTo("Scan 1 request");
+            assertThat(scanButton(tab).getText()).isEqualTo("Scan 1 protocol request");
             scanButton(tab).doClick();
         });
 
@@ -56,7 +56,7 @@ class ScanBarRequestsAndPausedTasksTest {
         assertThat(scan.getValue().messages()).extracting(message -> message.family())
                 .containsExactly(RequestFamily.PING);
         await().atMost(ofSeconds(5)).untilAsserted(() -> onEdt(() ->
-                assertThat(statusText(tab)).startsWith("Scan started: 1 request")));
+                assertThat(statusText(tab)).startsWith("Scan started: 1 protocol request")));
     }
 
     @Test
@@ -116,7 +116,7 @@ class ScanBarRequestsAndPausedTasksTest {
         onEdt(() -> scanButton(tab).doClick());
 
         await().atMost(ofSeconds(5)).untilAsserted(() -> onEdt(() -> assertThat(statusText(tab))
-                .startsWith("Scan queued: 1 request")
+                .startsWith("Scan queued: 1 protocol request")
                 .contains("Burp task execution is paused")));
     }
 

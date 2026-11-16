@@ -11,7 +11,7 @@ Discovers MCP tools, resources, resource templates, and prompts, builds JSON-RPC
 - **Protocol and transports:** Auto detects modern `server/discover` HTTP, initialize-based Streamable HTTP, then legacy SSE. Explicit modes are available. A local proxy lets Burp's scanner consume `text/event-stream` replies.
 - **Auth:** each user has its own credentials: none, a bearer token, custom headers, or an OAuth 2.1 sign-in with PKCE. All OAuth users sign in through one shared OAuth client. It supports pre-registered clients, hosted Client ID Metadata Documents, and legacy dynamic client registration, with protected-resource and OAuth/OIDC authorization-server discovery.
 - **Access control between users:** scan as one user and compare what other users can list, call and read.
-- **Active checks:** 15 scan checks, listed under [Checks](#checks).
+- **Active checks:** 17 scan checks, listed under [Checks](#checks).
 
 Aimed at MCP server **operators** auditing their own deployments.
 
@@ -23,11 +23,13 @@ Each check has a toggle in the **Scan Checks** tab. Severity is the headline rat
 |---|---|---|
 | MCP unauthenticated request execution | per request | High |
 | MCP session binding across identities | per request (one probe per host and compared user) | High / Firm when another user's credential reads the owner's result on the owner's session and the owner's private marker confirms it; Medium / Tentative without the marker; Medium when another credential rebinds a session |
-| MCP Origin/Host admission | per host (retried until conclusive) | Medium |
+| MCP Origin/Host admission | per host (retried until conclusive) | Medium; High when CORS lets a foreign origin read the replies without credentials (or with cookies the server approves for it), Low with header credentials |
 | **MCP cross-client response leak** | per host (retried until conclusive) | High / Firm when concurrent clients sending the same JSON-RPC id receive each other's echoed tool results in every same-id round, and every distinct-id round stays clean |
-| MCP command injection (Collaborator-backed) | per field | High |
+| MCP command injection (Collaborator-backed) | per field | High; Medium / Tentative for argument injection, when a value is parsed as a command-line option |
 | MCP file path traversal | per field | High |
-| MCP outbound request (Collaborator-backed, including OAuth registration URL fields) | per field | Medium |
+| **MCP SQL injection** | per field (and each host or path segment of a URI value) | High / Firm when SQL-only syntax (a `--` line comment or backtick identifier quoting) and a second, independent syntax family each reproduce the baseline reply while a same-characters falsifier changes it, confirmed over three rounds; High / Tentative with one family. A field that runs whole SQL statements by design (a SQL console tool) is not reported |
+| MCP outbound request (Collaborator-backed, including payloads after a URL value's own host to pass prefix allowlists, and OAuth registration URL fields) | per field | Medium |
+| **MCP SSRF address filter bypass** (Collaborator-backed) | per field (URL argument of fetch, browse and scrape tools) | High / Firm when the reply to the loopback spelling contains the target's own page; High / Tentative when the spelling is only no longer refused and the same spelling of the Collaborator address is fetched |
 | MCP downstream route escape | per field | Information |
 | MCP JWT access token validation | per host | High |
 | MCP OAuth refresh grant validation | per host | Medium |
@@ -44,7 +46,7 @@ Each check has a toggle in the **Scan Checks** tab. Severity is the headline rat
 ./gradlew shadowJar
 ```
 
-Output: `build/libs/mcp-server-scanner-extension-2.0.0-all.jar`.
+Output: `build/libs/mcp-server-scanner-extension-2.1.2-all.jar`.
 
 Requires Java 17.
 
@@ -71,7 +73,7 @@ Each user can also have an optional **Private marker:** text only that user shou
 
 Each user also keeps **owned values**: argument names with that user's own ids, such as `documentId → 42`. Tools that take an object id need a real one. A made-up id fails for every user, so an access bug stays hidden. A value is either **entered** (typed in, or owned objects saved by an earlier version) or **collected** from the server's replies by **Collect IDs** in the Access tab, in which case it records the operation and field it came from and whether it is **private** to that user or **shared** with others. Owned values are saved in the Burp project, never with reply text or credentials, and collected ones can be removed with "Clear collected IDs…" for one user or all. For each argument a tool call uses the user's first entered value, else its first private collected value; shared values are never used as owned ids.
 
-After Connect, each compared user lists the server's tools and resources in its own MCP session. The **Access** tab shows what each user lists. After **Check access**, it also shows what each can call. Set **Who should reach it** per item, and mark items **Shared by design** to silence them.
+After Connect, each compared user lists the server's tools and resources in its own MCP session. The **Access** tab shows what each user lists. After **Check access**, it also shows what each can call. Set **Who should reach it** per item, and mark items **Anyone — same result for everyone** to silence them.
 
 Cross-user testing is **Check access**, not a scan check. Check access sends each item as its owner (with the owner's owned values in place of schema defaults, as Scan does), then as every compared user and anonymously, and reports:
 
@@ -121,11 +123,11 @@ This tool is designed for MCP server **operators** auditing their own deployment
 ## Known limitations
 
 - **Burp Suite Professional required**: every check runs through Burp's Scanner (active/passive audits), which Community Edition does not include. In Community the extension loads and can connect/discover, but no scan checks will run. There is no Community-compatible mode.
-- **Collaborator-backed checks**: within Professional, the command-injection check's out-of-band payloads and the outbound-request check require Burp Collaborator. Without Collaborator they produce no out-of-band findings.
+- **Collaborator-backed checks**: within Professional, the command-injection check's out-of-band payloads, the outbound-request check and the SSRF address filter bypass check require Burp Collaborator. Without Collaborator they produce no out-of-band findings.
 - **SSE proxy port**: the local SSE proxy binds to an ephemeral loopback port. Firewall or network policies that block loopback traffic will break SSE-transport scans.
 - **OAuth callback port**: the OAuth callback listener defaults to an ephemeral port (port 0). If your authorization server requires strict redirect-URI pre-registration, set a fixed callback port in the OAuth section before initiating the flow.
-- **Project file sensitivity**: tool toggles, the user list (without credentials), the shared OAuth client settings and dynamic-registration management tokens are persisted in the Burp project file. Treat the project file as sensitive and restrict access accordingly.
-- **Check access precision**: an object or tool every user may legitimately read (a global help tool, a team document) can show a possible finding on the Access grid. Mark it **Shared by design** in the Access tab. Replaying write tools as another identity needs the same confirmation as Scan.
+- **Project file sensitivity**: tool toggles, the user list and owned values (without credentials), the shared OAuth client settings and dynamic-registration client URIs are persisted in the Burp project file. Dynamic-registration management tokens stay in memory only, so **Copy management token** works until the extension unloads; tokens saved by earlier versions are deleted when the project loads. Treat the project file as sensitive and restrict access accordingly.
+- **Check access precision**: an object or tool every user may legitimately read (a global help tool, a team document) can show a possible finding on the Access grid. Set its **Who should reach it** to **Anyone — same result for everyone** in the Access tab. Replaying write tools as another identity needs the same confirmation as Scan.
 - **Auth-bypass check on SSE transport**: the SSE event stream remains authenticated while an operation POST is tested without credentials. An accepted POST therefore does not by itself prove that the server permits a fully unauthenticated session. The auth-bypass check is fully reliable on Streamable HTTP transport.
 
 ## Troubleshooting

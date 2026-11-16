@@ -64,6 +64,32 @@ class SseProxySharedRecoveryTest {
         }
     }
 
+    @Test
+    void scannedInitializeIsPostedOnAStreamOfItsOwnNotTheLiveOne() throws Exception {
+        try (Server server = new Server(Stage.OPERATION, 401, 0)) {
+            McpScannerSession scanner = scanner();
+            when(scanner.scannerHeaders()).thenReturn(Map.of("Authorization", "Bearer A"));
+            when(scanner.beginAuthOperation()).thenReturn(mock(OperationRecovery.class));
+            SseProxyServer proxy = TestSseProxies.builder(scanner).httpClient(server.client).build();
+            try {
+                assertThat(proxy.serve(request(proxy.auditHeaders(Map.of()))).getStatus().getRequestStatus())
+                        .isEqualTo(200);
+                int liveStreamRequests = server.requests.size();
+
+                var reply = proxy.serve(request(proxy.auditHeaders(Map.of()), "{\"jsonrpc\":\"2.0\",\"id\":7,"
+                        + "\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\","
+                        + "\"capabilities\":{\"sampling\":\"'\"},\"clientInfo\":{\"name\":\"x\",\"version\":\"1\"}}}"));
+
+                assertThat(reply.getStatus().getRequestStatus()).isEqualTo(200);
+                assertThat(server.opens).isEqualTo(2);
+                List<HttpRequest> scanned = server.requests.subList(liveStreamRequests, server.requests.size());
+                assertThat(scanned.get(0).method()).isEqualTo("GET");
+                assertThat(scanned).allSatisfy(sent -> assertThat(sent.headers().firstValue("Authorization"))
+                        .contains("Bearer A"));
+            } finally { proxy.stop(); }
+        }
+    }
+
     @ParameterizedTest
     @CsvSource({"OPEN,401", "OPEN,403", "INITIALIZE,401", "INITIALIZE,403",
             "INITIALIZED,401", "INITIALIZED,403", "OPERATION,401", "OPERATION,403"})

@@ -20,6 +20,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -48,18 +49,33 @@ class DownstreamRouteEscapeCheckTest {
         assertThat(check.descriptor().headlineSeverity()).isEqualTo(AuditIssueSeverity.INFORMATION);
         assertThat(check.descriptor().headlineConfidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
         assertThat(check.descriptor().cwes()).extracting(cwe -> cwe.id()).containsExactly(22);
-        assertThat(check.descriptor().references()).isNotEmpty();
+        assertThat(check.descriptor().references()).isEmpty();
         assertThat(check.requiresReply()).isTrue();
     }
 
     @Test
-    void baseCallThatFailedIsNotProbed() {
-        HttpRequestResponse base = base(TOOLS_CALL, Replies.toolError("missing id"));
+    void baseCallWithoutAReplyIsNotProbed() {
+        HttpRequestResponse base = base(TOOLS_CALL, Replies.noResponse());
 
         assertThat(check.audit(base, insertionPoint, http)).isEmpty();
         verifyNoInteractions(http);
         assertThat(skipLines()).singleElement().asString().startsWith("skipped field ")
-                .endsWith(" (prerequisite missing: the base call did not succeed)");
+                .endsWith(" (prerequisite missing: the server gave no reply to the base call)");
+    }
+
+    @Test
+    void baseCallThatTheServerRejectedIsStillProbedBecauseItsValueMayJustBeUnknown() {
+        HttpRequestResponse rejected = Replies.toolError("unexpected status code: 404");
+        HttpRequestResponse base = base(TOOLS_CALL, rejected);
+        when(insertionPoint.name()).thenReturn("MCP field: params.arguments.id");
+        when(insertionPoint.baseValue()).thenReturn("test");
+        when(http.sendRequest(any())).thenReturn(rejected);
+        HttpRequest probe = base.request();
+        when(insertionPoint.buildHttpRequestWithPayload(any())).thenReturn(probe);
+
+        assertThat(check.audit(base, insertionPoint, http)).isEmpty();
+
+        verify(http, atLeastOnce()).sendRequest(any());
     }
 
     @Test

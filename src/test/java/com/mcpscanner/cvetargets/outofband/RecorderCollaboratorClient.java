@@ -10,6 +10,7 @@ import burp.api.montoya.collaborator.SecretKey;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mcpscanner.checks.shared.collaborator.InteractionWindow;
 import com.mcpscanner.checks.shared.collaborator.InteractionWindowHint;
+import com.mcpscanner.cvetargets.environment.RecorderIdentity;
 import com.mcpscanner.mcp.McpObjectMapper;
 
 import java.io.IOException;
@@ -77,12 +78,12 @@ public final class RecorderCollaboratorClient implements CollaboratorClient, Int
         return new CollaboratorServer() {
             @Override
             public String address() {
-                return DOMAIN;
+                return RecorderIdentity.SHARED.address();
             }
 
             @Override
             public boolean isLiteralAddress() {
-                return false;
+                return true;
             }
         };
     }

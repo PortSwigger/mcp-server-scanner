@@ -8,4 +8,7 @@ public interface AccessOutcomeSink {
 
     default void recordFinding(AccessItemKey item, String principalId, AccessFinding finding) {
     }
+
+    default void recordNotCompared(AccessItemKey item, String reason) {
+    }
 }

@@ -104,7 +104,7 @@ class OriginHostAdmissionCheckTest {
                 admitting(hostIsCaptured().and(noForeignOrigin())));
 
         assertThat(check(NoAuthStrategy::new).audit(captured(toolsList(LOOPBACK_URL)), server.http)).isEmpty();
-        assertThat(server.received).hasSize(7);
+        assertThat(server.replays()).hasSize(7);
     }
 
     @ParameterizedTest
@@ -125,7 +125,7 @@ class OriginHostAdmissionCheckTest {
         AdmissionServers.Server open = new AdmissionServers.Server(request -> ok(TOOLS_RESULT));
 
         assertThat(check.audit(captured(toolsList(LOOPBACK_URL)), failing.http)).isEmpty();
-        assertThat(failing.received).hasSize(1);
+        assertThat(failing.replays()).hasSize(1);
         assertThat(check.audit(captured(toolsList(LOOPBACK_URL)), open.http)).hasSize(3);
     }
 
@@ -171,7 +171,7 @@ class OriginHostAdmissionCheckTest {
                 "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"prompts/list\"}")), server.http);
 
         assertThat(repeat).isEmpty();
-        assertThat(server.received).hasSize(7);
+        assertThat(server.replays()).hasSize(7);
     }
 
     @Test
@@ -182,7 +182,7 @@ class OriginHostAdmissionCheckTest {
         check.audit(captured(toolsList(LOOPBACK_URL)), safe.http);
         check.audit(captured(toolsList(LOOPBACK_URL)), safe.http);
 
-        assertThat(safe.received).hasSize(7);
+        assertThat(safe.replays()).hasSize(7);
     }
 
     @Test
@@ -212,8 +212,9 @@ class OriginHostAdmissionCheckTest {
 
         check(() -> new BearerTokenAuthStrategy("live")).audit(captured(toolsList(LOOPBACK_URL)), server.http);
 
-        assertThat(server.received).allSatisfy(request -> {
-            assertThat(request.hasHeader(ScannerSentinels.DIRECT_DELIVERY_HEADER)).isTrue();
+        assertThat(server.received).allSatisfy(request ->
+                assertThat(request.hasHeader(ScannerSentinels.DIRECT_DELIVERY_HEADER)).isTrue());
+        assertThat(server.replays()).allSatisfy(request -> {
             assertThat(request.headerValue("Authorization")).isEqualTo("Bearer live");
         });
     }
@@ -283,7 +284,7 @@ class OriginHostAdmissionCheckTest {
             check.audit(captured(toolsList(LOOPBACK_URL)), failing.http);
         }
 
-        assertThat(failing.received).hasSize(HostAudits.MAX_INCONCLUSIVE_ATTEMPTS + 2);
+        assertThat(failing.replays()).hasSize(HostAudits.MAX_INCONCLUSIVE_ATTEMPTS + 2);
         assertThat(check.audit(captured(toolsList(LOOPBACK_URL)), open.http)).hasSize(3);
     }
 
@@ -298,7 +299,7 @@ class OriginHostAdmissionCheckTest {
             check.audit(captured(toolsList(LOOPBACK_URL)), flaky.http);
         }
 
-        assertThat(flaky.received).hasSize(7 * HostAudits.MAX_INCONCLUSIVE_ATTEMPTS);
+        assertThat(flaky.replays()).hasSize(7 * HostAudits.MAX_INCONCLUSIVE_ATTEMPTS);
     }
 
     @Test
@@ -334,8 +335,8 @@ class OriginHostAdmissionCheckTest {
     }
 
     @Test
-    void theRequestTrialComesFirstAndTheEventStreamTrialSecond() {
-        assertThat(check(NoAuthStrategy::new).trials()).hasSize(2);
+    void theRequestTrialComesFirstThenTheEventStreamAndCorsTrials() {
+        assertThat(check(NoAuthStrategy::new).trials()).hasSize(3);
         assertThat(requestSettlementAgainst(new AdmissionServers.Server(request -> ok(TOOLS_RESULT))))
                 .isEqualTo(HostSettlement.SETTLED);
     }

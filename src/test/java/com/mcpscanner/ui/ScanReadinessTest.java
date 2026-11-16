@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,7 +23,7 @@ class ScanReadinessTest {
 
     @Test
     void disconnectedScanExplainsThatItNeedsAConnection() {
-        ScanReadiness readiness = new ScanReadiness(false, TWO_TOOLS_ONE_RESOURCE, 5);
+        ScanReadiness readiness = new ScanReadiness(false, TWO_TOOLS_ONE_RESOURCE, requests(5));
 
         assertThat(readiness.blocker()).contains("Connect to an MCP server first");
         assertThat(readiness.tooltip(ScanMode.MCP_ONLY)).isEqualTo("Connect to an MCP server first");
@@ -30,7 +31,7 @@ class ScanReadinessTest {
 
     @Test
     void connectedScanThatWouldSendNothingAsksForAnItemOrARequestFamily() {
-        ScanReadiness readiness = new ScanReadiness(true, ScanInventory.empty(), 0);
+        ScanReadiness readiness = new ScanReadiness(true, ScanInventory.empty(), requests(0));
 
         assertThat(readiness.blocker())
                 .contains("Tick a tool, resource, template or prompt, or turn on a request family under Requests");
@@ -40,20 +41,30 @@ class ScanReadinessTest {
 
     @ParameterizedTest
     @EnumSource(ScanMode.class)
-    void connectedScanWithNothingTickedStillSendsTheTickedRequestFamilies(ScanMode mode) {
-        ScanReadiness readiness = new ScanReadiness(true, ScanInventory.empty(), 3);
+    void connectedScanWithNothingTickedNamesTheProtocolRequestsItSends(ScanMode mode) {
+        ScanReadiness readiness = new ScanReadiness(true, ScanInventory.empty(),
+                requests("initialize", "ping", "tools/list"));
 
         assertThat(readiness.blocker()).isEmpty();
         assertThat(readiness.shortBlocker()).isEmpty();
-        assertThat(readiness.buttonLabel()).isEqualTo("Scan 3 requests");
-        assertThat(readiness.summary()).isEqualTo("3 requests");
-        assertThat(readiness.tooltip(mode))
-                .isEqualTo("Send 3 requests (no items ticked) with " + ScanModeText.of(mode).label());
+        assertThat(readiness.buttonLabel()).isEqualTo("Scan 3 protocol requests");
+        assertThat(readiness.summary()).isEqualTo("3 protocol requests");
+        assertThat(readiness.tooltip(mode)).isEqualTo("Send 3 protocol requests with " + ScanModeText.of(mode).label()
+                + ": initialize, ping, tools/list. No items are ticked, so no tool, resource or prompt is called."
+                + " Choose these under Requests.");
+    }
+
+    @Test
+    void repeatedProtocolRequestsAreNamedOnce() {
+        ScanReadiness readiness = new ScanReadiness(true, ScanInventory.empty(),
+                requests("resources/subscribe", "resources/subscribe"));
+
+        assertThat(readiness.tooltip(ScanMode.MCP_ONLY)).contains(": resources/subscribe. ");
     }
 
     @Test
     void tickedItemsThatWouldSendNothingAreBlocked() {
-        ScanReadiness readiness = new ScanReadiness(true, TWO_TOOLS_ONE_RESOURCE, 0);
+        ScanReadiness readiness = new ScanReadiness(true, TWO_TOOLS_ONE_RESOURCE, requests(0));
 
         assertThat(readiness.blocker()).isPresent();
         assertThat(readiness.buttonLabel()).isEqualTo("Scan");
@@ -62,7 +73,7 @@ class ScanReadinessTest {
     @ParameterizedTest
     @EnumSource(ScanMode.class)
     void readyScanNamesWhatWillBeScannedAndTheMode(ScanMode mode) {
-        ScanReadiness readiness = new ScanReadiness(true, TWO_TOOLS_ONE_RESOURCE, 5);
+        ScanReadiness readiness = new ScanReadiness(true, TWO_TOOLS_ONE_RESOURCE, requests(5));
 
         assertThat(readiness.blocker()).isEmpty();
         assertThat(readiness.buttonLabel()).isEqualTo("Scan 3 items");
@@ -102,5 +113,13 @@ class ScanReadinessTest {
         ScanReadiness readiness = new ScanReadiness(false, TWO_TOOLS_ONE_RESOURCE, Optional.empty());
 
         assertThat(readiness.blocker()).contains("Connect to an MCP server first");
+    }
+
+    private static PlannedRequests requests(String... subjects) {
+        return new PlannedRequests(List.of(subjects));
+    }
+
+    private static PlannedRequests requests(int count) {
+        return new PlannedRequests(Collections.nCopies(count, "tools/call"));
     }
 }

@@ -6,13 +6,14 @@ import com.mcpscanner.mcp.McpToolDefinition;
 
 import java.awt.Component;
 import java.util.List;
-import java.util.OptionalLong;
+import java.util.Optional;
+import java.util.Set;
 
 final class MiningConsent {
 
     private final AccessMining mining;
     private final MiningDialogs dialogs;
-    private OptionalLong confirmedConnection = OptionalLong.empty();
+    private Optional<Consent> given = Optional.empty();
 
     MiningConsent(AccessMining mining, MiningDialogs dialogs) {
         this.mining = mining;
@@ -20,32 +21,41 @@ final class MiningConsent {
     }
 
     boolean confirmMining(Component parent) {
-        if (confirmed() || dialogs.confirmMining(parent, toolsToCall())) {
-            record();
-            return true;
+        ToolsToCall tools = toolsToCall();
+        if (needsConsent(tools) && !dialogs.confirmMining(parent, tools)) {
+            return false;
         }
-        return false;
+        record(tools);
+        return true;
     }
 
     MineFirstChoice mineFirst(Component parent) {
-        MineFirstChoice choice = dialogs.mineFirst(parent, toolsToCall());
+        ToolsToCall tools = toolsToCall();
+        MineFirstChoice choice = dialogs.mineFirst(parent, tools);
         if (choice == MineFirstChoice.MINE) {
-            record();
+            record(tools);
         }
         return choice;
     }
 
-    List<String> toolsToCall() {
+    ToolsToCall toolsToCall() {
         List<McpToolDefinition> tools = mining.tools();
         ToolGate gate = new ToolGate(mining.preferences().settings(tools).allowedTools());
-        return tools.stream().filter(gate::mayCall).map(McpToolDefinition::name).toList();
+        return ToolsToCall.of(tools.stream().filter(gate::mayCall).toList());
     }
 
-    private boolean confirmed() {
-        return confirmedConnection.equals(OptionalLong.of(mining.connection()));
+    private boolean needsConsent(ToolsToCall tools) {
+        return tools.writes() && given.filter(consent -> consent.covers(mining.connection(), tools)).isEmpty();
     }
 
-    private void record() {
-        confirmedConnection = OptionalLong.of(mining.connection());
+    private void record(ToolsToCall tools) {
+        given = Optional.of(new Consent(mining.connection(), Set.copyOf(tools.mayWrite())));
+    }
+
+    private record Consent(long connection, Set<String> writeTools) {
+
+        boolean covers(long current, ToolsToCall tools) {
+            return connection == current && writeTools.containsAll(tools.mayWrite());
+        }
     }
 }

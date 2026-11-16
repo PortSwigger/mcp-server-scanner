@@ -1,3 +1,4 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import com.github.jengelman.gradle.plugins.shadow.transformers.ApacheNoticeResourceTransformer
 import com.github.jengelman.gradle.plugins.shadow.transformers.AppendingTransformer
 
@@ -6,7 +7,7 @@ plugins {
     id 'com.gradleup.shadow' version '8.3.5'
 }
 
-version = '2.0.0'
+version = '2.1.2'
 
 // Jackson databind + core ship at 2.21.3 in the BOM; jackson-annotations is published as 2.21
 // (no patch suffix) by upstream as of the 2.21 line — these are the matched coordinates.
@@ -60,9 +61,23 @@ dependencies {
     testImplementation 'org.assertj:assertj-core:3.26.0'
     testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.1'
     testImplementation 'org.awaitility:awaitility:4.3.0'
+    testImplementation 'org.xerial:sqlite-jdbc:3.53.4.0'
 }
 
-shadowJar {
+// The test automation (a loopback control API for the headless-Burp harness) lives in its own source set
+// so the release JAR never contains it; McpScannerExtension finds it through ServiceLoader when present.
+sourceSets {
+    automation {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+    test {
+        compileClasspath += sourceSets.automation.output
+        runtimeClasspath += sourceSets.automation.output
+    }
+}
+
+def extensionJar = {
     // Relocate third-party libraries to a project-specific namespace so this extension
     // does not collide with other Burp extensions that ship different versions of the
     // same libraries in the same classloader.
@@ -101,6 +116,40 @@ shadowJar {
     }
 }
 
+tasks.named('shadowJar').configure(extensionJar)
+
+tasks.register('harnessJar', ShadowJar) {
+    description = 'The release JAR plus the test automation, loaded by the headless-Burp harness (cveTargetsBurp, burpCanary).'
+    group = 'build'
+    configure(it, extensionJar)
+    archiveClassifier = 'harness'
+    from sourceSets.main.output, sourceSets.automation.output
+    configurations = [project.configurations.runtimeClasspath]
+    exclude 'META-INF/INDEX.LIST', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'module-info.class'
+}
+
+def automationEntries = ['com/mcpscanner/automation/', 'com/mcpscanner/TestAutomationWiring',
+                         'META-INF/services/com.mcpscanner.ExtensionAutomation']
+
+tasks.register('releaseJarExcludesAutomation') {
+    description = 'Fails if the release JAR contains any of the test automation.'
+    group = 'verification'
+    def releaseJar = tasks.named('shadowJar').flatMap { it.archiveFile }
+    inputs.file(releaseJar)
+    doLast {
+        def found = new java.util.zip.ZipFile(releaseJar.get().asFile).withCloseable { zip ->
+            zip.entries().toList()*.name.findAll { name -> automationEntries.any { name.startsWith(it) } }
+        }
+        if (!found.isEmpty()) {
+            throw new GradleException("The release JAR contains test automation: ${found.take(5)}")
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'releaseJarExcludesAutomation'
+}
+
 tasks.jar.enabled = false
 
 tasks.withType(Test).configureEach {
@@ -115,7 +164,7 @@ tasks.named('test') {
 }
 
 tasks.register('slowLinkTest', Test) {
-    description = 'Times Connect, Check access and an extension scan against the test-server through a 100 ms one-way delay relay. Needs uv.'
+    description = 'Times Connect, Check access, Collect IDs and an extension scan against the test-server through a 100 ms one-way delay relay. Needs uv.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
@@ -181,8 +230,8 @@ cveTargetTask('cveTargetsBurp', 'cve-target',
         'Runs the same CVE targets through headless Burp Suite Professional with the extension loaded. Select with -Pcheck, -Ptarget, -Psmoke and -PburpConfig=extensions-only|with-builtins; -PallChecks brings each target build up once and audits it with every check.',
         "cveTargetsBurp/${burpConfig}${allChecks ? '-all-checks' : ''}")
 def headlessBurp = { Test task, String workDirectory ->
-    task.dependsOn tasks.named('shadowJar')
-    task.systemProperty 'cveTargets.burp.extensionJar', tasks.named('shadowJar').get().archiveFile.get().asFile.absolutePath
+    task.dependsOn tasks.named('harnessJar')
+    task.systemProperty 'cveTargets.burp.extensionJar', tasks.named('harnessJar').get().archiveFile.get().asFile.absolutePath
     task.systemProperty 'cveTargets.burp.work', layout.buildDirectory.dir(workDirectory).get().asFile.absolutePath
     ['burpJar': 'jar', 'burpJava': 'java', 'burpHeap': 'heap', 'burpNetworking': 'networking',
      'burpQuietSeconds': 'quietSeconds', 'burpStartupSeconds': 'startupSeconds',

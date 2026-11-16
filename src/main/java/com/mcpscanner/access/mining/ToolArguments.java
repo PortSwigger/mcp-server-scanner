@@ -18,7 +18,7 @@ record ToolArguments(McpToolDefinition tool, List<ArgumentSlot> slots) {
         properties(tool).fields().forEachRemaining(property -> {
             if (!SecretName.matches(property.getKey())) {
                 slots.add(new ArgumentSlot(property.getKey(), Aliases.ofArgument(property.getKey(), tool.name()),
-                        SlotType.of(property.getValue())));
+                        SlotType.of(property.getValue()), property.getValue()));
             }
         });
         return new ToolArguments(tool, slots);

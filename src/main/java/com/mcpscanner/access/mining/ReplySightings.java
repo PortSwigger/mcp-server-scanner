@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 final class ReplySightings {
 
@@ -22,27 +23,31 @@ final class ReplySightings {
         this.listings = new ListedResources(catalog);
     }
 
-    List<Sighting> stable(MiningCall call, MiningReply first, MiningReply second) {
-        List<Sighting> repeated = of(call, second);
-        return of(call, first).stream()
+    List<Sighting> stable(MiningCall call, MiningReply first, MiningReply second, OwnerEvidence owner) {
+        List<Sighting> repeated = of(call, second, owner);
+        return of(call, first, owner).stream()
                 .filter(sighting -> repeated.stream().anyMatch(sighting::sameAs))
                 .toList();
     }
 
-    private List<Sighting> of(MiningCall call, MiningReply reply) {
+    private List<Sighting> of(MiningCall call, MiningReply reply, OwnerEvidence owner) {
         if (!reply.usable()) {
             return List.of();
         }
         return call instanceof MiningCall.ResourceListing ? listings.sightings(call, reply.result())
-                : fields(call, reply);
+                : fields(call, reply, owner);
     }
 
-    private List<Sighting> fields(MiningCall call, MiningReply reply) {
-        return ReplyLeaves.of(reply.result()).stream()
+    private List<Sighting> fields(MiningCall call, MiningReply reply, OwnerEvidence owner) {
+        ReplyEchoes echoes = new ReplyEchoes(call, reply.result());
+        return Stream.concat(
+                        ReplyLeaves.of(reply.result()).stream().filter(field -> IdShape.idShaped(field.leaf().value())
+                                && !SecretValue.matches(field.leaf().value())),
+                        ReplyArrays.of(reply.result()).stream())
+                .filter(field -> !echoes.isNoise(field))
                 .filter(field -> !PAGINATION_KEYS.contains(Aliases.normalise(field.key())))
                 .filter(field -> !SecretName.matches(field.key()) && !SecretName.matches(field.parentKey()))
-                .filter(field -> IdShape.idShaped(field.leaf().value()))
-                .map(field -> sighting(call, field))
+                .map(field -> sighting(call, field, owner))
                 .filter(sighting -> !sighting.arguments().isEmpty())
                 .toList();
     }
@@ -60,10 +65,10 @@ final class ReplySightings {
         return WRAPPED_RESULT.equals(field.key()) && field.parentKey() == null;
     }
 
-    private Sighting sighting(MiningCall call, ReplyField field) {
+    private Sighting sighting(MiningCall call, ReplyField field, OwnerEvidence owner) {
         Set<String> aliases = aliases(call, field);
         JsonNode value = field.leaf().value();
-        return new Sighting(value, aliases, catalog.argumentsTaking(aliases, value), call.operation(),
-                field.path(), Sighting.Kind.REPLY_FIELD);
+        return new Sighting(catalog.storedForm(aliases, value), aliases, catalog.argumentsTaking(aliases, value),
+                call.operation(), field.path(), Sighting.Kind.REPLY_FIELD, owner.attributes(field));
     }
 }

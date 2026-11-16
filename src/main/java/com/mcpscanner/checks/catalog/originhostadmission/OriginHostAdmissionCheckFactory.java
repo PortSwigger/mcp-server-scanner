@@ -13,8 +13,9 @@ public final class OriginHostAdmissionCheckFactory implements CheckFactory {
     @Override
     public McpCheck create(CheckServices services) {
         ProbeSessions probeSessions = new ProbeSessions(services.authStrategy());
+        JdkStreamOpener streamOpener = new JdkStreamOpener(services.eventLog());
         return new OriginHostAdmissionCheck(services.eventLog(), new CredentialHeaders(services.authStrategy()),
-                services.probeService(),
-                new FreshSessionStreams(probeSessions, new JdkStreamOpener(services.eventLog())), probeSessions);
+                services.probeService(), new FreshSessionStreams(probeSessions, streamOpener), probeSessions,
+                services.sseProbeStreams(), streamOpener);
     }
 }

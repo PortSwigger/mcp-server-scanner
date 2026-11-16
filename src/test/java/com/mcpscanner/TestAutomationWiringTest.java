@@ -146,12 +146,12 @@ class TestAutomationWiringTest {
 
         assertThat(report.statusCode()).as(report.body()).isEqualTo(200);
         verify(http).sendRequest(any(HttpRequest.class));
-        verify(http, times(2)).sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1), eq("mcp-scanner"));
+        verify(http, times(2)).sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1), eq("mcp-scanner-http://127.0.0.1:9"));
     }
 
     @Test
     void switchedOffStartsNoAutomationServer() {
-        new McpScannerExtension(new TestAutomationSwitch(name -> null)).initialize(api);
+        new McpScannerExtension(new TestAutomationWiring(new TestAutomationSwitch(name -> null))).initialize(api);
 
         verify(http, org.mockito.Mockito.never()).registerHttpHandler(any(BuiltInTrafficSink.class));
         verify(api.logging(), org.mockito.Mockito.never())
@@ -159,7 +159,7 @@ class TestAutomationWiringTest {
     }
 
     private int initializeWithAutomation() {
-        new McpScannerExtension(new TestAutomationSwitch(Map.of(TestAutomationSwitch.PORT_PROPERTY, "0")::get))
+        new McpScannerExtension(new TestAutomationWiring(new TestAutomationSwitch(Map.of(TestAutomationSwitch.PORT_PROPERTY, "0")::get)))
                 .initialize(api);
         ArgumentCaptor<String> output = ArgumentCaptor.forClass(String.class);
         verify(api.logging(), atLeastOnce()).logToOutput(output.capture());

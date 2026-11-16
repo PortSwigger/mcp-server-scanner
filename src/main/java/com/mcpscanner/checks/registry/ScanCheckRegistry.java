@@ -42,10 +42,18 @@ public final class ScanCheckRegistry {
     public ScanCheckRegistry(CheckCatalog catalog, ScanCheckSettings settings, McpEventLog eventLog,
                              CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
                              ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop) {
+        this(catalog, settings, eventLog, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                ProbeCalls.NONE);
+    }
+
+    public ScanCheckRegistry(CheckCatalog catalog, ScanCheckSettings settings, McpEventLog eventLog,
+                             CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
+                             ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop,
+                             ProbeCalls probeCalls) {
         Objects.requireNonNull(catalog, "catalog must not be null");
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
         McpCheckAdapters adapters = new McpCheckAdapters(settings, eventLog, instrumentation, upstreamExchanges,
-                connectionReuse, issuesBurpWouldDrop, auditNotices);
+                connectionReuse, issuesBurpWouldDrop, auditNotices, probeCalls);
         this.checks = catalog.all().stream().<McpCheckAdapter<?>>map(adapters::adapt).toList();
     }
 

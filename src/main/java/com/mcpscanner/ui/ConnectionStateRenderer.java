@@ -22,7 +22,7 @@ final class ConnectionStateRenderer {
 
         Optional<String> connectBlocker();
 
-        Optional<Integer> plannedRequestCount(ScanInventory selection);
+        Optional<PlannedRequests> plannedRequests(ScanInventory selection);
 
         void forgetPlannedCounts();
     }
@@ -138,7 +138,7 @@ final class ConnectionStateRenderer {
 
     private ScanReadiness scanReadiness() {
         ScanInventory selection = views.inventory().selection();
-        Optional<Integer> requests = host.isConnected() ? host.plannedRequestCount(selection) : Optional.empty();
+        Optional<PlannedRequests> requests = host.isConnected() ? host.plannedRequests(selection) : Optional.empty();
         return new ScanReadiness(host.isConnected(), selection, requests);
     }
 

@@ -133,7 +133,7 @@ public final class BurpProtocolHttpTransport implements ProtocolHttpTransport, A
     }
 
     private static IOException noResponse(ProtocolHttpRequest request, Duration timeout) {
-        return new IOException("No response from " + request.uri() + " through Burp: the connection or TLS handshake"
+        return new BurpNoResponseException("No response from " + request.uri() + " through Burp: the connection or TLS handshake"
                 + " failed, or no complete reply arrived within " + readable(timeout)
                 + " (for example, the server kept its reply stream open after answering)."
                 + " If the server waits for a ping answer before replying, turn off \"" + BurpNetworkingSetting.NAME

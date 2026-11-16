@@ -106,7 +106,7 @@ public final class OutboundRequestCheck implements InsertionPointCheck, Connecti
     private void probe(HttpRequestResponse base, AuditInsertionPoint insertionPoint, ProbedField field, Http http) {
         ConfirmedFields connectionFields = confirmed.get();
         List<SentProbe> sent = probes.send(insertionPoint, http);
-        if (sent.size() < ProbeForm.values().length) {
+        if (sent.size() < FieldProbes.applicable(insertionPoint).size()) {
             log.notRun(SkipSubject.field(base, insertionPoint), NO_PAYLOAD);
         }
         if (sent.isEmpty()) {
@@ -117,7 +117,7 @@ public final class OutboundRequestCheck implements InsertionPointCheck, Connecti
     }
 
     private SentProbe kept(SentProbe probe) {
-        return new SentProbe(probe.form(), probe.payload(), watch.kept(probe.exchange()));
+        return new SentProbe(probe.form(), probe.value(), probe.payload(), watch.kept(probe.exchange()));
     }
 
     private void report(OutboundFinding finding, ProbedField field) {

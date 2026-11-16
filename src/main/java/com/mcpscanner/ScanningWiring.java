@@ -9,10 +9,12 @@ import com.mcpscanner.checks.registry.IssueDestination;
 import com.mcpscanner.checks.registry.LateIssueRouter;
 import com.mcpscanner.checks.registry.ScanCheckRegistry;
 import com.mcpscanner.checks.shared.scancontext.ScanContext;
+import com.mcpscanner.client.McpClientManager;
 import com.mcpscanner.client.McpScannerSession;
 import com.mcpscanner.engine.McpScanEngine;
 import com.mcpscanner.engine.ScanCredit;
 import com.mcpscanner.identity.IdentityRegistry;
+import com.mcpscanner.identity.discovery.PreComparisonDiscovery;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.access.mining.MinedValueRule;
 import com.mcpscanner.access.mining.MiningPreferences;
@@ -61,15 +63,18 @@ record ScanningWiring(CurrentAuthHolder authHolder,
         CheckCatalog catalog = CheckCatalog.discover(
                 checkServices(foundation, connection.scannerSession(), access, lateIssues));
         ScanCheckRegistry checkRegistry = new ScanCheckRegistry(catalog, foundation.checkSettings(), foundation.eventLog(),
-                instrumentation, connection.upstreamExchanges(), connection.connectionReuse(), siteMap);
+                instrumentation, connection.upstreamExchanges(), connection.connectionReuse(), siteMap,
+                new AddedLeafProbeCalls(fields.addedArguments()));
         lateIssues.routeThrough(checkRegistry);
         checkRegistry.registerWith(api.scanner()::registerActiveScanCheck);
         ScanMessageRenderer renderer = requestRenderer(connection);
         EngineScans engineScans = engineScans(engine, foundation.identities(), connection.scannerSession());
+        McpScanLauncher scanLauncher = scanLauncher(api, foundation, connection, fields, engineScans,
+                launchRenderer.apply(renderer), checkRegistry::auditStarting, access.preComparisonDiscovery());
+        connection.clientManager().addConnectionLostListener(
+                () -> scanLauncher.failRunningScans(McpClientManager.CONNECTION_LOST));
         return new ScanningWiring(authHolder, catalog, checkRegistry, fields.generationSettings(),
-                new ScanModeSetting(foundation.configStore()), renderer,
-                scanLauncher(api, foundation, connection, fields, engineScans, launchRenderer.apply(renderer),
-                        checkRegistry::auditStarting),
+                new ScanModeSetting(foundation.configStore()), renderer, scanLauncher,
                 new SendToConnectionPolicy(foundation.configStore()::handleSendToAuthentication,
                         connection.sseProxy()::captureScanConnection, connection.scannerSession()::scannerHeaders),
                 foundation.identities(), scanOwnerArguments(foundation.identities(), foundation.configStore()),
@@ -95,12 +100,12 @@ record ScanningWiring(CurrentAuthHolder authHolder,
     private static McpScanLauncher scanLauncher(MontoyaApi api, ExtensionFoundation foundation,
                                                 ConnectionWiring connection, ScanFieldWiring fields,
                                                 EngineScans engineScans, ScanMessageRenderer renderer,
-                                                Runnable auditStarting) {
+                                                Runnable auditStarting, PreComparisonDiscovery discovery) {
         McpEventLog eventLog = foundation.eventLog();
         return new McpScanLauncher(api.logging(), renderer, connection.sseProxy()::captureScanConnection,
-                fields.templateExpansions(), ScanDestinations.of(api.scanner(), api.burpSuite(), eventLog, engineScans,
+                fields.templateExpansions(), fields.addedArguments(), ScanDestinations.of(api.scanner(), api.burpSuite(), eventLog, engineScans,
                         auditStarting),
-                new RunningScans(eventLog));
+                new RunningScans(eventLog, api.burpSuite()), discovery);
     }
 
     private static CheckServices checkServices(ExtensionFoundation foundation, McpScannerSession session,
@@ -114,6 +119,10 @@ record ScanningWiring(CurrentAuthHolder authHolder,
         return new ScanRequestRenderer(new McpHttpRequestFactory(connection.scannerSession()::nextRequestId,
                 connection.operationFramer())::build,
                 new ClientRegistrationRequestFactory());
+    }
+
+    void addShutdownHooks(ShutdownHooks shutdown) {
+        shutdown.add("Scan end poller", scanLauncher::shutdown);
     }
 
     List<Runnable> sessionResets() {

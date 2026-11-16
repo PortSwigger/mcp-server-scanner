@@ -18,6 +18,7 @@ import com.mcpscanner.checks.api.crossidentity.AbsentValues;
 import com.mcpscanner.checks.api.crossidentity.ComparedPrincipals;
 import com.mcpscanner.checks.api.crossidentity.DecisionLog;
 import com.mcpscanner.checks.api.crossidentity.OpenedSessions;
+import com.mcpscanner.checks.api.crossidentity.IssuedSession;
 import com.mcpscanner.checks.api.crossidentity.OperationSeed;
 import com.mcpscanner.checks.api.crossidentity.ReplayedOperation;
 import com.mcpscanner.checks.api.crossidentity.OwnerSelection;
@@ -34,7 +35,9 @@ import java.util.function.Supplier;
 
 public final class SessionBindingCheck implements RequestCheck, ConnectionScoped {
 
-    private static final SkipReason STATELESS = SkipReason.notApplicable("the request carries no Mcp-Session-Id");
+    private static final SkipReason STATELESS = SkipReason.notApplicable("the server issues no Mcp-Session-Id");
+    private static final SkipReason OWNER_INITIALIZE_FAILED =
+            SkipReason.transportFailure("the owner's initialize was refused or got no reply, so no probe session could be opened");
     private static final SkipReason EVERY_IDENTITY_PROBED = SkipReason.alreadyAudited("every compared identity was already probed on this host");
 
     private final CheckLog log;
@@ -86,11 +89,6 @@ public final class SessionBindingCheck implements RequestCheck, ConnectionScoped
     }
 
     private boolean applicable(OperationSeed seed, DecisionLog decisions) {
-        if (!seed.stateful()) {
-            decisions.record("session_binding:skipped_stateless_transport");
-            decisions.notRun(STATELESS);
-            return false;
-        }
         if (!replayPermission.permitsReplay(seed.item())) {
             decisions.record("write_replay_not_confirmed");
             decisions.notRun(ReplaySkips.WRITE_REPLAY_NOT_CONFIRMED);
@@ -114,9 +112,15 @@ public final class SessionBindingCheck implements RequestCheck, ConnectionScoped
             return List.of();
         }
         OpenedSessions opened = new OpenedSessions();
-        ProbeKit kit = ProbeKit.of(seed, owner, new PrincipalRequests(primaryAuth, roster),
-                new ProbeTransport(http, decisions), new AbsentValues(), decisions, opened);
+        PrincipalRequests requests = new PrincipalRequests(primaryAuth, roster);
+        ProbeTransport transport = new ProbeTransport(http, decisions);
         try {
+            IssuedSession<OperationSeed> sessioned = OwnerSession.of(seed, owner, requests, transport, opened);
+            if (sessioned.value().isEmpty()) {
+                return withoutOwnerSession(seed, claimed, decisions, sessioned.outcome());
+            }
+            ProbeKit kit = ProbeKit.of(sessioned.value().get(), owner, requests, transport, new AbsentValues(), decisions,
+                    opened);
             return settled(seed, new SessionBindingRun(kit, claimed).run());
         } catch (RuntimeException failure) {
             claims.releaseUnprobed(seed.request(), claimed);
@@ -124,6 +128,19 @@ public final class SessionBindingCheck implements RequestCheck, ConnectionScoped
         } finally {
             opened.deleteAll(http, seed.sessionId());
         }
+    }
+
+    private List<AuditIssue> withoutOwnerSession(OperationSeed seed, List<Principal> claimed,
+                                                 DecisionLog decisions, IssuedSession.Outcome outcome) {
+        claims.releaseUnprobed(seed.request(), claimed);
+        if (outcome == IssuedSession.Outcome.INITIALIZE_FAILED) {
+            decisions.record("session_binding:owner_initialize_failed");
+            decisions.notRun(OWNER_INITIALIZE_FAILED);
+        } else {
+            decisions.record("session_binding:skipped_stateless_transport");
+            decisions.notRun(STATELESS);
+        }
+        return List.of();
     }
 
     private List<AuditIssue> settled(OperationSeed seed, List<IdentityOutcome> outcomes) {

@@ -3,10 +3,12 @@ package com.mcpscanner.checks.shared.collaborator;
 import burp.api.montoya.collaborator.CollaboratorClient;
 import burp.api.montoya.collaborator.CollaboratorPayload;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import com.mcpscanner.checks.shared.scancontext.CurrentInvocation;
 import com.mcpscanner.checks.shared.scancontext.CurrentScan;
 import com.mcpscanner.http.TempFileCopies;
 import com.mcpscanner.logging.McpEventLog;
 
+import java.net.Inet4Address;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -20,12 +22,14 @@ public final class CollaboratorWatch {
     public static final Duration PENDING_LIFETIME = Duration.ofMinutes(15);
     public static final int MAX_PENDING = 10_000;
     private static final int SETTLE_GRACE_POLLS = 3;
+    private static final Duration SHORTEST_PAUSE = Duration.ofMillis(1);
 
     private final CollaboratorInteractions interactions;
     private final McpEventLog eventLog;
     private final WatchTicker ticker;
     private final WatchTiming timing;
     private final TempFileCopies copies;
+    private final CollaboratorServerAddress serverAddress = new CollaboratorServerAddress();
     private final List<WatchedProbe> watched = new ArrayList<>();
     private final Object tickLock = new Object();
     private boolean ticking;
@@ -58,6 +62,10 @@ public final class CollaboratorWatch {
         return interactions.available();
     }
 
+    public Optional<Inet4Address> serverIpv4() {
+        return serverAddress.ipv4(interactions.server());
+    }
+
     public HttpRequestResponse kept(HttpRequestResponse exchange) {
         return copies.kept(exchange);
     }
@@ -72,7 +80,8 @@ public final class CollaboratorWatch {
         }
         Instant now = timing.clock().instant();
         if (register(new WatchedProbe(payloads, listener, CurrentScan.get(), now.plus(window().settle()),
-                now.plus(PENDING_LIFETIME)))) {
+                now.plus(PENDING_LIFETIME),
+                CurrentInvocation.retainingBeyondInvocation()))) {
             startTicking();
         }
     }
@@ -93,12 +102,19 @@ public final class CollaboratorWatch {
         InteractionWindow window = window();
         Instant deadline = timing.clock().instant().plus(window.settle())
                 .plus(window.pollInterval().multipliedBy(SETTLE_GRACE_POLLS));
-        tickPolling(Duration.ZERO);
+        tick();
         while (!settled() && timing.clock().instant().isBefore(deadline)
                 && !Thread.currentThread().isInterrupted()) {
-            timing.pause().pause(window.pollInterval());
+            timing.pause().pause(untilNextPollOrDeadline(window, deadline));
             tick();
         }
+    }
+
+    private Duration untilNextPollOrDeadline(InteractionWindow window, Instant deadline) {
+        Duration untilPoll = interactions.untilPollDue(window.pollInterval());
+        Duration untilDeadline = Duration.between(timing.clock().instant(), deadline);
+        Duration wait = untilPoll.compareTo(untilDeadline) < 0 ? untilPoll : untilDeadline;
+        return wait.compareTo(SHORTEST_PAUSE) < 0 ? SHORTEST_PAUSE : wait;
     }
 
     public void shutdown() {
@@ -109,7 +125,14 @@ public final class CollaboratorWatch {
     }
 
     void tick() {
-        tickPolling(window().pollInterval());
+        synchronized (tickLock) {
+            Instant polledAt = timing.clock().instant();
+            if (watchedCount() > 0 && interactions.pollIfDue(window().pollInterval())) {
+                markSettledBy(polledAt);
+            }
+            current().forEach(this::deliverNews);
+            expire(timing.clock().instant());
+        }
     }
 
     private void tickSurvivingFailure() {
@@ -120,20 +143,10 @@ public final class CollaboratorWatch {
         }
     }
 
-    private void tickPolling(Duration minimumInterval) {
-        synchronized (tickLock) {
-            Instant polledAt = timing.clock().instant();
-            if (watchedCount() > 0 && interactions.pollIfDue(minimumInterval)) {
-                markSettledBy(polledAt);
-            }
-            current().forEach(this::deliverNews);
-            expire(timing.clock().instant());
-        }
-    }
-
     private synchronized boolean register(WatchedProbe probe) {
         if (stopped) {
             interactions.forget(probe.payloads());
+            probe.release();
             return false;
         }
         if (watched.size() >= MAX_PENDING) {
@@ -187,6 +200,7 @@ public final class CollaboratorWatch {
     private void discard(WatchedProbe probe) {
         watched.remove(probe);
         interactions.forget(probe.payloads());
+        probe.release();
     }
 
     private InteractionWindow window() {

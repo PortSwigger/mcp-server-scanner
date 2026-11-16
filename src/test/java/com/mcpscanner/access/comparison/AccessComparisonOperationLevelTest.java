@@ -1,5 +1,18 @@
 package com.mcpscanner.access.comparison;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mcpscanner.access.mining.AccessMiner;
+import com.mcpscanner.access.mining.MiningControl;
+import com.mcpscanner.access.mining.MiningReply;
+import com.mcpscanner.access.mining.MiningResult;
+import com.mcpscanner.access.mining.MiningSender;
+import com.mcpscanner.access.mining.MiningSettings;
+import com.mcpscanner.checks.api.OwnedObjects;
+import com.mcpscanner.identity.OwnedValues;
+import com.mcpscanner.mcp.McpObjectMapper;
+import com.mcpscanner.mcp.McpToolDefinition;
+import com.mcpscanner.mcp.ToolAnnotations;
+import com.mcpscanner.scan.ScanInventory;
 import com.mcpscanner.checks.api.crossidentity.FakeMcpTarget;
 import com.mcpscanner.checks.api.crossidentity.FakeReply;
 import com.mcpscanner.checks.api.crossidentity.FakeServers;
@@ -16,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -28,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AccessComparisonOperationLevelTest {
 
     private static final String OPERATION = FindingKind.OPERATION_AVAILABLE.issueName();
+    private static final String OPERATION_FOR_PEER = FindingKind.OPERATION_AVAILABLE.issueNameFor(PrincipalRole.PEER);
     private static final HttpRequest ADMIN_CALL = toolCall("admin_report", "{}", "A");
 
     @BeforeEach
@@ -55,7 +70,7 @@ class AccessComparisonOperationLevelTest {
     void expectationDecidesWhichRolesAreDisallowed(AccessExpectation expectation, PrincipalRole role, boolean fires) {
         var run = run(expectation, as("C", role), FakeServers.adminTool(false));
 
-        assertThat(run.issues().stream().anyMatch(issue -> issue.name().equals(OPERATION))).isEqualTo(fires);
+        assertThat(run.issues().stream().anyMatch(issue -> isOperationFinding(issue.name()))).isEqualTo(fires);
     }
 
     @ParameterizedTest
@@ -159,6 +174,48 @@ class AccessComparisonOperationLevelTest {
         assertThat(run.ledger().outcomes()).containsEntry("c", AccessOutcome.SAME_RESULT);
     }
 
+    @ParameterizedTest
+    @CsvSource({"ANY_SIGNED_IN,LOWER", "ANY_SIGNED_IN,PEER", "ANY_SIGNED_IN,HIGHER"})
+    void identityRefusedAtTheCapturedVersionButAcceptedAtTheLegacyVersionIsReportedWhateverIsExpected(
+            AccessExpectation expectation, PrincipalRole role) {
+        HttpRequest seed = ADMIN_CALL.withAddedHeader("MCP-Protocol-Version", "2025-11-25");
+
+        var run = new ComparisonHarness().with(as("C", role))
+                .ledger(new RecordingLedger().expecting(expectation).listing("c", true))
+                .run(FakeServers.versionDependentScope(false), seed);
+
+        assertThat(run.decisions()).contains("peer_replay:accepted_at_protocol_2024-11-05");
+        assertThat(run.issues()).singleElement().satisfies(issue -> {
+            assertThat(issue.name()).isEqualTo(FindingKind.OPERATION_AVAILABLE.issueNameFor(role));
+            assertThat(issue.detail()).contains("2024-11-05").contains("refused at the captured protocol version");
+            assertThat(issue.detail()).doesNotContain("expectation");
+        });
+        assertThat(run.ledger().outcomes()).containsEntry("c", AccessOutcome.SAME_RESULT);
+    }
+
+    @Test
+    void identityRefusedAtEveryProtocolVersionIsNotReportedWhateverIsExpected() {
+        HttpRequest seed = ADMIN_CALL.withAddedHeader("MCP-Protocol-Version", "2025-11-25");
+
+        var run = new ComparisonHarness().with(as("C", PrincipalRole.LOWER))
+                .ledger(new RecordingLedger().expecting(AccessExpectation.ANY_SIGNED_IN))
+                .run(FakeServers.versionDependentScope(true), seed);
+
+        assertThat(run.issues()).isEmpty();
+        assertThat(run.ledger().outcomes()).containsEntry("c", AccessOutcome.REFUSED);
+    }
+
+    @Test
+    void identityAcceptedAtTheLegacyVersionIsNotReportedWhenTheUserDeclaredTheItemShared() {
+        HttpRequest seed = ADMIN_CALL.withAddedHeader("MCP-Protocol-Version", "2025-11-25");
+
+        var run = new ComparisonHarness().with(as("C", PrincipalRole.LOWER))
+                .ledger(new RecordingLedger().expecting(AccessExpectation.SHARED_BY_DESIGN))
+                .run(FakeServers.versionDependentScope(false), seed);
+
+        assertThat(run.issues()).isEmpty();
+    }
+
     @Test
     void lowerIdentityAcceptedAtTheLegacyVersionIsNotReportedWhenAnonymousIsAlsoAccepted() {
         HttpRequest seed = ADMIN_CALL.withAddedHeader("MCP-Protocol-Version", "2025-11-25");
@@ -177,7 +234,7 @@ class AccessComparisonOperationLevelTest {
                 .ledger(new RecordingLedger().expecting(AccessExpectation.NOT_LOWER).listing("c", false))
                 .run(FakeServers.peerSeesOwnerMarker(), toolCall("get_note", "{\"id\":\"a1\"}", "A"));
 
-        assertThat(run.issues()).noneMatch(issue -> issue.name().equals(OPERATION));
+        assertThat(run.issues()).noneMatch(issue -> isOperationFinding(issue.name()));
         assertThat(run.ledger().outcomes()).containsEntry("c", AccessOutcome.DIFFERENT_RESULT);
     }
 
@@ -187,7 +244,7 @@ class AccessComparisonOperationLevelTest {
                 .ledger(new RecordingLedger().expecting(AccessExpectation.OWNER_ONLY))
                 .run(FakeServers.objectStore(true), toolCall("get_note", "{\"id\":\"a1\"}", "A"));
 
-        assertThat(run.issues()).singleElement().extracting(issue -> issue.name()).isEqualTo(OPERATION);
+        assertThat(run.issues()).singleElement().extracting(issue -> issue.name()).isEqualTo(OPERATION_FOR_PEER);
     }
 
     @Test
@@ -198,6 +255,57 @@ class AccessComparisonOperationLevelTest {
 
         assertThat(run.issues()).isEmpty();
         assertThat(run.ledger().outcomes()).containsEntry("b", AccessOutcome.SAME_RESULT);
+    }
+
+    @Test
+    void aServerSharedByDesignStaysSilentWhenCollectIdsHasMinedItForBothUsers() {
+        Principal owner = withMarker(Principal.PRIMARY_ID, PrincipalRole.PRIMARY, "ALICE_ONLY_MARKER");
+        Principal peer = withMarker("b", PrincipalRole.PEER, "BOB_ONLY_MARKER");
+        MiningResult mined = new AccessMiner(sharedCampaignsServer(), MiningSettings.defaults())
+                .mine(ScanInventory.toolsOnly(List.of(LIST_CAMPAIGNS, GET_TEMPLATE)), List.of(owner, peer),
+                        MiningControl.unattended());
+
+        var run = new ComparisonHarness().owner(withMinedValues(owner, mined)).with(withMinedValues(peer, mined))
+                .run(FakeServers.sharedTemplates(), toolCall("templates_get", "{\"template_id\":\"t2\"}", "A"));
+
+        assertThat(run.issues()).isEmpty();
+        assertThat(run.ledger().findings()).isEmpty();
+    }
+
+    private static Principal withMarker(String id, PrincipalRole role, String marker) {
+        return new Principal(id, id, role, Map::of, Optional.of(marker), Map.of());
+    }
+
+    private static Principal withMinedValues(Principal principal, MiningResult mined) {
+        OwnedObjects owned = OwnedValues.of(mined.of(principal.id()).orElseThrow().values())
+                .ownerArguments();
+        return new Principal(principal.id(), principal.name(), principal.role(), () -> Map.of("Authorization",
+                "Bearer " + (principal.role() == PrincipalRole.PRIMARY ? "A" : "B")), principal.privateMarker(), owned,
+                null);
+    }
+
+    private static MiningSender sharedCampaignsServer() {
+        String everything = "{\"campaigns\":[{\"id\":\"c-a\",\"name\":\"ALICE_ONLY_MARKER BOB_ONLY_MARKER\","
+                + "\"template_id\":\"t1\"},{\"id\":\"c-b\",\"name\":\"BOB_ONLY_MARKER\",\"template_id\":\"t1\"}]}";
+        return (identity, call) -> {
+            ObjectNode result = McpObjectMapper.INSTANCE.createObjectNode();
+            try {
+                result.set("structuredContent", McpObjectMapper.INSTANCE.readTree(everything));
+            } catch (Exception malformed) {
+                throw new IllegalStateException(malformed);
+            }
+            return MiningReply.of(200, result);
+        };
+    }
+
+    private static final McpToolDefinition LIST_CAMPAIGNS = readOnly("campaigns_list",
+            "{\"type\":\"object\",\"properties\":{}}");
+    private static final McpToolDefinition GET_TEMPLATE = readOnly("templates_get",
+            "{\"type\":\"object\",\"properties\":{\"template_id\":{\"type\":\"string\"}}}");
+
+    private static McpToolDefinition readOnly(String name, String inputSchema) {
+        return new McpToolDefinition(name, "", inputSchema, List.of(),
+                new ToolAnnotations(null, true, null, null, null));
     }
 
     @Test
@@ -235,6 +343,10 @@ class AccessComparisonOperationLevelTest {
                 .ledger(new RecordingLedger().expecting(AccessExpectation.OWNER_ONLY))
                 .run(FakeServers.processWideCache(), toolCall("list_orgs", "{}", "A").withAddedHeader("Mcp-Session-Id", "sess-A"));
 
-        assertThat(run.issues()).noneMatch(issue -> issue.name().equals(OPERATION));
+        assertThat(run.issues()).noneMatch(issue -> isOperationFinding(issue.name()));
+    }
+
+    private static boolean isOperationFinding(String name) {
+        return name.equals(OPERATION) || name.equals(OPERATION_FOR_PEER);
     }
 }

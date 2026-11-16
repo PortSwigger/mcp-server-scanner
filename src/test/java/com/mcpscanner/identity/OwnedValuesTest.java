@@ -88,6 +88,30 @@ class OwnedValuesTest {
     }
 
     @Test
+    void ownerArgumentsNeverTakeASharedValueJustBecauseItWasSeenFirst() {
+        OwnedValues values = OwnedValues.of(List.of(mined("id", "p-alice", ValueScope.SHARED),
+                mined("id", "p-bob", ValueScope.SHARED), mined("status", "draft", ValueScope.SHARED)));
+
+        assertThat(values.ownerArguments().isEmpty()).isTrue();
+    }
+
+    @Test
+    void ownerArgumentsTakeAValueTheOwnersReplyAttributesToThem() {
+        OwnedValues values = OwnedValues.of(List.of(mined("id", "c-bob", ValueScope.SHARED),
+                mined("id", "c-alice", ValueScope.ATTRIBUTED)));
+
+        assertThat(values.ownerArguments().all()).containsExactly(Map.entry("id", "c-alice"));
+    }
+
+    @Test
+    void ownerArgumentsIgnoreSharedValuesOnceAnyPrivateValueExists() {
+        OwnedValues values = OwnedValues.of(List.of(mined("org_id", "acme", ValueScope.SHARED),
+                mined("doc_id", "d-1", ValueScope.PRIVATE)));
+
+        assertThat(values.ownerArguments().all()).containsExactly(Map.entry("doc_id", "d-1"));
+    }
+
+    @Test
     void ownerArgumentsKeepEnteredArgumentsFirst() {
         OwnedValues values = OwnedValues.of(List.of(mined("doc_id", "d-1", ValueScope.PRIVATE),
                 new EnteredValue("note_id", "n-1")));

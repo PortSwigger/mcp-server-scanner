@@ -1,6 +1,13 @@
 package com.mcpscanner;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.Http;
+import burp.api.montoya.http.RequestOptions;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import com.mcpscanner.auth.NoAuthStrategy;
+import com.mcpscanner.client.McpServerConfig;
+import com.mcpscanner.client.TransportType;
+import com.mcpscanner.testutil.ScriptedBurpHttp;
 import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.access.MatrixAccessLedger;
 import com.mcpscanner.auth.BearerTokenAuthStrategy;
@@ -17,18 +24,27 @@ import com.mcpscanner.identity.OwnedValues;
 import com.mcpscanner.identity.ValueScope;
 import com.mcpscanner.identity.discovery.IdentityListings;
 import com.mcpscanner.mcp.McpToolDefinition;
+import burp.api.montoya.scanner.AuditConfiguration;
+import burp.api.montoya.scanner.audit.Audit;
 import com.mcpscanner.scan.ScanMode;
+import com.mcpscanner.scan.request.GeneratedScan;
+import com.mcpscanner.scan.request.SampleSurfaces;
 import com.mcpscanner.scan.ScanModeSetting;
 import com.mcpscanner.testutil.InMemoryPersistedObject;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -41,20 +57,58 @@ class ScanningWiringTest {
     private final MontoyaApi api = mock(MontoyaApi.class, RETURNS_DEEP_STUBS);
     private ExtensionFoundation foundation;
     private AccessWiring access;
+    private final Http http = mock(Http.class);
+    private final ScriptedBurpHttp fakeServer = ScriptedBurpHttp.fakeMcpServer();
     private ScanningWiring scanning;
+    private ConnectionWiring connection;
 
     @BeforeEach
     void setUp() {
         MontoyaTestFactory.install();
         PersistedObject savedSettings = InMemoryPersistedObject.create();
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.http()).thenReturn(http);
+        when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
+                .thenAnswer(invocation -> fakeServer.sendRequest(invocation.getArgument(0, HttpRequest.class),
+                        invocation.getArgument(1, RequestOptions.class)));
         foundation = ExtensionFoundation.create(api);
-        ConnectionWiring connection = ConnectionWiring.create(api, foundation);
+        connection = ConnectionWiring.create(api, foundation);
         access = AccessWiring.create(foundation, connection, new IdentityListings());
         ScanFieldWiring fields = ScanFieldWiring.create(api, foundation);
         scanning = ScanningWiring.create(api, foundation, connection, access, fields,
                 EngineWiring.create(api, foundation, connection.burpHttp(), fields.everyField()),
                 CheckInstrumentation.NONE, java.util.function.UnaryOperator.identity());
+    }
+
+    @Test
+    void unloadingTheExtensionStopsTheThreadWatchingDetachedAudits() {
+        when(api.scanner().startAudit(any(AuditConfiguration.class))).thenReturn(mock(Audit.class));
+        ShutdownHooks shutdown = new ShutdownHooks(failure -> {
+            throw new AssertionError(failure);
+        });
+        connection.start(shutdown);
+        scanning.addShutdownHooks(shutdown);
+        connection.clientManager().connect(new McpServerConfig("https://mcp.example.test/mcp",
+                TransportType.STREAMABLE_HTTP, new NoAuthStrategy()));
+        Set<Thread> before = pollerThreads();
+        scanning.scanLauncher().launchScan(ScanMode.MCP_AND_BURP, "https://mcp.example.test/mcp",
+                new GeneratedScan(List.of(SampleSurfaces.ping()), List.of()), Map.of());
+        scanning.scanLauncher().clearRunningScans();
+        await().atMost(Duration.ofSeconds(5)).until(() -> !newPollerThreads(before).isEmpty());
+        Thread waiting = newPollerThreads(before).get(0);
+
+        shutdown.extensionUnloaded();
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> !waiting.isAlive());
+    }
+
+    private static Set<Thread> pollerThreads() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .filter(thread -> "mcp-scan-end-poller".equals(thread.getName())).collect(Collectors.toSet());
+    }
+
+    private static List<Thread> newPollerThreads(Set<Thread> before) {
+        return pollerThreads().stream().filter(thread -> !before.contains(thread)).toList();
     }
 
     @Test

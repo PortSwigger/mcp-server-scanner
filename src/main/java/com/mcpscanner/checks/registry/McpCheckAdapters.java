@@ -21,6 +21,7 @@ public final class McpCheckAdapters implements CheckVisitor<McpCheckAdapter<?>> 
     private final ConnectionReuse connectionReuse;
     private final IssueDestination issuesBurpWouldDrop;
     private final ScanNotices auditNotices;
+    private final ProbeCalls probeCalls;
 
     public McpCheckAdapters(ScanCheckSettings settings, McpEventLog eventLog) {
         this(settings, eventLog, CheckInstrumentation.NONE);
@@ -44,6 +45,14 @@ public final class McpCheckAdapters implements CheckVisitor<McpCheckAdapter<?>> 
     public McpCheckAdapters(ScanCheckSettings settings, McpEventLog eventLog, CheckInstrumentation instrumentation,
                             UpstreamExchanges upstreamExchanges, ConnectionReuse connectionReuse,
                             IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices) {
+        this(settings, eventLog, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                auditNotices, ProbeCalls.NONE);
+    }
+
+    public McpCheckAdapters(ScanCheckSettings settings, McpEventLog eventLog, CheckInstrumentation instrumentation,
+                            UpstreamExchanges upstreamExchanges, ConnectionReuse connectionReuse,
+                            IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices, ProbeCalls probeCalls) {
+        this.probeCalls = Objects.requireNonNull(probeCalls, "probeCalls must not be null");
         this.issuesBurpWouldDrop = Objects.requireNonNull(issuesBurpWouldDrop, "issuesBurpWouldDrop must not be null");
         this.auditNotices = Objects.requireNonNull(auditNotices, "auditNotices must not be null");
         this.connectionReuse = Objects.requireNonNull(connectionReuse, "connectionReuse must not be null");
@@ -60,18 +69,18 @@ public final class McpCheckAdapters implements CheckVisitor<McpCheckAdapter<?>> 
     @Override
     public McpCheckAdapter<?> visitInsertionPointCheck(InsertionPointCheck check) {
         return new InsertionPointCheckAdapter(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse,
-                issuesBurpWouldDrop, auditNotices);
+                issuesBurpWouldDrop, auditNotices, probeCalls);
     }
 
     @Override
     public McpCheckAdapter<?> visitRequestCheck(RequestCheck check) {
         return new RequestCheckAdapter(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse,
-                issuesBurpWouldDrop, auditNotices);
+                issuesBurpWouldDrop, auditNotices, probeCalls);
     }
 
     @Override
     public McpCheckAdapter<?> visitHostCheck(HostCheck check) {
         return new HostCheckAdapter(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse,
-                issuesBurpWouldDrop, auditNotices);
+                issuesBurpWouldDrop, auditNotices, probeCalls);
     }
 }

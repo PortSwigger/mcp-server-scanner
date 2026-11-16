@@ -15,20 +15,31 @@ import com.mcpscanner.access.WriteReplayConfirmations;
 import com.mcpscanner.access.WriteReplays;
 import com.mcpscanner.auth.BearerTokenAuthStrategy;
 import com.mcpscanner.access.AccessComparison;
+import com.mcpscanner.access.comparison.CrossIdentityComparison;
+import com.mcpscanner.access.comparison.CrossIdentityPorts;
 import com.mcpscanner.checks.api.AccessExpectation;
 import com.mcpscanner.checks.api.AccessItemKey;
-import com.mcpscanner.checks.api.CheckCatalog;
-import com.mcpscanner.checks.api.CheckServices;
 import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.checks.api.PrincipalListings;
 import com.mcpscanner.checks.api.PrincipalRole;
 import com.mcpscanner.checks.api.PrincipalRoster;
+import com.mcpscanner.client.ConnectResult;
 import com.mcpscanner.client.McpDiscoveryClient;
+import com.mcpscanner.client.PrimaryConnection;
 import com.mcpscanner.client.McpScannerSession;
 import com.mcpscanner.client.McpServerConfig;
 import com.mcpscanner.client.TransportType;
 import com.mcpscanner.cvetargets.requests.VerbatimHeaderHttp;
+import com.mcpscanner.http.UpstreamExchanges;
+import com.mcpscanner.identity.Identity;
+import com.mcpscanner.identity.IdentityAuthKind;
+import com.mcpscanner.identity.IdentityRegistry;
+import com.mcpscanner.identity.IdentityRole;
+import com.mcpscanner.identity.IdentityStore;
 import com.mcpscanner.identity.discovery.DiscoveryOutcome;
+import com.mcpscanner.identity.discovery.IdentityDiscoveryService;
+import com.mcpscanner.identity.discovery.IdentityListings;
+import com.mcpscanner.identity.discovery.PreComparisonDiscovery;
 import com.mcpscanner.identity.discovery.IdentityListing;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.scan.McpRepeaterRequestFactory;
@@ -40,6 +51,7 @@ import com.mcpscanner.scan.request.McpRequestRenderer;
 import com.mcpscanner.scan.request.RequestGenerator;
 import com.mcpscanner.scan.request.ScanRequestRenderer;
 import com.mcpscanner.testutil.ImmutableHttpRequest;
+import com.mcpscanner.testutil.InMemoryPersistedObject;
 
 
 import java.time.Duration;
@@ -52,6 +64,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,6 +90,7 @@ final class CheckAccessFixture implements AutoCloseable {
     private final AccessRuns runs;
     private final AccessMatrix matrix;
     private final CheckAccessRunner runner;
+    private AccessRunSummary lastSummary;
 
     private CheckAccessFixture(ScannerProxyFixture alice, AccessRuns runs, AccessMatrix matrix,
                                CheckAccessRunner runner) {
@@ -99,13 +113,71 @@ final class CheckAccessFixture implements AutoCloseable {
         AccessRuns runs = new AccessRuns(Executors.newSingleThreadExecutor());
         AccessMatrix matrix = new AccessMatrix(() -> ROSTER, () -> listings, new StoredExpectations());
         matrix.setExpectation(HANDBOOK, AccessExpectation.SHARED_BY_DESIGN);
-        return new CheckAccessFixture(alice, runs, matrix, runner(alice, matrix, listings, runs));
+        return new CheckAccessFixture(alice, runs, matrix, runner(alice, matrix, listed(listings), () -> ROSTER, runs,
+                PreComparisonDiscovery.NONE));
+    }
+
+    enum LateComparedUser { NEVER_DISCOVERED, DISCOVER_CLICKED, DISCOVERED_AUTOMATICALLY }
+
+    static CheckAccessFixture prepareWithComparedUserAddedAfterConnect(String endpoint, LateComparedUser lateUser)
+            throws Exception {
+        IdentityRegistry registry = new IdentityRegistry(
+                new IdentityStore(InMemoryPersistedObject.configStore(), McpEventLog.noop()));
+        IdentityListings listings = new IdentityListings();
+        IdentityDiscoveryService discovery = new IdentityDiscoveryService(registry, CheckAccessFixture::discoverAs,
+                listings, Runnable::run, McpEventLog.noop());
+        discovery.start();
+        ConnectResult aliceCatalog = discoverAs(new McpServerConfig(endpoint, TransportType.STREAMABLE_HTTP,
+                new BearerTokenAuthStrategy("alice-token")));
+        discovery.onPrimaryConnected(new PrimaryConnection(endpoint, TransportType.STREAMABLE_HTTP, aliceCatalog));
+        Identity bob = registry.add(Identity.create("bob", IdentityRole.PEER, IdentityAuthKind.BEARER));
+        registry.setCredential(bob.id(), new BearerTokenAuthStrategy("bob-token"));
+        if (lateUser == LateComparedUser.DISCOVER_CLICKED) {
+            discovery.discover(bob.id());
+        }
+        Principal plainAlice = new Principal(Principal.PRIMARY_ID, "alice", PrincipalRole.PRIMARY,
+                () -> bearer("alice"), Optional.empty(), Map.of());
+        Supplier<PrincipalRoster> roster = () -> PrincipalRoster.of(plainAlice,
+                registry.compared().stream().map(identity -> new Principal(identity.id(), identity.name(),
+                        PrincipalRole.PEER, () -> bearer("bob"), Optional.empty(), Map.of())).toList());
+        ScannerProxyFixture alice = ScannerProxyFixture.connect(endpoint, TransportType.STREAMABLE_HTTP);
+        AccessRuns runs = new AccessRuns(Executors.newSingleThreadExecutor());
+        AccessMatrix matrix = new AccessMatrix(roster, listings::outcomes, new StoredExpectations());
+        matrix.setExpectation(HANDBOOK, AccessExpectation.SHARED_BY_DESIGN);
+        return new CheckAccessFixture(alice, runs, matrix, runner(alice, matrix, listings, roster, runs,
+                lateUser == LateComparedUser.DISCOVERED_AUTOMATICALLY ? discovery : PreComparisonDiscovery.NONE));
+    }
+
+    AccessRunSummary lastSummary() {
+        return lastSummary;
+    }
+
+    private static PrincipalListings listed(Map<String, DiscoveryOutcome> listings) {
+        return (principalId, item) -> Optional.ofNullable(listings.get(principalId))
+                .map(outcome -> ((DiscoveryOutcome.Listed) outcome).listing().lists(item));
+    }
+
+    private static ConnectResult discoverAs(McpServerConfig config) {
+        McpScannerSession session = new McpScannerSession(McpCheckItSupport.realHttpClient(), McpEventLog.noop());
+        session.connect(config);
+        try {
+            return new McpDiscoveryClient(session).discoverCatalog();
+        } finally {
+            session.disconnect();
+        }
     }
 
     AccessSnapshot checkAllItems() {
+        return check(matrix.snapshot().rows().stream()
+                .filter(row -> FIXTURE_ITEMS.contains(row.item().key().name())).toList());
+    }
+
+    AccessSnapshot checkEveryItem() {
+        return check(matrix.snapshot().rows());
+    }
+
+    private AccessSnapshot check(List<AccessRow> fixtureRows) {
         CompletableFuture<AccessRunSummary> finished = new CompletableFuture<>();
-        List<AccessRow> fixtureRows = matrix.snapshot().rows().stream()
-                .filter(row -> FIXTURE_ITEMS.contains(row.item().key().name())).toList();
         runner.start(fixtureRows, tools -> true, new AccessRunListener() {
             @Override
             public void progress(int done, int total) {
@@ -117,7 +189,8 @@ final class CheckAccessFixture implements AutoCloseable {
             }
         }).orElseThrow();
         await().atMost(Duration.ofMinutes(5)).pollInterval(Duration.ofMillis(20)).until(finished::isDone);
-        assertThat(finished.join().cancelled()).isFalse();
+        lastSummary = finished.join();
+        assertThat(lastSummary.cancelled()).isFalse();
         return matrix.snapshot();
     }
 
@@ -128,14 +201,12 @@ final class CheckAccessFixture implements AutoCloseable {
     }
 
     private static CheckAccessRunner runner(ScannerProxyFixture proxy, AccessMatrix matrix,
-                                            Map<String, DiscoveryOutcome> listings, AccessRuns runs) {
+                                            PrincipalListings listed, Supplier<PrincipalRoster> roster,
+                                            AccessRuns runs, PreComparisonDiscovery discovery) {
         WriteReplayConfirmations confirmations = new WriteReplayConfirmations();
         MatrixAccessLedger ledger = new MatrixAccessLedger(matrix, confirmations);
-        PrincipalListings listed = (principalId, item) -> Optional.ofNullable(listings.get(principalId))
-                .map(outcome -> ((DiscoveryOutcome.Listed) outcome).listing().lists(item));
-        AccessComparison comparison = CheckCatalog.discover(new CheckServices(McpEventLog.noop(),
-                () -> new BearerTokenAuthStrategy("alice-token"), Optional::empty, Optional::empty, () -> ROSTER,
-                ledger, listed)).find("crossidentityaccess", AccessComparison.class).orElseThrow();
+        AccessComparison comparison = new CrossIdentityComparison(McpEventLog.noop(),
+                () -> new BearerTokenAuthStrategy("alice-token"), roster, CrossIdentityPorts.of(ledger, listed));
         McpScannerSession alice = proxy.session();
         McpRepeaterRequestFactory primary = new McpRepeaterRequestFactory(
                 ScanSession.of(alice::resolvedEndpoint, alice::scannerHeaders), RequestGenerator.standard(),
@@ -143,8 +214,9 @@ final class CheckAccessFixture implements AutoCloseable {
                         new ClientRegistrationRequestFactory()),
                 () -> ScanConnection.unbound(baseline -> withAliceCredentials(proxy.proxy().auditHeaders(baseline))));
         return new CheckAccessRunner(comparison, proxy.routed(new VerbatimHeaderHttp()),
-                new OwnerRequests(primary::requestFor, new IdentityRequests(() -> ROSTER)), issue -> { },
-                new WriteReplays(confirmations, ledger), runs, McpEventLog.noop());
+                new OwnerRequests(primary::requestFor, new IdentityRequests(roster)), issue -> { },
+                new WriteReplays(confirmations, ledger), runs, McpEventLog.noop(), UpstreamExchanges.NONE,
+                matrix::snapshot, discovery);
     }
 
     private static Map<String, String> withAliceCredentials(Map<String, String> auditHeaders) {

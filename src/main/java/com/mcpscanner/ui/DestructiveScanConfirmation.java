@@ -1,6 +1,7 @@
 package com.mcpscanner.ui;
 
 import com.mcpscanner.mcp.McpToolDefinition;
+import com.mcpscanner.ui.widgets.DialogOwner;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -21,7 +22,6 @@ import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FlowLayout;
-import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.List;
@@ -48,28 +48,30 @@ public final class DestructiveScanConfirmation {
         return invoker + LEAD_TEXT_AFTER_INVOKER;
     }
 
-    public static Result prompt(Component parent, List<McpToolDefinition> nonReadOnly, int selectedCount,
-                                String invoker) {
-        return promptLines(parent, new Lines(leadText(invoker),
-                DestructiveScanPolicy.countLine(nonReadOnly.size(), selectedCount),
-                nonReadOnly.stream().map(DestructiveScanPolicy::formatToolLine).toList(), Purpose.SCAN));
+    static Lines scanLines(List<McpToolDefinition> nonReadOnly, int selectedCount, String invoker) {
+        return new Lines(leadText(invoker), DestructiveScanPolicy.countLine(nonReadOnly.size(), selectedCount),
+                nonReadOnly.stream().map(DestructiveScanPolicy::formatToolLine).toList(), Purpose.SCAN);
     }
 
-    public static Result promptLines(Component parent, Lines lines) {
-        Window owner = parent != null ? findWindow(parent) : null;
-        JDialog dialog = new JDialog(owner, lines.purpose().title(), Dialog.ModalityType.APPLICATION_MODAL);
-        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+    static Result promptLines(DialogOwner owner, Component parent, Lines lines) {
         Outcome outcome = new Outcome();
         JCheckBox dontAskAgain = new JCheckBox("Don't ask me again for this server.");
         dontAskAgain.setVisible(lines.offerDontAskAgain());
+        JDialog dialog = dialog(owner, parent, lines);
         dialog.setContentPane(buildContentPane(lines, dontAskAgain, dialog, outcome));
         installEscapeAction(dialog);
         dialog.pack();
         Dimension packed = dialog.getSize();
         dialog.setSize(new Dimension(DIALOG_WIDTH, packed.height));
-        dialog.setLocationRelativeTo(parent);
+        dialog.setLocationRelativeTo(dialog.getOwner());
         dialog.setVisible(true);
         return new Result(outcome.proceed, lines.offerDontAskAgain() && dontAskAgain.isSelected());
+    }
+
+    static JDialog dialog(DialogOwner owner, Component parent, Lines lines) {
+        JDialog dialog = new JDialog(owner.of(parent), lines.purpose().title(), Dialog.ModalityType.APPLICATION_MODAL);
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        return dialog;
     }
 
     private static JPanel buildContentPane(Lines lines, JCheckBox dontAskAgain, JDialog dialog, Outcome outcome) {
@@ -150,17 +152,6 @@ public final class DestructiveScanConfirmation {
                 dialog.dispose();
             }
         });
-    }
-
-    private static Window findWindow(Component component) {
-        Component current = component;
-        while (current != null) {
-            if (current instanceof Window window) {
-                return window;
-            }
-            current = current.getParent();
-        }
-        return null;
     }
 
     public record Result(boolean proceed, boolean dontAskAgain) {}

@@ -65,7 +65,8 @@ final class MiningUiFixture implements AutoCloseable {
         mining = new AccessMining(new MiningInputs(inventory::get,
                 new IdentityRosterSource(() -> new BearerTokenAuthStrategy("alice-token"), registry),
                 () -> registry.primaryUser().id()), (identity, call) -> sender.get().send(identity, call),
-                new MiningPreferences(config), store, worker, McpEventLog.noop());
+                new MiningPreferences(config), store, worker, () -> Runnable::run,
+                McpEventLog.noop());
     }
 
     MiningServices services() {
@@ -106,18 +107,18 @@ final class MiningUiFixture implements AutoCloseable {
         final Queue<Optional<Set<String>>> toolAnswers = new ArrayDeque<>();
         final List<String> asked = new CopyOnWriteArrayList<>();
         final List<List<String>> offeredTools = new CopyOnWriteArrayList<>();
-        final List<List<String>> confirmedTools = new CopyOnWriteArrayList<>();
-        final List<List<String>> mineFirstTools = new CopyOnWriteArrayList<>();
+        final List<ToolsToCall> confirmedTools = new CopyOnWriteArrayList<>();
+        final List<ToolsToCall> mineFirstTools = new CopyOnWriteArrayList<>();
 
         @Override
-        public MineFirstChoice mineFirst(Component parent, List<String> tools) {
+        public MineFirstChoice mineFirst(Component parent, ToolsToCall tools) {
             asked.add("mine-first");
             mineFirstTools.add(tools);
             return Optional.ofNullable(mineFirstAnswers.poll()).orElse(MineFirstChoice.CANCEL);
         }
 
         @Override
-        public boolean confirmMining(Component parent, List<String> tools) {
+        public boolean confirmMining(Component parent, ToolsToCall tools) {
             asked.add("confirm-mining");
             confirmedTools.add(tools);
             return Optional.ofNullable(confirmAnswers.poll()).orElse(true);

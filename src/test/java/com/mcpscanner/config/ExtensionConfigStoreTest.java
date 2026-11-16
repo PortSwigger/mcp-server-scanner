@@ -13,6 +13,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -92,8 +93,8 @@ class ExtensionConfigStoreTest {
 
     @Test
     void hashedIssuerKeysDoNotDependOnTheDefaultLocale() {
-        String englishKey = withDefaultLocale(Locale.ENGLISH, () -> dcrTokenKeyWrittenFor("https://LOGIN.example"));
-        String turkishKey = withDefaultLocale(TURKISH, () -> dcrTokenKeyWrittenFor("https://LOGIN.example"));
+        String englishKey = withDefaultLocale(Locale.ENGLISH, () -> dcrClientUriKeyWrittenFor("https://LOGIN.example"));
+        String turkishKey = withDefaultLocale(TURKISH, () -> dcrClientUriKeyWrittenFor("https://LOGIN.example"));
 
         assertThat(turkishKey).isEqualTo(englishKey);
     }
@@ -115,11 +116,9 @@ class ExtensionConfigStoreTest {
     @Test
     void issuerKeysPersistedUnderTurkishLowercasingStillLoad() {
         String legacyHash = sha256Prefix("https://log\u0131n.example");
-        when(store.getString("mcp.dcr." + legacyHash + ".reg_token")).thenReturn("tok-legacy");
         when(store.getString("mcp.dcr." + legacyHash + ".reg_uri")).thenReturn("https://login.example/reg/1");
 
         withDefaultLocale(TURKISH, () -> {
-            assertThat(config.dcrRegistrationManagementToken("https://LOGIN.example")).isEqualTo("tok-legacy");
             assertThat(config.dcrRegistrationClientUri("https://LOGIN.example"))
                     .isEqualTo("https://login.example/reg/1");
             return null;
@@ -134,11 +133,11 @@ class ExtensionConfigStoreTest {
         return key.getValue();
     }
 
-    private String dcrTokenKeyWrittenFor(String issuer) {
+    private String dcrClientUriKeyWrittenFor(String issuer) {
         clearInvocations(store);
-        config.setDcrRegistrationManagementToken(issuer, "tok");
+        config.setDcrRegistrationClientUri(issuer, "https://login.example/reg/1");
         ArgumentCaptor<String> key = ArgumentCaptor.forClass(String.class);
-        verify(store).setString(key.capture(), eq("tok"));
+        verify(store).setString(key.capture(), eq("https://login.example/reg/1"));
         return key.getValue();
     }
 
@@ -301,6 +300,22 @@ class ExtensionConfigStoreTest {
     }
 
     @Test
+    void collectIdsRequestsPerUserHasNoLimitByDefaultAndAcceptsZeroToClearIt() {
+        assertThat(ResourceCap.MINING_REQUESTS_PER_USER.key()).isEqualTo("mcp.mining.requests_per_user");
+        assertThat(ResourceCap.MINING_REQUESTS_PER_USER.label()).isEqualTo("Collect IDs requests per user");
+        assertThat(config.resourceCap(ResourceCap.MINING_REQUESTS_PER_USER)).isZero();
+
+        config.setResourceCap(ResourceCap.MINING_REQUESTS_PER_USER, 0L);
+        config.setResourceCap(ResourceCap.MINING_REQUESTS_PER_USER, 5000L);
+
+        verify(store).setLong("mcp.mining.requests_per_user", 5000L);
+        assertThatThrownBy(() -> config.setResourceCap(ResourceCap.MINING_REQUESTS_PER_USER, -1L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("between 0 and");
+        assertThatThrownBy(() -> config.setResourceCap(ResourceCap.DISCOVERY_MAX_PAGES, 0L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("between 1 and");
+    }
+
+    @Test
     void previouslyPersistedPostBodyLimitStillLoads() {
         when(store.getLong("mcp.proxy.post_body_limit_bytes")).thenReturn(1_048_577L);
 
@@ -319,9 +334,10 @@ class ExtensionConfigStoreTest {
     }
 
     @Test
-    void rejectsNonPositiveAndOversizedResourceCaps() {
+    void rejectsUndersizedAndOversizedResourceCaps() {
         for (ResourceCap cap : ResourceCap.values()) {
-            assertThatThrownBy(() -> config.setResourceCap(cap, 0L)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> config.setResourceCap(cap, cap.minValue() - 1))
+                    .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> config.setResourceCap(cap, -5L)).isInstanceOf(IllegalArgumentException.class);
         }
         assertThatThrownBy(() -> config.setResourceCap(ResourceCap.PROXY_POST_BODY_BYTES, (long) Integer.MAX_VALUE))
@@ -372,9 +388,6 @@ class ExtensionConfigStoreTest {
 
     @Test
     void doesNotPersistBearerOrClientSecrets() {
-        // DCR management credentials (dcrRegistrationManagementToken / setDcrRegistrationManagementToken)
-        // are legitimately persisted per-issuer so that operators can manage their registered client.
-        // This guard ensures no other token/secret fields creep in.
         long nonDcrSecretMethods = java.util.Arrays.stream(ExtensionConfigStore.class.getDeclaredMethods())
                 .map(java.lang.reflect.Method::getName)
                 .filter(name -> {
@@ -388,20 +401,28 @@ class ExtensionConfigStoreTest {
     }
 
     @Test
-    void dcrRegistrationManagementTokenRoundTripsPerIssuer() {
-        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
-
+    void dcrRegistrationManagementTokenIsKeptInMemoryPerIssuerAndNeverPersisted() {
         config.setDcrRegistrationManagementToken("https://as.example.com/", "tok-abc");
-        verify(store).setString(keyCaptor.capture(), valueCaptor.capture());
 
-        String writtenKey = keyCaptor.getValue();
-        assertThat(writtenKey).startsWith("mcp.dcr.");
-        assertThat(writtenKey).endsWith(".reg_token");
+        verify(store, never()).setString(anyString(), anyString());
+        assertThat(config.dcrRegistrationManagementToken("https://AS.example.com")).isEqualTo("tok-abc");
+        assertThat(config.dcrRegistrationManagementToken("https://other.example.com")).isNull();
+    }
 
-        when(store.getString(writtenKey)).thenReturn("tok-abc");
-        assertThat(config.dcrRegistrationManagementToken("https://as.example.com/")).isEqualTo("tok-abc");
-        assertThat(config.dcrRegistrationManagementToken("https://as.example.com")).isEqualTo("tok-abc");
+    @Test
+    void managementTokensSavedByOlderVersionsAreDeletedOnLoadAndNotRead() {
+        String issuer = "https://as.example.com";
+        String legacyTokenKey = HashedKey.of("mcp.dcr.", issuer, ".reg_token").canonical();
+        String clientUriKey = HashedKey.of("mcp.dcr.", issuer, ".reg_uri").canonical();
+        when(store.stringKeys()).thenReturn(Set.of(legacyTokenKey, clientUriKey, "mcp.endpoint"));
+        when(store.getString(anyString())).thenReturn("saved-token");
+
+        config = new ExtensionConfigStore(store, logging);
+
+        verify(store).deleteString(legacyTokenKey);
+        verify(store, never()).deleteString(clientUriKey);
+        verify(store, never()).deleteString("mcp.endpoint");
+        assertThat(config.dcrRegistrationManagementToken(issuer)).isNull();
     }
 
     @Test
@@ -430,16 +451,13 @@ class ExtensionConfigStoreTest {
         config.setDcrRegistrationClientUri("https://issuer-a.example.com", "https://issuer-a.example.com/reg/c1");
         config.setDcrRegistrationClientUri("https://issuer-b.example.com", "https://issuer-b.example.com/reg/c2");
 
-        verify(store, org.mockito.Mockito.times(4)).setString(captor.capture(),
+        verify(store, org.mockito.Mockito.times(2)).setString(captor.capture(),
                 org.mockito.ArgumentMatchers.anyString());
 
         List<String> keys = captor.getAllValues();
-        // token keys for issuer-a and issuer-b must differ
         assertThat(keys.get(0)).isNotEqualTo(keys.get(1));
-        // uri keys for issuer-a and issuer-b must differ
-        assertThat(keys.get(2)).isNotEqualTo(keys.get(3));
-        // token key and uri key for same issuer must differ
-        assertThat(keys.get(0)).isNotEqualTo(keys.get(2));
+        assertThat(config.dcrRegistrationManagementToken("https://issuer-a.example.com")).isEqualTo("tok-a");
+        assertThat(config.dcrRegistrationManagementToken("https://issuer-b.example.com")).isEqualTo("tok-b");
     }
 
     @Test

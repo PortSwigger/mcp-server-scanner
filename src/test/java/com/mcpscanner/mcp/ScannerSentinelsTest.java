@@ -23,6 +23,15 @@ class ScannerSentinelsTest {
     }
 
     @Test
+    void everySentinelHeaderIsInAllIncludingTheResponseOnlyExchangeHeader() {
+        assertThat(ScannerSentinels.ALL).contains(
+                ScannerSentinels.STRIP_AUTH_HEADER, ScannerSentinels.AUDIT_CAPABILITY_HEADER,
+                ScannerSentinels.KEEP_SESSION_HEADER, ScannerSentinels.DIRECT_DELIVERY_HEADER,
+                ScannerSentinels.IDENTITY_HEADER, ScannerSentinels.GENERATED_REGISTRATION_HEADER,
+                ScannerSentinels.EXCHANGE_HEADER, ScannerSentinels.ROUTED_HEADER);
+    }
+
+    @Test
     void routedHeaderDoesNotItselfSendARequestThroughTheProxy() {
         assertThat(ScannerSentinels.ROUTES_TO_PROXY).doesNotContain(ScannerSentinels.ROUTED_HEADER);
         assertThat(ScannerSentinels.ALL).contains(ScannerSentinels.ROUTED_HEADER);

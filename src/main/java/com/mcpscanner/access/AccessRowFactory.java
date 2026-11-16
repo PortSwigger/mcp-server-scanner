@@ -41,11 +41,13 @@ final class AccessRowFactory {
         var outcome = outcomes.outcome(key, principal.id());
         var findings = outcomes.findings(key, principal.id());
         boolean anomaly = AnomalyRule.identityBreaks(expectation, listed.owner(), principal, outcome, findings);
-        return new AccessCell(listed.listing(principal), outcome, anomaly, findings, Optional.empty());
+        return new AccessCell(listed.listing(principal), outcome, anomaly, findings, Optional.empty())
+                .withNotComparedReason(outcomes.notCompared(key));
     }
 
     private AccessCell anonymousCell(AccessItemKey key, AccessExpectation expectation) {
         var outcome = outcomes.anonymous(key);
-        return AccessCell.of(ListingState.NO_LISTING, outcome, AnomalyRule.anonymousBreaks(expectation, outcome));
+        return AccessCell.of(ListingState.NO_LISTING, outcome, AnomalyRule.anonymousBreaks(expectation, outcome))
+                .withNotComparedReason(outcomes.notCompared(key));
     }
 }

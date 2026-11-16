@@ -39,7 +39,7 @@ public final class OwnedArguments {
     private static boolean withDefaults(JsonNode properties, Map<String, String> ownedObjects) {
         boolean changed = false;
         for (Map.Entry<String, String> owned : ownedObjects.entrySet()) {
-            if (properties.get(owned.getKey()) instanceof ObjectNode property) {
+            if (!owned.getValue().isBlank() && properties.get(owned.getKey()) instanceof ObjectNode property) {
                 setDefault(property, owned.getValue());
                 changed = true;
             }
@@ -48,10 +48,22 @@ public final class OwnedArguments {
     }
 
     private static void setDefault(ObjectNode property, String value) {
-        if (NUMERIC_TYPES.contains(property.path("type").asText()) && numeric(value)) {
+        JsonNode array = ObjectArrayFit.describes(property) ? objectArray(value) : null;
+        if (array != null) {
+            property.set("default", ObjectArrayFit.fit(property, array));
+        } else if (NUMERIC_TYPES.contains(property.path("type").asText()) && numeric(value)) {
             property.put("default", new BigDecimal(value));
         } else {
             property.put("default", value);
+        }
+    }
+
+    private static JsonNode objectArray(String value) {
+        try {
+            JsonNode parsed = McpObjectMapper.INSTANCE.readTree(value);
+            return parsed != null && parsed.isArray() ? parsed : null;
+        } catch (JsonProcessingException notJson) {
+            return null;
         }
     }
 

@@ -29,8 +29,7 @@ final class SessionLifecycleDescriptor {
             true,
             List.of(
                     "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management",
-                    "https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices#session-hijacking",
-                    "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"),
+                    "https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices#session-hijacking"),
             "An MCP session ID identifies a client's session on a stateful server. If IDs can be predicted, an "
                     + "attacker can address another client's session; if the server treats the ID as a credential, "
                     + "that is enough to act as the other client. A session that survives an explicit DELETE stays "

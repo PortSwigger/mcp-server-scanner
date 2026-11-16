@@ -13,7 +13,7 @@ final class TargetKnowledgeScanner {
 
     private static final int MINIMUM_TOKEN_LENGTH = 5;
     private static final Set<String> GENERIC_TOKENS = Set.of("server", "check", "target", "fixed", "vulnerable", "benign", "oauth",
-            "provider", "bridge", "everything", "route", "network", "package", "token", "reader");
+            "provider", "bridge", "everything", "route", "network", "package", "token", "reader", "service");
 
     private final Set<String> identifiers;
 

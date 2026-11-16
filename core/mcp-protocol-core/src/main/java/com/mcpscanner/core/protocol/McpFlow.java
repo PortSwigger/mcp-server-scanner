@@ -129,8 +129,7 @@ public final class McpFlow {
 
     private static void requireSuccess(HttpResponse response, String stage) {
         if (response == null) throw new IllegalArgumentException(stage + " failed: no response");
-        if (!response.successful()) throw new IllegalArgumentException(stage + " failed: HTTP " + response.status()
-            + (response.complete() ? "" : " (incomplete)"));
+        if (!response.successful()) throw new HandshakeRefusedException(stage, response.status(), response.complete());
     }
 
     private McpResponses.Reply responseReply(HttpResponse response, long expectedId) {

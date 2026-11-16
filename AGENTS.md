@@ -10,6 +10,7 @@ Architecture overview: [ARCHITECTURE.md](./ARCHITECTURE.md). Java 17.
 ./gradlew build                                   # compile + unit tests + ArchUnit guards + request budgets
 ./gradlew test --tests McpRequestDetectorTest     # one test class
 ./gradlew shadowJar                               # fat JAR Burp loads: build/libs/mcp-server-scanner-extension-<version>-all.jar
+./gradlew harnessJar                              # the same JAR plus the test automation (-harness.jar), loaded by cveTargetsBurp and burpCanary
 ./gradlew dependencies --write-locks              # after changing a dependency (gradle.lockfile mismatch)
 ./gradlew cveTargets [-Pcheck=<id>] [-Ptarget=<id>] [-Psmoke]   # CVE harness, needs Docker, not part of build
 ./gradlew cveTargetsBurp [-PburpConfig=extensions-only|with-builtins]  # same arms through headless Burp Pro
@@ -90,5 +91,5 @@ Rules a check must follow (most are enforced by tests):
 - `checks` — `api` (kernel and kinds), `registry` (Montoya adapters), `issue` (issue rendering), `shared` (toolkits), `catalog/<check>` (one package per check).
 - `scan` — request generator (`scan/request`), field and insertion-point generator (`scan/field`), launcher and scan modes.
 - `engine` — the extension's own scan engine (extension checks without Burp's built-in ones).
-- `automation` — loopback-only test automation API used by the headless Burp harness.
+- `automation` (in `src/automation/java`, not `src/main`) — loopback-only test automation API used by the headless Burp harness. It ships only in the harness JAR (`./gradlew harnessJar`), found through `ExtensionAutomation` and `META-INF/services`; `check` fails if it reaches the release JAR.
 - `ui` — Swing UI; `ui/state` holds the connection state machine.

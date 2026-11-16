@@ -210,10 +210,37 @@ class SessionBindingCheckTest {
     }
 
     @Test
+    void aSessionlessScanRequestOnAStatefulServerIsProbedInASessionTheCheckOpens() {
+        var run = withPeerB().ownerMarker("ALICE-SESSION-RECORD")
+                .run(FakeServers.sessions(false), toolCall("read_session_record", "{}", "A"));
+
+        assertThat(run.issues()).filteredOn(issue -> issue.detail().contains("Probe: session."))
+                .singleElement().satisfies(issue -> assertThat(issue.name()).isEqualTo(RESULT_AVAILABLE));
+    }
+
+    @Test
+    void aSessionlessScanRequestOnAServerThatBindsSessionsIsSilent() {
+        var run = withPeerB().run(FakeServers.sessions(true), toolCall("read_session_record", "{}", "A"));
+
+        assertThat(run.issues()).isEmpty();
+    }
+
+    @Test
+    void everySessionOpenedForASessionlessScanRequestIsDeleted() {
+        var run = withPeerB().run(FakeServers.sessions(false), toolCall("read_session_record", "{}", "A"));
+
+        List<String> opened = run.sent().stream().filter(request -> !"DELETE".equals(request.method()))
+                .map(request -> request.headerValue("Mcp-Session-Id")).filter(java.util.Objects::nonNull).distinct().toList();
+        List<String> deleted = run.sent().stream().filter(request -> "DELETE".equals(request.method()))
+                .map(request -> request.headerValue("Mcp-Session-Id")).toList();
+        assertThat(deleted).containsExactlyInAnyOrderElementsOf(opened);
+    }
+
+    @Test
     void statelessRequestsAreNotProbed() {
         var run = withPeerB().run(FakeServers.objectStore(true), toolCall("get_note", "{\"id\":\"a1\"}", "A"));
 
-        assertThat(run.sent()).isEmpty();
+        assertThat(run.sent()).extracting(request -> FakeMcpTarget.method(request)).containsOnly("initialize");
         assertThat(run.decisions()).containsOnly("session_binding:skipped_stateless_transport");
     }
 
@@ -237,6 +264,7 @@ class SessionBindingCheckTest {
         var run = withPeerB().run(FakeServers.sessions(false), SESSION_RECORD);
 
         assertThat(run.sent()).filteredOn(request -> "B".equals(FakeMcpTarget.principal(request)))
+                .filteredOn(request -> !"DELETE".equals(request.method()))
                 .isNotEmpty()
                 .allMatch(request -> "b".equals(request.headerValue(ScannerSentinels.IDENTITY_HEADER)));
         assertThat(run.sent()).filteredOn(request -> "b".equals(

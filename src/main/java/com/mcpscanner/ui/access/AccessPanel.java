@@ -12,6 +12,7 @@ import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -47,9 +48,11 @@ public final class AccessPanel extends JPanel implements TitledPanel {
         this.checkAccess = new CheckAccessControl(services.runner(), approvals.replays());
         AccessTableModel model = new AccessTableModel(services.matrix()::setExpectation);
         this.matrixView = new AccessMatrixView(model, checkAccess,
-                new AccessRowMenu(services.matrix(), services.requests(), repeater, checkAccess, errors),
+                new AccessRowMenu(services.matrix(), services.requests(), repeater, checkAccess, errors,
+                        AccessRowMenu.backgroundSends()),
                 services.refreshListings());
-        this.mining = services.mining().map(mined -> new MiningSection(mined, approvals.miningWrites(), this));
+        this.mining = services.mining().map(mined -> new MiningSection(mined, approvals.miningWrites(), this,
+                this::queueRefresh));
         cardPanel.add(emptyState, EMPTY_CARD);
         cardPanel.add(matrixView, MATRIX_CARD);
         mining.ifPresentOrElse(this::layOutWithMining, () -> add(cardPanel, BorderLayout.CENTER));
@@ -101,9 +104,9 @@ public final class AccessPanel extends JPanel implements TitledPanel {
 
     void refresh() {
         AccessSnapshot snapshot = services.matrix().snapshot();
-        visibleCard = services.identityCount().getAsInt() == 0 ? EMPTY_CARD : MATRIX_CARD;
+        visibleCard = services.otherUserCount().getAsInt() == 0 ? EMPTY_CARD : MATRIX_CARD;
         cards.show(cardPanel, visibleCard);
-        matrixView.show(snapshot);
+        matrixView.show(snapshot, mining.map(MiningSection::usersWithoutIds).orElse(Set.of()));
         mining.ifPresent(MiningSection::refresh);
         updateTitle(snapshot.issues());
     }

@@ -19,6 +19,8 @@ final class SiblingRouteAudit {
 
     private static final SkipReason BASELINE_FAILED =
             SkipReason.prerequisiteMissing("the authenticated catalog listing did not succeed");
+    private static final SkipReason NO_CATALOG =
+            SkipReason.prerequisiteMissing("the authenticated listing carries no catalog items to compare");
     private static final SkipReason MAIN_ROUTE_OPEN = SkipReason.notApplicable("the main route did not refuse an "
             + "anonymous listing, so there is no refusal to compare sibling routes with");
 
@@ -44,18 +46,26 @@ final class SiblingRouteAudit {
         this.stops = stops;
     }
 
-    Optional<Finding> run(HttpRequestResponse capturedListing) {
+    AuditOutcome run(HttpRequestResponse capturedListing) {
         HttpRequestResponse baseline = baselineOf(capturedListing);
         if (!oracle.successful(baseline)) {
             stops.notRun(BASELINE_FAILED);
-            return Optional.empty();
+            return AuditOutcome.unsuitableSeed();
+        }
+        if (!carriesCatalog(baseline)) {
+            stops.notRun(NO_CATALOG);
+            return AuditOutcome.unsuitableSeed();
         }
         Optional<ProbeExchange> refused = mainRouteRefusal(baseline);
         if (refused.isEmpty()) {
             stops.notRun(MAIN_ROUTE_OPEN);
-            return Optional.empty();
+            return AuditOutcome.settledWithoutFinding();
         }
-        return firstOpenRoute(baseline, refused.get());
+        return AuditOutcome.of(firstOpenRoute(baseline, refused.get()));
+    }
+
+    private boolean carriesCatalog(HttpRequestResponse baseline) {
+        return oracle.judgeUncontrolled(baseline, baseline).isHit();
     }
 
     private HttpRequestResponse baselineOf(HttpRequestResponse capturedListing) {

@@ -12,6 +12,10 @@ public interface UpstreamExchanges {
 
     Optional<HttpRequestResponse> upstreamOf(HttpRequestResponse proxied);
 
+    default ExchangeLease retaining() {
+        return ExchangeLease.NONE;
+    }
+
     default String issueUrl(String url) {
         return url;
     }
@@ -22,6 +26,11 @@ public interface UpstreamExchanges {
             @Override
             public Optional<HttpRequestResponse> upstreamOf(HttpRequestResponse proxied) {
                 return exchanges.upstreamOf(proxied);
+            }
+
+            @Override
+            public ExchangeLease retaining() {
+                return exchanges.retaining();
             }
 
             @Override

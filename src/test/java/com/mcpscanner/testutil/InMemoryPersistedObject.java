@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
@@ -28,6 +29,10 @@ public final class InMemoryPersistedObject {
         PersistedObject store = mock(PersistedObject.class);
         lenient().when(store.getBoolean(anyString())).thenAnswer(inv -> (Boolean) values.get(inv.getArgument(0)));
         lenient().when(store.getString(anyString())).thenAnswer(inv -> (String) values.get(inv.getArgument(0)));
+        lenient().when(store.getLong(anyString())).thenAnswer(inv -> (Long) values.get(inv.getArgument(0)));
+        lenient().doAnswer(inv -> values.put(inv.getArgument(0), inv.getArgument(1)))
+                .when(store).setLong(anyString(), anyLong());
+        lenient().doAnswer(inv -> values.remove(inv.getArgument(0))).when(store).deleteLong(anyString());
         lenient().doAnswer(inv -> values.put(inv.getArgument(0), inv.getArgument(1)))
                 .when(store).setBoolean(anyString(), anyBoolean());
         lenient().doAnswer(inv -> values.put(inv.getArgument(0), inv.getArgument(1)))

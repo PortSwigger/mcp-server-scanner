@@ -19,11 +19,13 @@ final class ServerConfigPanels {
 
     static ServerConfigPanel unbound() {
         return around(new OAuthConfigPanel(TestOAuthFlows.recording(),
-                new OAuthDiscoveryPresenter(mock(OAuthMetadataDiscoverer.class))));
+                new OAuthDiscoveryPresenter(mock(OAuthMetadataDiscoverer.class)),
+                TestDialogOwners.withoutSuiteFrame()));
     }
 
     static ServerConfigPanel boundTo(ExtensionConfigStore configStore) {
-        return ServerConfigPanel.create(configStore, TestOAuthFlows.recording(), null);
+        return ServerConfigPanel.create(configStore, TestOAuthFlows.recording(), null, () -> { },
+                TestDialogOwners.withoutSuiteFrame());
     }
 
     static ServerConfigPanel around(OAuthConfigPanel oauth) {
@@ -34,7 +36,8 @@ final class ServerConfigPanels {
     static OAuthConfigPanel spiedOAuthPanel(ExtensionConfigStore configStore) {
         OAuthConfigPanel spy = mock(OAuthConfigPanel.class, withSettings()
                 .useConstructor(TestOAuthFlows.recording(),
-                        new OAuthDiscoveryPresenter(OAuthMetadataDiscoverer.defaultInstance()))
+                        new OAuthDiscoveryPresenter(OAuthMetadataDiscoverer.defaultInstance()),
+                        TestDialogOwners.withoutSuiteFrame())
                 .defaultAnswer(CALLS_REAL_METHODS));
         spy.bindConfigStore(configStore);
         return spy;

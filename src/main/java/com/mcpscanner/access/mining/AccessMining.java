@@ -7,9 +7,11 @@ import com.mcpscanner.scan.ScanInventory;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 public final class AccessMining {
 
@@ -18,18 +20,21 @@ public final class AccessMining {
     private final MiningPreferences preferences;
     private final MinedValueWriter writer;
     private final ExecutorService worker;
+    private final Supplier<Executor> sendWorkers;
     private final McpEventLog log;
     private final MinedIdentitySet mined = new MinedIdentitySet();
     private final AtomicLong connection = new AtomicLong();
     private final AtomicReference<MiningRun> current = new AtomicReference<>();
 
     public AccessMining(MiningInputs inputs, MiningSender sender, MiningPreferences preferences,
-                        OwnedValueStore store, ExecutorService worker, McpEventLog log) {
+                        OwnedValueStore store, ExecutorService worker, Supplier<Executor> sendWorkers,
+                        McpEventLog log) {
         this.inputs = inputs;
         this.sender = sender;
         this.preferences = preferences;
         this.writer = new MinedValueWriter(store, log);
         this.worker = worker;
+        this.sendWorkers = sendWorkers;
         this.log = log;
     }
 
@@ -96,7 +101,8 @@ public final class AccessMining {
     private MiningReport mine(MiningRun run, MiningPlan plan, MiningListener listener, WriteCallApproval approval) {
         try {
             log.info("Collecting IDs started for " + plan.principals().size() + " users and Anonymous");
-            MiningResult result = new AccessMiner(sender, preferences.settings(plan.inventory().tools()))
+            MiningResult result = new AccessMiner(sender, preferences.settings(plan.inventory().tools()),
+                    sendWorkers.get())
                     .mine(plan.inventory(), plan.principals(),
                             new MiningControl(step -> listener.progressed(plan.nameOf(step.identityId()), step),
                                     run::cancelled, approval));

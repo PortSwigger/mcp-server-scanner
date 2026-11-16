@@ -3,11 +3,11 @@ package com.mcpscanner;
 import burp.api.montoya.BurpExtension;
 import burp.api.montoya.MontoyaApi;
 import com.mcpscanner.access.OwnerRequests;
-import com.mcpscanner.automation.TestAutomationSwitch;
 import com.mcpscanner.client.servercard.ServerCardFetcher;
 import com.mcpscanner.engine.McpScanEngine;
 import com.mcpscanner.ui.BurpNetworkingPrompt;
 import com.mcpscanner.ui.DestructiveScanPrompt;
+import com.mcpscanner.ui.widgets.DialogOwner;
 import com.mcpscanner.ui.IdentityDependencies;
 import com.mcpscanner.ui.McpScannerTab;
 import com.mcpscanner.ui.McpScannerTabDependencies;
@@ -35,14 +35,14 @@ import java.util.function.Supplier;
 
 public class McpScannerExtension implements BurpExtension {
 
-    private final TestAutomationSwitch testAutomation;
+    private final ExtensionAutomation automation;
 
     public McpScannerExtension() {
-        this(TestAutomationSwitch.fromSystemProperties());
+        this(ExtensionAutomation.installed());
     }
 
-    McpScannerExtension(TestAutomationSwitch testAutomation) {
-        this.testAutomation = testAutomation;
+    McpScannerExtension(ExtensionAutomation automation) {
+        this.automation = automation;
     }
 
     @Override
@@ -50,10 +50,9 @@ public class McpScannerExtension implements BurpExtension {
         api.extension().setName(ExtensionMetadata.NAME);
         ExtensionFoundation foundation = ExtensionFoundation.create(api);
         ConnectionWiring connection = ConnectionWiring.create(api, foundation);
-        TestAutomationWiring automation = new TestAutomationWiring(testAutomation);
         OAuthWiring oauth = OAuthWiring.create(api, foundation, connection.burpHttp());
         IdentityWiring identities = IdentityWiring.create(api, foundation, connection, oauth);
-        AccessWiring access = AccessWiring.create(foundation, connection, identities.listings());
+        AccessWiring access = AccessWiring.create(foundation, connection, identities.listings(), identities.discovery());
         ScanFieldWiring fields = ScanFieldWiring.create(api, foundation);
         McpScanEngine engine = EngineWiring.create(api, foundation, connection.burpHttp(), fields.everyField());
         ScanningWiring scanning = ScanningWiring.create(api, foundation, connection, access, fields, engine,
@@ -71,7 +70,7 @@ public class McpScannerExtension implements BurpExtension {
         McpScannerTab tab = registerUiOnEdt(api, foundation, connection, scanning, oauth, identities,
                 backgroundReads);
         AccessServices accessServices = accessServices(foundation, connection, identities, access, scanning)
-                .withMining(miningServices(foundation, mining));
+                .withMining(miningServices(api, foundation, mining));
         ScansServices scansServices = scansServices(api, foundation, engine);
         onEdt(api, () -> {
             tab.installAccess(accessServices);
@@ -86,6 +85,7 @@ public class McpScannerExtension implements BurpExtension {
         access.addShutdownHooks(shutdown);
         mining.addShutdownHooks(shutdown);
         connection.start(shutdown);
+        scanning.addShutdownHooks(shutdown);
         automation.startIfSwitchedOn(api, foundation, connection, scanning, access, mining, shutdown);
         oauth.addShutdownHooks(shutdown);
         identities.addShutdownHooks(shutdown);
@@ -100,15 +100,15 @@ public class McpScannerExtension implements BurpExtension {
     private static AccessServices accessServices(ExtensionFoundation foundation,
                                                  ConnectionWiring connection, IdentityWiring identities,
                                                  AccessWiring access, ScanningWiring scanning) {
-        OwnerRequests requests = access.sendToOwnerRequests(connection.scannerSession(), scanning);
+        OwnerRequests requests = access.sendToOwnerRequests(connection, scanning);
         return new AccessServices(access.matrix(), access.runner(connection, scanning),
                 requests, access.confirmations(), identities.discovery()::refreshAll,
-                () -> foundation.identities().identities().size());
+                foundation.identities()::otherUserCount);
     }
 
-    private static MiningServices miningServices(ExtensionFoundation foundation, MiningWiring mining) {
+    private static MiningServices miningServices(MontoyaApi api, ExtensionFoundation foundation, MiningWiring mining) {
         return new MiningServices(mining.mining(), mining.ownedValues(), foundation.identities()::identities,
-                MiningDialogs.MODAL);
+                MiningDialogs.modal(dialogOwner(api)));
     }
 
     private static ScansServices scansServices(MontoyaApi api, ExtensionFoundation foundation, McpScanEngine engine) {
@@ -116,6 +116,10 @@ public class McpScannerExtension implements BurpExtension {
                 new SwingTargetNavigator(() -> api.userInterface().swingUtils().suiteFrame(), foundation.eventLog()::debug,
                         new SwingDelay()),
                 MessageEditors.readOnly(api.userInterface()));
+    }
+
+    private static DialogOwner dialogOwner(MontoyaApi api) {
+        return new DialogOwner(() -> api.userInterface().swingUtils().suiteFrame());
     }
 
     private static void onEdt(MontoyaApi api, Runnable task) {
@@ -155,12 +159,13 @@ public class McpScannerExtension implements BurpExtension {
                 foundation.eventLog(), scanning.authHolder(), scanning.generationSettings(), scanning.scanModeSetting(),
                 scanning.requestRenderer(),
                 ServerConfigPanel.create(foundation.configStore(), oauth.authorizationFlow(), oauth.discoverer(),
-                        oauth.authorizationGate()::reset),
-                scanning.sendToConnections(), oauth.optionalGrants()::create, DestructiveScanPrompt.MODAL,
-                BurpNetworkingPrompt.MODAL,
-                new IdentityDependencies(foundation.identities(), identities.listings(), foundation.toolCallRefusals(),
-                        identities::credentialServices, ReconnectPrompt.MODAL),
-                scanning.scanOwnerArguments(), uiReads);
+                        oauth.authorizationGate()::reset, dialogOwner(api)),
+                scanning.sendToConnections(), oauth.optionalGrants()::create, DestructiveScanPrompt.modal(dialogOwner(api)),
+                BurpNetworkingPrompt.modal(dialogOwner(api)),
+                new IdentityDependencies(foundation.identities(), identities.listings(), identities.discovery(),
+                        foundation.toolCallRefusals(),
+                        identities::credentialServices, ReconnectPrompt.modal(dialogOwner(api))),
+                scanning.scanOwnerArguments(), uiReads, dialogOwner(api));
     }
 
     private static McpScannerTab registerUi(MontoyaApi api, ExtensionFoundation foundation,

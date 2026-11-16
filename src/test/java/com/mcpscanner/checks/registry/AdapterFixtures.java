@@ -2,6 +2,7 @@ package com.mcpscanner.checks.registry;
 
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.scanner.scancheck.ActiveScanCheck;
 import burp.api.montoya.scanner.scancheck.ScanCheckType;
 import org.mockito.ArgumentCaptor;
@@ -38,6 +39,14 @@ final class AdapterFixtures {
         when(service.secure()).thenReturn(true);
         HttpRequestResponse base = mock(HttpRequestResponse.class);
         when(base.httpService()).thenReturn(service);
+        return base;
+    }
+
+    static HttpRequestResponse streamedBaseFor(HttpRequest request) {
+        HttpRequestResponse base = baseOn("mcp.example.test");
+        when(base.request()).thenReturn(request);
+        when(base.response()).thenReturn(null);
+        when(base.hasResponse()).thenReturn(false);
         return base;
     }
 }

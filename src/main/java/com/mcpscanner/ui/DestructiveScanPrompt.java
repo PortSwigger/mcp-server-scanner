@@ -1,19 +1,19 @@
 package com.mcpscanner.ui;
 
 import com.mcpscanner.mcp.McpToolDefinition;
+import com.mcpscanner.ui.widgets.DialogOwner;
 
 import java.awt.Component;
 import java.util.List;
 
-@FunctionalInterface
 public interface DestructiveScanPrompt {
 
-    DestructiveScanPrompt MODAL = DestructiveScanConfirmation::prompt;
+    static DestructiveScanPrompt modal(DialogOwner owner) {
+        return new ModalDestructiveScanPrompt(owner);
+    }
 
     DestructiveScanConfirmation.Result ask(Component parent, List<McpToolDefinition> nonReadOnly, int selectedCount,
                                            String invoker);
 
-    default DestructiveScanConfirmation.Result askLines(Component parent, DestructiveScanConfirmation.Lines lines) {
-        return DestructiveScanConfirmation.promptLines(parent, lines);
-    }
+    DestructiveScanConfirmation.Result askLines(Component parent, DestructiveScanConfirmation.Lines lines);
 }

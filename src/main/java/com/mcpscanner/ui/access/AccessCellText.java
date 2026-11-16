@@ -6,6 +6,7 @@ import com.mcpscanner.access.AccessRow;
 import com.mcpscanner.access.ListingState;
 import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.checks.api.AccessOutcome;
+import com.mcpscanner.checks.api.Principal;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,10 +25,24 @@ final class AccessCellText {
     }
 
     static String expectation(AccessRow row) {
-        return row.expectation().label() + (row.inferred() ? " (inferred)" : "");
+        return ExpectationText.label(row) + (row.inferred() ? " (inferred)" : "");
+    }
+
+    static String identity(AccessRow row, Principal principal) {
+        AccessCell cell = row.cell(principal.id());
+        return row.unconfirmedSameResult(principal) ? identity(cell, false, unconfirmedSameResult(row))
+                : identity(cell, row.ownedBy(principal));
+    }
+
+    static String unconfirmedSameResult(AccessRow row) {
+        return "? same result as " + row.owner().name() + " — allowed? Set Who should reach it";
     }
 
     static String identity(AccessCell cell, boolean owner) {
+        return identity(cell, owner, outcomeOrPending(cell));
+    }
+
+    private static String identity(AccessCell cell, boolean owner, String outcome) {
         List<String> parts = new ArrayList<>();
         listing(cell.listing()).ifPresent(parts::add);
         if (owner) {
@@ -35,7 +50,7 @@ final class AccessCellText {
         } else if (cell.sameCredentialsAs().isPresent()) {
             parts.add("= same credentials as " + cell.sameCredentialsAs().get().name());
         } else {
-            parts.add(outcomeOrPending(cell));
+            parts.add(outcome);
             findingMark(cell).ifPresent(parts::add);
         }
         return flagged(cell, String.join(SEPARATOR, parts));

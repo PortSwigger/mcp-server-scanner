@@ -1,5 +1,7 @@
 package com.mcpscanner.ui;
 
+import burp.api.montoya.logging.Logging;
+import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.auth.oauth.OAuthSession;
 import com.mcpscanner.config.ExtensionConfigStore;
 import org.junit.jupiter.api.Test;
@@ -10,6 +12,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -56,6 +59,18 @@ class DcrRegistrationsTest {
                 .contains(new DcrRegistrations.Registration("mgmt", ""));
         assertThat(registrations.forIssuer("https://other.example")).isEmpty();
         assertThat(registrations.forIssuer("")).isEmpty();
+    }
+
+    @Test
+    void aRegistrationPersistsNoManagementTokenButStillOffersItWhileLoaded() {
+        PersistedObject persisted = mock(PersistedObject.class);
+        DcrRegistrations real = new DcrRegistrations(new ExtensionConfigStore(persisted, mock(Logging.class)));
+
+        real.remember(URI.create(ISSUER), session(Optional.of("mgmt-secret"), Optional.of("https://issuer.example/c/1")));
+
+        verify(persisted, never()).setString(anyString(), contains("mgmt-secret"));
+        assertThat(real.forIssuer(ISSUER).map(DcrRegistrations.Registration::managementToken))
+                .contains("mgmt-secret");
     }
 
     private static OAuthSession session(Optional<String> managementToken, Optional<String> clientUri) {

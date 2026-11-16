@@ -57,6 +57,10 @@ final class OwnedValuesTableModel extends AbstractTableModel {
     }
 
     private static String scope(ValueScope scope) {
-        return scope == ValueScope.PRIVATE ? "Private" : "Shared";
+        return switch (scope) {
+            case PRIVATE -> "Private";
+            case ATTRIBUTED -> "Own (private marker)";
+            case SHARED -> "Shared";
+        };
     }
 }
