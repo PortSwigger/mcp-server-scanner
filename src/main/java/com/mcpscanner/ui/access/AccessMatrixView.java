@@ -9,6 +9,7 @@ import com.mcpscanner.ui.widgets.ThemeColors;
 import com.mcpscanner.ui.widgets.WholeRowScrollPane;
 
 import javax.swing.BorderFactory;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -17,11 +18,14 @@ import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.event.CellEditorListener;
 import javax.swing.event.ChangeEvent;
+import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import java.awt.BorderLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Optional;
+import java.util.Set;
 
 final class AccessMatrixView extends JPanel {
 
@@ -37,6 +41,7 @@ final class AccessMatrixView extends JPanel {
     private final JLabel info = new JLabel();
     private final DetailText detail = DetailText.prose();
     private AccessSnapshot snapshot = new AccessSnapshot(false, java.util.List.of(), java.util.List.of());
+    private Set<String> usersWithoutIds = Set.of();
 
     AccessMatrixView(AccessTableModel model, CheckAccessControl checkAccess, AccessRowMenu rowMenu,
                      Runnable refreshListings) {
@@ -45,6 +50,7 @@ final class AccessMatrixView extends JPanel {
         this.checkAccess = checkAccess;
         this.rowMenu = rowMenu;
         this.table = new JTable(model);
+        table.setTableHeader(new NotedHeader(table.getColumnModel()));
         this.toolbar = new AccessToolbar(checkAccess, refreshListings, this::refilter);
         configureTable();
         add(north(), BorderLayout.NORTH);
@@ -68,12 +74,13 @@ final class AccessMatrixView extends JPanel {
         return detail;
     }
 
-    void show(AccessSnapshot next) {
+    void show(AccessSnapshot next, Set<String> withoutIds) {
         Optional<AccessItemKey> selectedItem = selectedRow().map(row -> row.item().key());
         int selectedColumn = table.getSelectedColumn();
         snapshot = next;
+        usersWithoutIds = Set.copyOf(withoutIds);
         if (!table.isEditing()) {
-            model.show(next.principals(), next.rows(toolbar.filter()));
+            model.show(next.principals(), next.rows(toolbar.filter()), usersWithoutIds);
             sizeColumns();
             restoreSelection(selectedItem, selectedColumn);
         }
@@ -84,7 +91,7 @@ final class AccessMatrixView extends JPanel {
     }
 
     private void refilter() {
-        show(snapshot);
+        show(snapshot, usersWithoutIds);
     }
 
     private void configureTable() {
@@ -98,6 +105,25 @@ final class AccessMatrixView extends JPanel {
         table.getSelectionModel().addListSelectionListener(event -> showDetail());
         table.getColumnModel().getSelectionModel().addListSelectionListener(event -> showDetail());
         table.addMouseListener(new PopupTrigger());
+        table.addMouseListener(new ExpectationShortcut());
+    }
+
+    boolean openExpectationFrom(int viewRow, int viewColumn) {
+        if (viewRow < 0 || viewColumn < 0 || !unconfirmedSameResultAt(viewRow, viewColumn)) {
+            return false;
+        }
+        boolean editing = table.editCellAt(viewRow, table.convertColumnIndexToView(model.expectationColumn()));
+        if (editing && table.getEditorComponent() instanceof JComboBox<?> choices && choices.isShowing()) {
+            choices.requestFocusInWindow();
+            choices.showPopup();
+        }
+        return editing;
+    }
+
+    private boolean unconfirmedSameResultAt(int viewRow, int viewColumn) {
+        AccessRow row = model.rowAt(table.convertRowIndexToModel(viewRow));
+        return model.columnAt(table.convertColumnIndexToModel(viewColumn)) instanceof AccessColumn.Identity identity
+                && row.unconfirmedSameResult(identity.principal());
     }
 
     private void sizeColumns() {
@@ -160,6 +186,20 @@ final class AccessMatrixView extends JPanel {
         });
     }
 
+    private final class NotedHeader extends JTableHeader {
+
+        NotedHeader(TableColumnModel columns) {
+            super(columns);
+        }
+
+        @Override
+        public String getToolTipText(MouseEvent event) {
+            int column = columnAtPoint(event.getPoint());
+            return column < 0 ? null
+                    : model.columnAt(table.convertColumnIndexToModel(column)).note().orElse(null);
+        }
+    }
+
     private final class DeferredRefresh implements CellEditorListener {
         @Override
         public void editingStopped(ChangeEvent event) {
@@ -169,6 +209,15 @@ final class AccessMatrixView extends JPanel {
         @Override
         public void editingCanceled(ChangeEvent event) {
             SwingUtilities.invokeLater(AccessMatrixView.this::refilter);
+        }
+    }
+
+    private final class ExpectationShortcut extends MouseAdapter {
+        @Override
+        public void mouseClicked(MouseEvent event) {
+            if (event.getClickCount() == 2) {
+                openExpectationFrom(table.rowAtPoint(event.getPoint()), table.columnAtPoint(event.getPoint()));
+            }
         }
     }
 

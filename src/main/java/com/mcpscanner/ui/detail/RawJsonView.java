@@ -14,7 +14,7 @@ import java.util.function.Consumer;
 
 public final class RawJsonView extends JPanel {
 
-    static final int PADDING = 8;
+    public static final int PADDING = 8;
     private static final int GAP = 8;
 
     private final PrettyJson prettyJson = new PrettyJson();

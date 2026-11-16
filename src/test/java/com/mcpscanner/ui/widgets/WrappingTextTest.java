@@ -1,10 +1,12 @@
 package com.mcpscanner.ui.widgets;
 
+import com.mcpscanner.testutil.SwingTree;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JComponent;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.RepaintManager;
 import javax.swing.SwingUtilities;
 import java.util.ArrayList;
@@ -37,6 +39,23 @@ class WrappingTextTest {
 
         assertThat(duringLayout).containsExactly(0);
         assertThat(invalidated).contains(text);
+    }
+
+    @Test
+    void settingTextNeverScrollsTheEnclosingViewport() throws Exception {
+        WrappingText text = new WrappingText("first line\n".repeat(40));
+        JScrollPane scrollPane = new JScrollPane(text);
+        List<Integer> viewportTops = new ArrayList<>();
+        SwingUtilities.invokeAndWait(() -> {
+            scrollPane.setSize(200, 60);
+            text.updateUI();
+            SwingTree.layOut(scrollPane);
+            text.setText("second text\n".repeat(40));
+        });
+
+        SwingUtilities.invokeAndWait(() -> viewportTops.add(scrollPane.getViewport().getViewPosition().y));
+
+        assertThat(viewportTops).containsExactly(0);
     }
 
     private static final class RecordingRepaintManager extends RepaintManager {

@@ -7,6 +7,7 @@ import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.scan.MinedArguments;
 import com.mcpscanner.scan.OwnedArguments;
 import com.mcpscanner.scan.OwnerArgumentSource;
+import com.mcpscanner.scan.RequiredArguments;
 import com.mcpscanner.scan.ScanTarget;
 
 import java.util.HashMap;
@@ -33,12 +34,11 @@ public final class OwnerRequests {
     }
 
     public HttpRequest forOwner(AccessRow row) {
-        return identities.routed(row.owner(), primaryRequests.apply(ownersTarget(row)));
+        return identities.routed(row.owner(), primaryRequest(row));
     }
 
     public HttpRequest as(AccessRow row, Principal principal) {
-        HttpRequest ownerRequest = forOwner(row);
-        return row.ownedBy(principal) ? ownerRequest : identities.as(principal, ownerRequest);
+        return row.ownedBy(principal) ? forOwner(row) : identities.as(principal, primaryRequest(row));
     }
 
     public List<McpToolDefinition> ownersTools(List<AccessRow> rows) {
@@ -52,13 +52,17 @@ public final class OwnerRequests {
         return new MinedArguments(byTool);
     }
 
+    private HttpRequest primaryRequest(AccessRow row) {
+        return primaryRequests.apply(ownersTarget(row));
+    }
+
     private ScanTarget ownersTarget(AccessRow row) {
         ScanTarget target = row.item().target();
         return target instanceof ScanTarget.Tool tool ? new ScanTarget.Tool(ownersTool(row, tool.tool())) : target;
     }
 
     private McpToolDefinition ownersTool(AccessRow row, McpToolDefinition tool) {
-        return OwnedArguments.apply(tool, argumentsOf(row).forTool(tool));
+        return RequiredArguments.only(OwnedArguments.apply(tool, argumentsOf(row).forTool(tool)));
     }
 
     private OwnerArgumentSource argumentsOf(AccessRow row) {

@@ -31,6 +31,15 @@ class MiningPreferencesTest {
     }
 
     @Test
+    void theRequestCeilingComesFromTheCollectIdsRequestsPerUserSetting() {
+        assertThat(preferences.settings(List.of(LIST)).requestCeiling()).isEqualTo(MiningSettings.NO_REQUEST_CEILING);
+
+        config.setResourceCap(com.mcpscanner.config.ResourceCap.MINING_REQUESTS_PER_USER, 750L);
+
+        assertThat(preferences.settings(List.of(LIST)).requestCeiling()).isEqualTo(750);
+    }
+
+    @Test
     void minedIdsStayOutOfWriteToolsUntilTurnedOnAndTheChoiceIsPersisted() {
         assertThat(preferences.minedIdsInWriteTools()).isFalse();
 

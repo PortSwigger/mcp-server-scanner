@@ -72,6 +72,11 @@ public final class AccessMatrix {
         changed();
     }
 
+    public void recordNotCompared(AccessItemKey item, String reason) {
+        outcomes.recordNotCompared(item, reason);
+        changed();
+    }
+
     public void clearOutcomes() {
         outcomes.clear();
         changed();

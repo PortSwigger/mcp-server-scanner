@@ -6,6 +6,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPointType;
 import com.mcpscanner.mcp.BurpNativeJsonRpcFields;
+import com.mcpscanner.scan.ArgumentPath;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.mcpscanner.testutil.RawHttpRequestStub;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,40 @@ class McpFieldGeneratorTest {
         assertThat(fields).extracting(AuditInsertionPoint::type).containsOnly(AuditInsertionPointType.PARAM_JSON);
         assertThat(fields).extracting(AuditInsertionPoint::baseValue)
                 .containsExactly("fetch", "http://a", "2", "false", "x", "null", "{}", "p1");
+    }
+
+    @Test
+    void aProbeCallIsFuzzedOnlyAtTheArgumentItAddedAndNeverAtTheHeadersItRepeats() {
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        addedArguments.record(TOOL_CALL, ArgumentPath.of("url"));
+        McpFieldGenerator probes = new McpFieldGenerator(() -> true, new TemplateExpansionRegistry(),
+                BurpNativeJsonRpcFields.ABSENT, addedArguments);
+
+        List<AuditInsertionPoint> fields = probes.fieldsOf(request(TOOL_CALL, mcpHeaders()));
+
+        assertThat(fields).extracting(AuditInsertionPoint::name)
+                .containsExactly("MCP field: params.arguments.url");
+    }
+
+    @Test
+    void besideBurpNativeFieldsAProbeCallsAddedScalarIsLeftToBurpSoItIsFuzzedOnce() {
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        addedArguments.record(TOOL_CALL, ArgumentPath.of("url"));
+        McpFieldGenerator probes = new McpFieldGenerator(() -> true, new TemplateExpansionRegistry(),
+                BurpNativeJsonRpcFields.PRESENT, addedArguments);
+
+        assertThat(probes.fieldsOf(request(TOOL_CALL, mcpHeaders()))).isEmpty();
+    }
+
+    @Test
+    void besideBurpNativeFieldsAProbeCallsAddedFieldBurpLeavesUnfuzzedIsStillOffered() {
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        addedArguments.record(TOOL_CALL, ArgumentPath.of("empty"));
+        McpFieldGenerator probes = new McpFieldGenerator(() -> true, new TemplateExpansionRegistry(),
+                BurpNativeJsonRpcFields.PRESENT, addedArguments);
+
+        assertThat(probes.fieldsOf(request(TOOL_CALL, mcpHeaders()))).extracting(AuditInsertionPoint::name)
+                .containsExactly("MCP field: params.arguments.empty");
     }
 
     @Test

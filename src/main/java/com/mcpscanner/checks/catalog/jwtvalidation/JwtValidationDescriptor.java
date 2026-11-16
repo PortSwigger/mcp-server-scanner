@@ -27,7 +27,6 @@ final class JwtValidationDescriptor {
                     "https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#token-handling",
                     "https://datatracker.ietf.org/doc/html/rfc8725",
                     "https://datatracker.ietf.org/doc/html/rfc9068",
-                    "https://github.com/nearform/fast-jwt/security/advisories/GHSA-gmvf-9v4p-v8jc",
                     "https://portswigger.net/web-security/jwt"),
             Optional.of("JWT access token validation"),
             "An MCP server that accepts a JWT whose signature it did not verify lets anyone mint an access token "

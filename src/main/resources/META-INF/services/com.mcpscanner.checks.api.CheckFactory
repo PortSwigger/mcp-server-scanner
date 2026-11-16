@@ -13,3 +13,5 @@ com.mcpscanner.checks.catalog.unauthenticatedrequestexecution.UnauthenticatedReq
 com.mcpscanner.checks.catalog.siblingrouteauthparity.SiblingRouteAuthParityCheckFactory
 com.mcpscanner.checks.catalog.sessionlifecycle.SessionLifecycleCheckFactory
 com.mcpscanner.checks.catalog.sessionbinding.SessionBindingCheckFactory
+com.mcpscanner.checks.catalog.ssrffilterbypass.SsrfFilterBypassCheckFactory
+com.mcpscanner.checks.catalog.sqlinjection.SqlInjectionCheckFactory

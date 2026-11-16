@@ -5,7 +5,7 @@ import com.mcpscanner.engine.ScanProgress;
 
 import java.util.function.Consumer;
 
-record EngineRun(EngineScan scan) implements RunningScan {
+record EngineRun(EngineScan scan) implements OutcomeReportingScan {
 
     @Override
     public ScanActivity activity() {
@@ -29,9 +29,19 @@ record EngineRun(EngineScan scan) implements RunningScan {
     }
 
     @Override
-    public void whenFinished(Consumer<ScanOutcome> listener) {
+    public void failWith(String reason) {
+        scan.abort(reason);
+    }
+
+    @Override
+    public void whenCompleted(Consumer<ScanOutcome> listener) {
         scan.completion().thenAccept(progress ->
                 listener.accept(new ScanOutcome(progress.issuesReported(), progress.cancelled(),
                         progress.watchedPayloads())));
+    }
+
+    @Override
+    public void whenEnded(Runnable action) {
+        whenCompleted(outcome -> action.run());
     }
 }

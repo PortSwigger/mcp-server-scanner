@@ -2,8 +2,10 @@ package com.mcpscanner.ui.detail;
 
 import javax.swing.JComponent;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import java.awt.BorderLayout;
+import java.awt.Point;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
@@ -31,6 +33,7 @@ public final class DetailTabs {
     }
 
     public void add(String title, JComponent content) {
+        scrollToTop(content);
         pane.addTab(title, holderOf(content));
     }
 
@@ -68,6 +71,12 @@ public final class DetailTabs {
 
     private static String uncounted(String title) {
         return title.replaceFirst(TRAILING_COUNT, "");
+    }
+
+    private static void scrollToTop(JComponent content) {
+        if (content instanceof JScrollPane scrollPane) {
+            scrollPane.getViewport().setViewPosition(new Point());
+        }
     }
 
     private static JPanel holderOf(JComponent content) {

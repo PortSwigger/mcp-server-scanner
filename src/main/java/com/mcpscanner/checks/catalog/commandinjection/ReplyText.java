@@ -18,6 +18,15 @@ final class ReplyText {
         return false;
     }
 
+    static String joined(JsonNode node) {
+        if (node.isTextual()) {
+            return node.textValue();
+        }
+        StringBuilder text = new StringBuilder();
+        node.forEach(child -> text.append(joined(child)).append('\n'));
+        return text.toString();
+    }
+
     static boolean contentTextStartsWith(JsonNode result, String prefix) {
         for (JsonNode item : result.path("content")) {
             if (item.path("text").asText("").startsWith(prefix)) {

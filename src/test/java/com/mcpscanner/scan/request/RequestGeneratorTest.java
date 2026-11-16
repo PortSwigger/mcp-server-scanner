@@ -1,6 +1,7 @@
 package com.mcpscanner.scan.request;
 
 import com.mcpscanner.mcp.McpToolDefinition;
+import com.mcpscanner.scan.ArgumentPath;
 import com.mcpscanner.scan.ScanInventory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -8,8 +9,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.EnumSet;
+import com.mcpscanner.performance.RequestBudgets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -176,6 +179,51 @@ class RequestGeneratorTest {
             assertThat(message.routingName()).contains("delete_file");
         });
         assertThat(scan.invokedTools()).containsExactly(SampleSurfaces.WRITE_TOOL);
+    }
+
+    @Test
+    void anOptionalFieldLeftOutOfTheBaseCallGetsItsOwnProbeCallSoChecksCanFuzzIt() {
+        McpToolDefinition tool = new McpToolDefinition("list_rows", "d",
+                "{\"type\":\"object\",\"properties\":{\"table\":{\"type\":\"string\"},"
+                        + "\"sort\":{\"type\":\"string\",\"pattern\":\"^[a-z_]+$\"}},\"required\":[\"table\"]}");
+
+        List<McpMessage> calls = SampleSurfaces.jsonRpc(generator.scanThisRequest(RequestFamily.TOOLS_CALL,
+                ScanInventory.toolsOnly(List.of(tool))));
+
+        assertThat(calls).extracting(call -> call.params().orElseThrow().path("arguments").has("sort"))
+                .containsExactly(false, true);
+        assertThat(calls).allSatisfy(call -> assertThat(call.params().orElseThrow().path("arguments")
+                .has("table")).isTrue());
+    }
+
+    @Test
+    void oneToolWithTwoPatternBoundOptionalArgumentsIsScannedAsTheBaseCallPlusOneProbeEach() {
+        McpToolDefinition tool = new McpToolDefinition("list_rows", "d",
+                "{\"type\":\"object\",\"properties\":{\"table\":{\"type\":\"string\"},"
+                        + "\"sort\":{\"type\":\"string\",\"pattern\":\"^[a-z_]+$\"},"
+                        + "\"rows\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":"
+                        + "{\"ref\":{\"type\":\"string\",\"pattern\":\"^[a-z]+$\"}}}}},\"required\":[\"table\"]}");
+
+        List<McpMessage> calls = SampleSurfaces.jsonRpc(generator.scanThisRequest(RequestFamily.TOOLS_CALL,
+                ScanInventory.toolsOnly(List.of(tool))));
+
+        RequestBudgets.assertWithin("Generated calls for one tool with two pattern-bound optional arguments",
+                calls.stream().map(McpMessage::subject).toList());
+    }
+
+    @Test
+    void aProbeCallNamesTheOneArgumentItAddedAndTheBaseCallNamesNone() {
+        McpToolDefinition tool = new McpToolDefinition("list_rows", "d",
+                "{\"type\":\"object\",\"properties\":{\"table\":{\"type\":\"string\"},"
+                        + "\"opts\":{\"type\":\"object\",\"properties\":{\"sort\":{\"type\":\"string\","
+                        + "\"pattern\":\"^[a-z_]+$\"}}}},\"required\":[\"table\"]}");
+
+        List<McpMessage> calls = SampleSurfaces.jsonRpc(generator.scanThisRequest(RequestFamily.TOOLS_CALL,
+                ScanInventory.toolsOnly(List.of(tool))));
+
+        assertThat(calls).extracting(McpMessage::addedArgument)
+                .containsExactly(Optional.empty(), Optional.of(ArgumentPath.of("opts", "sort")));
+        assertThat(calls.get(1).params().orElseThrow().at("/arguments/opts/sort").asText()).isEqualTo("test");
     }
 
     @Test

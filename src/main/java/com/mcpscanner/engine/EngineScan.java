@@ -73,6 +73,11 @@ public final class EngineScan {
         cancel(SkipCause.SCAN_CANCELLED);
     }
 
+    public void abort(String reason) {
+        failed(Optional.empty(), "", Optional.empty(), reason);
+        cancel();
+    }
+
     void cancel(SkipCause cause) {
         if (lifecycle.cancel()) {
             cancelCause = cause;

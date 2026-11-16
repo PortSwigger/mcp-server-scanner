@@ -48,18 +48,22 @@ final class ItemComparison {
 
     private List<Finding> findings(OperationReply ownerReply) {
         if (!ownerReply.substantive()) {
-            return notCompared("baseline_unusable", AccessOutcome.NOT_RUN);
+            return notCompared("baseline_unusable", owner.name() + "'s own call " + UnusableReply.describe(ownerReply),
+                    AccessOutcome.NOT_RUN);
         }
         OperationReply anonymous = anonymousReply();
         if (!anonymous.answered()) {
-            return notCompared("anonymous_unanswered", AccessOutcome.ERROR);
+            return notCompared("anonymous_unanswered", "the call without credentials got no response, so there is "
+                    + "nothing to compare against", AccessOutcome.ERROR);
         }
         if (ownerReply.sameResult(anonymous)) {
-            return notCompared("anonymous_operation_success", AccessOutcome.SAME_RESULT);
+            return notCompared("anonymous_operation_success", "Anonymous already gets " + owner.name()
+                    + "'s result, so anyone can reach it", AccessOutcome.SAME_RESULT);
         }
         Map<Principal, Replay> replays = replays();
         if (anonymous.success() && replays.values().stream().map(Replay::reply).noneMatch(anonymous::sameResult)) {
-            return notCompared("anonymous_operation_success", AccessOutcome.DIFFERENT_RESULT);
+            return notCompared("anonymous_operation_success", "the call also succeeds without credentials, so "
+                    + "the users' results cannot be told apart from Anonymous's", AccessOutcome.DIFFERENT_RESULT);
         }
         outcomes.recordAnonymous(Outcomes.compared(anonymous, ownerReply));
         IdentityFindings identities = new IdentityFindings(seed, owner, ownerReply,
@@ -88,10 +92,11 @@ final class ItemComparison {
         return Replay.of(admission, context.transport()::reply);
     }
 
-    private List<Finding> notCompared(String decision, AccessOutcome anonymous) {
+    private List<Finding> notCompared(String decision, String reason, AccessOutcome anonymous) {
         log.record(decision);
         outcomes.recordAll(compared, AccessOutcome.NOT_RUN);
         outcomes.recordAnonymous(anonymous);
+        outcomes.recordNotCompared(reason);
         return List.of();
     }
 }

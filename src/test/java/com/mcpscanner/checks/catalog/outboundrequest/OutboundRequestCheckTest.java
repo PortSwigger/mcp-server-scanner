@@ -32,6 +32,8 @@ import static org.mockito.Mockito.when;
 
 class OutboundRequestCheckTest {
 
+    private static final int FORMS_FOR_A_NON_URL_VALUE = 5;
+
     private static final String URL_FIELD = "MCP field: params.arguments.url";
     private static final String PROGRESS_TOKEN = "MCP field: params._meta.progressToken";
 
@@ -63,6 +65,28 @@ class OutboundRequestCheckTest {
     }
 
     @Test
+    void reportsAServerThatOnlyConnectsForAFlagShapedValueAndNamesTheFlag() {
+        target.fetchingWhen(bodyContains("\"url\":\"--server=http://"));
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.detail()).contains("long flag --server --server=http://");
+            assertThat(issue.requestResponses()).hasSize(1);
+        });
+    }
+
+    @Test
+    void reportsAnAttachedShortFlagCarryingTheHostAsOneProbe() {
+        target.fetchingWhen(bodyContains("\"url\":\"-shttp://"));
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement().satisfies(issue ->
+                assertThat(issue.detail()).contains("attached short flag -s -shttp://"));
+    }
+
+    @Test
     void reportsALookupWithoutARequestAsLowTentative() {
         target.fetchingWhen(bodyContains(FakeCollaborator.DOMAIN)).resolvingOnly();
 
@@ -72,7 +96,7 @@ class OutboundRequestCheckTest {
             assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.LOW);
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
             assertThat(issue.detail()).contains("DNS").contains("validator");
-            assertThat(issue.requestResponses()).hasSize(2);
+            assertThat(issue.requestResponses()).hasSize(ProbeForm.values().length);
         });
     }
 
@@ -89,7 +113,7 @@ class OutboundRequestCheckTest {
     }
 
     @Test
-    void keepsTheBaseAndBothProbesAsTheWatchsTemporaryFileCopies() {
+    void keepsTheBaseAndEveryProbeAsTheWatchsTemporaryFileCopies() {
         target.fetchingWhen(bodyContains(FakeCollaborator.DOMAIN)).resolvingOnly();
         TaggingCopies copies = new TaggingCopies();
         HttpRequest toolCall = mcpRequest(OutboundFixtures.TOOL_CALL);
@@ -99,7 +123,7 @@ class OutboundRequestCheckTest {
 
         assertThat(copies.keptCount()).isEqualTo(1 + ProbeForm.values().length);
         assertThat(issues).singleElement().satisfies(issue -> {
-            assertThat(issue.requestResponses()).hasSize(2).allMatch(TaggingCopies::wasKept);
+            assertThat(issue.requestResponses()).hasSize(ProbeForm.values().length).allMatch(TaggingCopies::wasKept);
             assertThat(issue.baseUrl()).isEqualTo(toolCall.url());
         });
     }
@@ -143,15 +167,47 @@ class OutboundRequestCheckTest {
     }
 
     @Test
-    void sendsOneAbsoluteUrlAndOneBareHostEachWithItsOwnPayload() {
+    void sendsEveryProbeFormEachWithItsOwnPayload() {
         audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
 
-        assertThat(target.received()).hasSize(2);
-        String absolute = target.received().get(0).bodyToString();
-        String bare = target.received().get(1).bodyToString();
-        assertThat(absolute).containsPattern("\"url\":\"http://p\\d+x\\." + FakeCollaborator.DOMAIN.replace(".", "\\.") + "\"");
-        assertThat(bare).containsPattern("\"url\":\"p\\d+x\\." + FakeCollaborator.DOMAIN.replace(".", "\\.") + "\"");
-        assertThat(absolute.replaceAll("[^0-9]", "")).isNotEqualTo(bare.replaceAll("[^0-9]", ""));
+        String host = "p\\d+x\\." + FakeCollaborator.DOMAIN.replace(".", "\\.");
+        List<String> bodies = target.received().stream().map(HttpRequest::bodyToString).toList();
+        assertThat(bodies).hasSize(7);
+        assertThat(bodies.get(0)).containsPattern("\"url\":\"http://" + host + "\"");
+        assertThat(bodies.get(1)).containsPattern("\"url\":\"" + host + "\"");
+        assertThat(bodies.get(4)).containsPattern("\"url\":\"--server=http://" + host + "/\"");
+        assertThat(bodies.get(5)).containsPattern("\"url\":\"--url=http://" + host + "/\"");
+        assertThat(bodies.get(6)).containsPattern("\"url\":\"-shttp://" + host + "/\"");
+        assertThat(bodies.stream().map(body -> body.replaceAll("[^0-9]", "")).distinct()).hasSize(7);
+    }
+
+    @Test
+    void keepsTheOriginalHostAndPointsItAtThePayloadHostForAUrlValue() {
+        audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
+
+        List<String> bodies = target.received().stream().map(HttpRequest::bodyToString).toList();
+        String domain = FakeCollaborator.DOMAIN.replace(".", "\\.");
+        assertThat(bodies).anyMatch(body -> body.matches(
+                ".*\"url\":\"https://docs\\.example\\.test\\.p\\d+x\\." + domain + "/a\".*"));
+        assertThat(bodies).anyMatch(body -> body.matches(
+                ".*\"url\":\"https://docs\\.example\\.test@p\\d+x\\." + domain + "/a\".*"));
+    }
+
+    @Test
+    void sendsNoOriginPreservingFormForAValueThatIsNotAUrl() {
+        audit(mcpRequest(OutboundFixtures.TOOL_CALL), "MCP field: params.arguments.limit");
+
+        assertThat(target.received()).hasSize(FORMS_FOR_A_NON_URL_VALUE);
+    }
+
+    @Test
+    void reportsAServerThatOnlyFetchesAnAllowlistedPrefixAsAnOutboundRequest() {
+        target.fetchingWhen(bodyContains("\"url\":\"https://docs.example.test."));
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement().satisfies(issue -> assertThat(issue.detail())
+                .contains("original host with the payload host appended"));
     }
 
     @Test
@@ -249,7 +305,7 @@ class OutboundRequestCheckTest {
 
         assertThat(issues).singleElement().satisfies(issue -> assertThat(issue.detail())
                 .startsWith("<p>Field: " + PROGRESS_TOKEN + "</p><p>Confirmed in tools/list."));
-        assertThat(target.received()).hasSize(2);
+        assertThat(target.received()).hasSize(FORMS_FOR_A_NON_URL_VALUE);
     }
 
     @Test
@@ -259,7 +315,7 @@ class OutboundRequestCheckTest {
         List<AuditIssue> issues = auditEvery(OutboundFixtures.METHODS_WITH_PROGRESS_TOKEN, PROGRESS_TOKEN);
 
         assertThat(issues).singleElement().extracting(AuditIssue::detail).asString().contains("prompts/list");
-        assertThat(target.received()).hasSize(6);
+        assertThat(target.received()).hasSize(3 * FORMS_FOR_A_NON_URL_VALUE);
     }
 
     @Test

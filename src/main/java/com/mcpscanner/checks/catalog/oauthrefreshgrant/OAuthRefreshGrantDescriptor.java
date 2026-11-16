@@ -23,8 +23,7 @@ final class OAuthRefreshGrantDescriptor {
             true,
             List.of("https://www.rfc-editor.org/rfc/rfc6749#section-6",
                     "https://www.rfc-editor.org/rfc/rfc9700#section-4.14",
-                    "https://modelcontextprotocol.io/specification/draft/basic/authorization",
-                    "https://github.com/advisories/GHSA-pw9m-5jxm-xr6h"),
+                    "https://modelcontextprotocol.io/specification/draft/basic/authorization"),
             Optional.empty(),
             "An OAuth refresh token lets a client obtain new access tokens without the resource owner. RFC 6749 "
                     + "section 6 requires the authorization server to authenticate confidential clients on the "

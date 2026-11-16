@@ -2,11 +2,13 @@ package com.mcpscanner.scan;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mcpscanner.mcp.McpPromptDefinition;
 import com.mcpscanner.mcp.PromptArgument;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -116,7 +118,7 @@ class JsonSchemaDefaultsTest {
     }
 
     @Test
-    void arrayPropertyDefaultsToEmptyArray() {
+    void arrayPropertyWithoutItemSchemaDefaultsToEmptyArray() {
         String schema = """
                 {"properties":{"items":{"type":"array"}}}""";
 
@@ -245,7 +247,7 @@ class JsonSchemaDefaultsTest {
     @Test
     void minimumOnInteger() throws Exception {
         String schema = """
-                {"properties":{"limit":{"type":"integer","minimum":10}}}""";
+                {"properties":{"limit":{"type":"integer","minimum":10}},"required":["limit"]}""";
 
         String result = JsonSchemaDefaults.buildDefaultArgumentsJson(schema);
 
@@ -257,7 +259,7 @@ class JsonSchemaDefaultsTest {
     @Test
     void minimumOnNumber() throws Exception {
         String schema = """
-                {"properties":{"limit":{"type":"number","minimum":10}}}""";
+                {"properties":{"limit":{"type":"number","minimum":10}},"required":["limit"]}""";
 
         String result = JsonSchemaDefaults.buildDefaultArgumentsJson(schema);
 
@@ -327,15 +329,84 @@ class JsonSchemaDefaultsTest {
     }
 
     @Test
-    void arrayWithoutMinItemsIsEmpty() throws Exception {
+    void optionalStringArrayCarriesOnePlaceholderElementSoItsItemCanBeFuzzed() throws Exception {
         String schema = """
                 {"properties":{"tags":{"type":"array","items":{"type":"string"}}}}""";
 
-        String result = JsonSchemaDefaults.buildDefaultArgumentsJson(schema);
+        JsonNode tags = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema)).get("tags");
 
-        JsonNode tags = MAPPER.readTree(result).get("tags");
-        assertThat(tags.isArray()).isTrue();
-        assertThat(tags.size()).isZero();
+        assertThat(tags).hasSize(1);
+        assertThat(tags.get(0).asText()).isEqualTo("test");
+    }
+
+    @Test
+    void nullableStringArrayWithNullDefaultCarriesOnePlaceholderElement() throws Exception {
+        String schema = """
+                {"properties":{"files":{"anyOf":[{"items":{"type":"string"},"type":"array"},{"type":"null"}],
+                "default":null,"title":"Files"}}}""";
+
+        JsonNode files = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema)).get("files");
+
+        assertThat(files).hasSize(1);
+        assertThat(files.get(0).asText()).isEqualTo("test");
+    }
+
+    @Test
+    void nullableScalarWithNullDefaultStaysNull() throws Exception {
+        String schema = """
+                {"properties":{"model":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null}}}""";
+
+        assertThat(MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema)).get("model").isNull())
+                .isTrue();
+    }
+
+    @Test
+    void arrayWithoutItemSchemaStaysEmpty() throws Exception {
+        String schema = """
+                {"properties":{"tags":{"type":"array"}}}""";
+
+        assertThat(MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema)).get("tags")).isEmpty();
+    }
+
+    @Test
+    void stringArrayThatMayHoldNoItemsStaysEmpty() throws Exception {
+        String schema = """
+                {"properties":{"tags":{"type":"array","maxItems":0,"items":{"type":"string"}}}}""";
+
+        assertThat(MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema)).get("tags")).isEmpty();
+    }
+
+    @Test
+    void directoryNamedStringIsTheWorkingDirectory() throws Exception {
+        String schema = """
+                {"properties":{"directory":{"title":"Directory","type":"string"},"query":{"type":"string"}},
+                "required":["query","directory"]}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.get("directory").asText()).isEqualTo("/tmp");
+        assertThat(arguments.get("query").asText()).isEqualTo("test");
+    }
+
+    @Test
+    void stringNamedAfterAWorkingDirectoryIsTheWorkingDirectory() throws Exception {
+        String schema = """
+                {"properties":{"working_dir":{"type":"string"},"cwd":{"type":"string"},"folder":{"type":"string"}}}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.get("working_dir").asText()).isEqualTo("/tmp");
+        assertThat(arguments.get("cwd").asText()).isEqualTo("/tmp");
+        assertThat(arguments.get("folder").asText()).isEqualTo("/tmp");
+    }
+
+    @Test
+    void directoryNamedStringWithAFormatKeepsTheFormatPlaceholder() throws Exception {
+        String schema = """
+                {"properties":{"directory":{"type":"string","format":"uri"}}}""";
+
+        assertThat(MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema)).get("directory").asText())
+                .isEqualTo("https://example.com/");
     }
 
     @Test
@@ -403,7 +474,7 @@ class JsonSchemaDefaultsTest {
                     "since_id":{"type":"string"},
                     "state":{"type":"string","enum":["published","draft","archived","closed"]},
                     "telemetry":{"type":"object","required":["intent"],"properties":{"intent":{"type":"string"}}}
-                }}""";
+                },"required":["limit"]}""";
 
         String result = JsonSchemaDefaults.buildDefaultArgumentsJson(schema);
 
@@ -433,5 +504,274 @@ class JsonSchemaDefaultsTest {
         String result = JsonSchemaDefaults.buildDefaultArgumentsJson("not-valid-json");
 
         assertThat(result).isEqualTo("{}");
+    }
+
+    @Test
+    void aToolboxSqlToolGetsAHarmlessReadForItsRequiredSql() {
+        String schema = """
+                {"type":"object","properties":{"sql":{"type":"string","description":"The sql to execute."}},
+                "required":["sql"]}""";
+
+        assertThat(JsonSchemaDefaults.requiredArguments(schema).toString()).isEqualTo("{\"sql\":\"SELECT 1\"}");
+        assertThat(JsonSchemaDefaults.defaultArguments(schema).toString()).isEqualTo("{\"sql\":\"SELECT 1\"}");
+    }
+
+    @Test
+    void sqlNamedPropertiesInAnyCaseGetTheHarmlessRead() {
+        String schema = """
+                {"properties":{"rawSQL":{"type":"string"},"sql_statement":{"type":"string"}}}""";
+
+        assertThat(JsonSchemaDefaults.defaultArguments(schema).toString())
+                .isEqualTo("{\"rawSQL\":\"SELECT 1\",\"sql_statement\":\"SELECT 1\"}");
+    }
+
+    @Test
+    void requiredArgumentsKeepOptionalPropertiesOmitted() {
+        String schema = """
+                {"properties":{"sql":{"type":"string"},"limit":{"type":"integer"}},"required":["sql"]}""";
+
+        assertThat(JsonSchemaDefaults.requiredArguments(schema).fieldNames()).toIterable().containsExactly("sql");
+    }
+
+    @Test
+    void constIsUsedVerbatim() {
+        String schema = """
+                {"properties":{"kind":{"type":"string","const":"report"}}}""";
+
+        assertThat(JsonSchemaDefaults.defaultArguments(schema).path("kind").asText()).isEqualTo("report");
+    }
+
+    @Test
+    void firstExampleIsUsedWhenNoDefaultOrEnum() {
+        String schema = """
+                {"properties":{"region":{"type":"string","examples":["eu-west-1","us-east-1"]}}}""";
+
+        assertThat(JsonSchemaDefaults.defaultArguments(schema).path("region").asText()).isEqualTo("eu-west-1");
+    }
+
+    @Test
+    void wellKnownStringFormatsGetValidPlaceholders() {
+        String schema = """
+                {"properties":{"site":{"type":"string","format":"uri"},"id":{"type":"string","format":"uuid"},
+                "at":{"type":"string","format":"date-time"},"day":{"type":"string","format":"date"}}}""";
+
+        JsonNode arguments = JsonSchemaDefaults.defaultArguments(schema);
+
+        assertThat(arguments.path("site").asText()).isEqualTo("https://example.com/");
+        assertThat(java.util.UUID.fromString(arguments.path("id").asText())).isNotNull();
+        assertThat(java.time.OffsetDateTime.parse(arguments.path("at").asText())).isNotNull();
+        assertThat(java.time.LocalDate.parse(arguments.path("day").asText())).isNotNull();
+    }
+
+    @Test
+    void maxLengthShortensThePlaceholderButNeverEmptiesIt() {
+        String schema = """
+                {"properties":{"code":{"type":"string","maxLength":2},"tiny":{"type":"string","maxLength":0}}}""";
+
+        JsonNode arguments = JsonSchemaDefaults.defaultArguments(schema);
+
+        assertThat(arguments.path("code").asText()).isEqualTo("te");
+        assertThat(arguments.path("tiny").asText()).isEqualTo("t");
+    }
+
+    @Test
+    void numbersRespectMaximumAndExclusiveBounds() {
+        String schema = """
+                {"properties":{"negative":{"type":"integer","maximum":-3},
+                "positive":{"type":"integer","exclusiveMinimum":4},
+                "belowOne":{"type":"integer","exclusiveMaximum":1},
+                "ratio":{"type":"number","maximum":0.25}},"required":["negative","positive","belowOne","ratio"]}""";
+
+        JsonNode arguments = JsonSchemaDefaults.defaultArguments(schema);
+
+        assertThat(arguments.path("negative").asLong()).isEqualTo(-3L);
+        assertThat(arguments.path("positive").asLong()).isEqualTo(5L);
+        assertThat(arguments.path("belowOne").asLong()).isZero();
+        assertThat(arguments.path("ratio").asDouble()).isEqualTo(0.25);
+    }
+
+    @Test
+    void urlNamedStringIsAnAbsoluteUrlSoTheServerDoesNotRejectItAsMalformed() throws Exception {
+        String schema = """
+                {"properties":{"url":{"type":"string","minLength":1},"imageUrl":{"type":"string"},
+                "target_url":{"type":"string"},"curl_options":{"type":"string"}}}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.get("url").asText()).isEqualTo("https://example.com/");
+        assertThat(arguments.get("imageUrl").asText()).isEqualTo("https://example.com/");
+        assertThat(arguments.get("target_url").asText()).isEqualTo("https://example.com/");
+        assertThat(arguments.get("curl_options").asText()).isEqualTo("test");
+    }
+
+    @Test
+    void optionalNumbersWithoutALowerBoundAreKeptWhateverTheirName() throws Exception {
+        String schema = """
+                {"properties":{"url":{"type":"string"},"timeout_seconds":{"type":"integer"},
+                "maxTier":{"type":"integer"}},"required":["url"]}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.has("timeout_seconds")).isTrue();
+        assertThat(arguments.has("maxTier")).isTrue();
+        assertThat(arguments.has("url")).isTrue();
+    }
+
+    @Test
+    void optionalNumberKnownOnlyByItsLowerBoundIsOmittedBecauseTheBoundStarvesTheCall() throws Exception {
+        String schema = """
+                {"properties":{"url":{"type":"string"},"maxTimeout":{"type":"integer","exclusiveMinimum":0},
+                "retries":{"type":"integer","minimum":0},"pageSize":{"type":"integer","minimum":1,"default":20},
+                "limit":{"type":"integer","minimum":1,"examples":[10]}},
+                "required":["url"]}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.has("maxTimeout")).isFalse();
+        assertThat(arguments.has("retries")).isFalse();
+        assertThat(arguments.get("pageSize").asInt()).isEqualTo(20);
+        assertThat(arguments.get("limit").asInt()).isEqualTo(10);
+    }
+
+    @Test
+    void requiredNumberKnownOnlyByItsLowerBoundIsKept() throws Exception {
+        String schema = """
+                {"properties":{"maxTimeout":{"type":"integer","exclusiveMinimum":0}},"required":["maxTimeout"]}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.get("maxTimeout").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void directoryPlaceholderIsTheSharedScratchDirectoryBecauseAServerRejectsAPathThatDoesNotExist() throws Exception {
+        String schema = """
+                {"properties":{"directory":{"type":"string"},"cwd":{"type":"string"}}}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.get("directory").asText()).isEqualTo("/tmp");
+        assertThat(arguments.get("cwd").asText()).isEqualTo("/tmp");
+    }
+
+    @Test
+    void optionalPatternConstrainedStringWithoutDefaultIsOmittedBecauseItNamesAnExistingThing() throws Exception {
+        String schema = """
+                {"properties":{"url":{"type":"string"},"sessionId":{"type":"string","pattern":"^[a-z]{1,8}$"}},
+                "required":["url"]}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.has("sessionId")).isFalse();
+    }
+
+    @Test
+    void requiredAndDefaultedTimeoutsAreKept() throws Exception {
+        String schema = """
+                {"properties":{"timeout":{"type":"integer","minimum":5},"read_timeout":{"type":"integer","default":10}},
+                "required":["timeout"]}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.get("timeout").asInt()).isEqualTo(5);
+        assertThat(arguments.get("read_timeout").asInt()).isEqualTo(10);
+    }
+
+    @Test
+    void optionalFreeTextAndBooleanWithoutDefaultAreKept() throws Exception {
+        String schema = """
+                {"properties":{"query":{"type":"string"},"note":{"type":"string"},"verbose":{"type":"boolean"}},
+                "required":["query"]}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.has("note")).isTrue();
+        assertThat(arguments.has("verbose")).isTrue();
+    }
+
+    @Test
+    void trawlScrapeSchemaWithholdsOnlyThePatternBoundExistingSessionId() throws Exception {
+        String schema = """
+                {"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{
+                "sessionId":{"description":"Existing browser session created through POST /sessions","type":"string",
+                "pattern":"^[a-zA-Z0-9_-]{1,128}$"},
+                "url":{"type":"string","minLength":1,"description":"Public HTTP(S) URL"},
+                "maxTimeout":{"description":"Maximum operation time in milliseconds","type":"integer",
+                "exclusiveMinimum":0,"maximum":9007199254740991},
+                "maxTier":{"description":"Highest anti-bot tier TRAWL may use","anyOf":[{"type":"number","const":1},
+                {"type":"number","const":2},{"type":"number","const":3},{"type":"number","const":4}]},
+                "skipHttp":{"type":"boolean"},"solveEmbeddedCaptchas":{"type":"boolean"}},
+                "required":["url"],"additionalProperties":false}""";
+
+        JsonNode arguments = MAPPER.readTree(JsonSchemaDefaults.buildDefaultArgumentsJson(schema));
+
+        assertThat(arguments.get("url").asText()).isEqualTo("https://example.com/");
+        assertThat(arguments.has("sessionId")).isFalse();
+        assertThat(arguments.get("maxTier").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void optionalFieldsLeftOutOfTheBaseCallAreReportedWithTheirPlaceholders() {
+        String schema = """
+                {"properties":{"url":{"type":"string"},"sort":{"type":"string","pattern":"^[a-z_]+$"},
+                "maxTimeout":{"type":"integer","exclusiveMinimum":0},"note":{"type":"string"}},"required":["url"]}""";
+
+        assertThat(JsonSchemaDefaults.withheldArguments(schema)).containsOnlyKeys(ArgumentPath.of("sort"), ArgumentPath.of("maxTimeout"))
+                .containsEntry(ArgumentPath.of("sort"), MAPPER.getNodeFactory().textNode("test"));
+    }
+
+    @Test
+    void requiredAndDefaultedFieldsAreNeverReportedAsWithheld() {
+        String schema = """
+                {"properties":{"id":{"type":"string","pattern":"^a$"},"t":{"type":"integer","default":3}},
+                "required":["id"]}""";
+
+        assertThat(JsonSchemaDefaults.withheldArguments(schema)).isEmpty();
+    }
+
+    @Test
+    void aPatternBoundFieldInsideAnObjectArgumentIsReportedWithItsFullPath() {
+        String schema = """
+                {"properties":{"filter":{"type":"object","properties":{"name":{"type":"string"},
+                "ref":{"type":"string","pattern":"^[a-z]+$"},
+                "inner":{"type":"object","properties":{"id":{"type":"string","pattern":"^[0-9]+$"}}}}}}}""";
+
+        assertThat(JsonSchemaDefaults.withheldArguments(schema))
+                .containsOnlyKeys(ArgumentPath.of("filter", "ref"), ArgumentPath.of("filter", "inner", "id"));
+        assertThat(JsonSchemaDefaults.defaultArguments(schema).at("/filter/name").asText()).isEqualTo("test");
+        assertThat(JsonSchemaDefaults.defaultArguments(schema).at("/filter").has("ref")).isFalse();
+    }
+
+    @Test
+    void aPatternBoundFieldInsideArrayItemsIsReportedAtTheFirstItem() {
+        String schema = """
+                {"properties":{"rows":{"type":"array","items":{"type":"object","properties":
+                {"id":{"type":"string"},"ref":{"type":"string","pattern":"^[a-z]+$"}}}}}}""";
+
+        Map<ArgumentPath, JsonNode> withheld = JsonSchemaDefaults.withheldArguments(schema);
+
+        assertThat(withheld).containsOnlyKeys(ArgumentPath.of("rows").firstItem().child("ref"));
+        ObjectNode probe = JsonSchemaDefaults.defaultArguments(schema);
+        withheld.forEach((path, value) -> path.setIn(probe, value));
+        assertThat(probe.at("/rows/0/ref").asText()).isEqualTo("test");
+        assertThat(probe.at("/rows")).hasSize(1);
+    }
+
+    @Test
+    void aPatternBoundFieldInsideAnArrayThatMayHoldNoItemIsNotReported() {
+        String schema = """
+                {"properties":{"rows":{"type":"array","maxItems":0,"items":{"type":"object","properties":
+                {"ref":{"type":"string","pattern":"^[a-z]+$"}}}}}}""";
+
+        assertThat(JsonSchemaDefaults.withheldArguments(schema)).isEmpty();
+    }
+
+    @Test
+    void aDefaultedObjectArgumentIsNotWalkedForWithheldFields() {
+        String schema = """
+                {"properties":{"filter":{"type":"object","default":{"a":"b"},
+                "properties":{"ref":{"type":"string","pattern":"^[a-z]+$"}}}}}""";
+
+        assertThat(JsonSchemaDefaults.withheldArguments(schema)).isEmpty();
     }
 }

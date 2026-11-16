@@ -73,7 +73,8 @@ class ServerConfigPanelGrantTest {
 
     private static ServerConfigPanel panelWith(Map<String, com.mcpscanner.core.oauth.EnterpriseIdentityProvider> providers) {
         var oauth = new OAuthConfigPanel(TestOAuthFlows.recording(),
-                new OAuthDiscoveryPresenter(mock(OAuthMetadataDiscoverer.class)));
+                new OAuthDiscoveryPresenter(mock(OAuthMetadataDiscoverer.class)),
+                TestDialogOwners.withoutSuiteFrame());
         return new ServerConfigPanel(oauth, new ClientAuthenticationProviderRegistry(List.of()),
                 new EnterpriseIdentityProviderRegistry(providers));
     }

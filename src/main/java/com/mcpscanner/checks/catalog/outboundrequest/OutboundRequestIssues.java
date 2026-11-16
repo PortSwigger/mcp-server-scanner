@@ -22,8 +22,10 @@ final class OutboundRequestIssues {
             + "reports it once for this endpoint and stops probing it in other methods once the server has made an "
             + "HTTP request to a probe host from it.";
     private static final String PROBE_METHOD = "The scanner placed a unique Burp Collaborator host in this field "
-            + "only, once as an absolute URL and once as a bare host, each in its own request. The Collaborator "
-            + "server then received these interactions for the probes listed:";
+            + "only, in several forms (such as an absolute URL, a bare host or a command-line flag such as --server=), "
+            + "each in its own request. When only a flag-shaped value makes the server connect, the field most likely "
+            + "reaches a program's argument list, where it is parsed as an option. The Collaborator server then "
+            + "received these interactions for the probes listed:";
     private static final String HTTP_PROVEN = "The Collaborator server received an HTTP request for a host that "
             + "appeared only in this field, so something that processed the probe made a request to it.";
     private static final String LOOKUP_ONLY = "The Collaborator server received only DNS lookups for the probe "

@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.ui.widgets.DialogOwner;
 import com.mcpscanner.ui.widgets.Contrast;
 import com.mcpscanner.ui.widgets.Edt;
 import com.mcpscanner.ui.widgets.FadedWhenDisabled;
@@ -63,6 +64,7 @@ public class OAuthConfigPanel extends JPanel implements OAuthConnectSupport {
     private final OAuthAuthorizationFlow authorizationFlow;
     private final OAuthDiscoveryPresenter discoveryPresenter;
     private final Runnable signInAttemptStart;
+    private final DialogOwner dialogOwner;
     private final DiscoveryViewAdapter discoveryView = new DiscoveryViewAdapter();
     private volatile OAuthAuthCodeStrategy oauthStrategy;
     private Supplier<String> endpointSupplier = () -> "";
@@ -75,13 +77,15 @@ public class OAuthConfigPanel extends JPanel implements OAuthConnectSupport {
     private boolean loadingSettings;
     private String clientIssuer;
 
-    OAuthConfigPanel(OAuthAuthorizationFlow authorizationFlow, OAuthDiscoveryPresenter discoveryPresenter) {
-        this(authorizationFlow, discoveryPresenter, () -> { });
+    OAuthConfigPanel(OAuthAuthorizationFlow authorizationFlow, OAuthDiscoveryPresenter discoveryPresenter,
+                     DialogOwner dialogOwner) {
+        this(authorizationFlow, discoveryPresenter, () -> { }, dialogOwner);
     }
 
     OAuthConfigPanel(OAuthAuthorizationFlow authorizationFlow, OAuthDiscoveryPresenter discoveryPresenter,
-                     Runnable signInAttemptStart) {
+                     Runnable signInAttemptStart, DialogOwner dialogOwner) {
         super(new BorderLayout());
+        this.dialogOwner = Objects.requireNonNull(dialogOwner, "dialogOwner");
         this.authorizationFlow = authorizationFlow;
         this.discoveryPresenter = discoveryPresenter;
         this.signInAttemptStart = signInAttemptStart;
@@ -156,7 +160,7 @@ public class OAuthConfigPanel extends JPanel implements OAuthConnectSupport {
                 session.sharedSession(),
                 Clock.systemUTC(),
                 eventLog,
-                new OAuthScopeApproval(this, hints.issuer(), mcpResource, session.clientId(), eventLog::warn)::approve,
+                new OAuthScopeApproval(dialogOwner, this, hints.issuer(), mcpResource, session.clientId(), eventLog::warn)::approve,
                 session.registrationMode());
     }
 

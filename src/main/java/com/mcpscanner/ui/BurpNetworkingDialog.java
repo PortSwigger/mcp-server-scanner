@@ -7,8 +7,8 @@ import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Window;
 
 final class BurpNetworkingDialog {
 
@@ -26,9 +26,9 @@ final class BurpNetworkingDialog {
     private BurpNetworkingDialog() {
     }
 
-    static boolean offerToTurnOff(Component parent) {
+    static boolean offerToTurnOff(Window owner) {
         Object[] choices = {TURN_OFF_AND_RECONNECT, CANCEL};
-        int choice = JOptionPane.showOptionDialog(parent, message(), TITLE, JOptionPane.DEFAULT_OPTION,
+        int choice = JOptionPane.showOptionDialog(owner, message(), TITLE, JOptionPane.DEFAULT_OPTION,
                 JOptionPane.WARNING_MESSAGE, null, choices, TURN_OFF_AND_RECONNECT);
         return choice == 0;
     }

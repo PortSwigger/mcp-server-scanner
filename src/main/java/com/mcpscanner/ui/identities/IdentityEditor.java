@@ -129,6 +129,10 @@ final class IdentityEditor extends JPanel {
         return auth;
     }
 
+    JButton discoverButton() {
+        return compared.discoverButton();
+    }
+
     JButton makePrimaryButton() {
         return compared.makePrimaryButton();
     }

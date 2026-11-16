@@ -95,12 +95,16 @@ class McpScannerExtensionTest {
         verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("origin-host-admission")), eq(ScanCheckType.PER_REQUEST));
         verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("command-injection")),
                 eq(ScanCheckType.PER_INSERTION_POINT));
+        verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("sql-injection")),
+                eq(ScanCheckType.PER_INSERTION_POINT));
         verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("oauth-refresh-grant")), eq(ScanCheckType.PER_REQUEST));
         verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("oauth-authorization-consent")),
                 eq(ScanCheckType.PER_REQUEST));
         verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("downstream-route-escape")),
                 eq(ScanCheckType.PER_INSERTION_POINT));
         verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("outbound-request")), eq(ScanCheckType.PER_INSERTION_POINT));
+        verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("ssrf-filter-bypass")),
+                eq(ScanCheckType.PER_INSERTION_POINT));
         verify(scanner, never()).registerActiveScanCheck(argThat(activeManagedWithId("crossidentityaccess")), any());
         verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("sibling-route-auth-parity")),
                 eq(ScanCheckType.PER_REQUEST));
@@ -109,7 +113,7 @@ class McpScannerExtensionTest {
                 eq(ScanCheckType.PER_REQUEST));
         verify(scanner).registerActiveScanCheck(argThat(activeManagedWithId("session-binding")),
                 eq(ScanCheckType.PER_REQUEST));
-        verify(scanner, times(0 + 3 + 15)).registerActiveScanCheck(any(ActiveScanCheck.class), any(ScanCheckType.class));
+        verify(scanner, times(0 + 4 + 16)).registerActiveScanCheck(any(ActiveScanCheck.class), any(ScanCheckType.class));
     }
 
     @Test

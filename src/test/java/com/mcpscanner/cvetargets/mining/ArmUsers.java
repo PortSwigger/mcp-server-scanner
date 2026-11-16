@@ -70,7 +70,7 @@ public final class ArmUsers {
             CompletableFuture<MiningReport> finished = new CompletableFuture<>();
             new AccessMining(new MiningInputs(() -> Optional.of(inventory), roster,
                     () -> registry.primaryUser().id()), sender, new MiningPreferences(config), ownedValues, worker,
-                    McpEventLog.noop())
+                    () -> Runnable::run, McpEventLog.noop())
                     .start(finishing(finished), WriteCallApproval.REFUSE)
                     .orElseThrow(() -> new IllegalStateException("mining did not start"));
             return finished.join();

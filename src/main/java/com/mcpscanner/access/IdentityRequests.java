@@ -7,8 +7,6 @@ import com.mcpscanner.mcp.HeaderMutation;
 import com.mcpscanner.mcp.McpHeaders;
 import com.mcpscanner.mcp.ScannerSentinels;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Supplier;
@@ -16,9 +14,15 @@ import java.util.function.Supplier;
 public final class IdentityRequests {
 
     private final Supplier<PrincipalRoster> roster;
+    private final IdentityBinding binding;
 
     public IdentityRequests(Supplier<PrincipalRoster> roster) {
+        this(roster, IdentityBinding.ROUTED);
+    }
+
+    public IdentityRequests(Supplier<PrincipalRoster> roster, IdentityBinding binding) {
         this.roster = roster;
+        this.binding = binding;
     }
 
     public HttpRequest routed(Principal principal, HttpRequest primaryRequest) {
@@ -26,16 +30,15 @@ public final class IdentityRequests {
     }
 
     public HttpRequest as(Principal principal, HttpRequest ownerRequest) {
-        Map<String, String> overrides = new LinkedHashMap<>(principal.credentialHeaders().get());
-        overrides.put(ScannerSentinels.IDENTITY_HEADER, principal.id());
-        return HeaderMutation.apply(ownerRequest, replacedHeaders(), overrides);
+        return binding.bind(principal,
+                HeaderMutation.apply(ownerRequest, replacedHeaders(), principal.credentialHeaders().get()));
     }
 
     private Set<String> replacedHeaders() {
-        PrincipalRoster current = roster.get();
         Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         names.add(McpHeaders.SESSION_ID);
-        current.all().forEach(principal -> names.addAll(principal.credentialHeaders().get().keySet()));
+        names.add(ScannerSentinels.IDENTITY_HEADER);
+        roster.get().all().forEach(principal -> names.addAll(principal.credentialHeaders().get().keySet()));
         return names;
     }
 }

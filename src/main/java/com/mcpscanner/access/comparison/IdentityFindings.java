@@ -52,8 +52,8 @@ final class IdentityFindings {
         if (reachedForbiddenOperation(probe, replay)) {
             return found;
         }
-        if (ExpectationPolicy.comparesObjects(expectation, principal.role()) && !advertisedResource(probe)) {
-            compareObjects(probe, replay);
+        if (ExpectationPolicy.comparesObjects(expectation, principal.role())) {
+            compareOrConfirmMarker(probe, replay);
         }
         return found;
     }
@@ -61,11 +61,23 @@ final class IdentityFindings {
     private boolean reachedForbiddenOperation(PrincipalProbe probe, Replay replay) {
         if (!expectation.forbids(probe.principal().role())) {
             outcomes.record(probe.principal(), Outcomes.compared(replay.reply(), ownerReply));
-            return false;
+            return refusedOnlyAtCapturedVersion(probe, replay);
         }
         IdentityReach reach = new IdentityReplay(probe, replay).reach();
         outcomes.record(probe.principal(), Outcomes.compared(reach.finalReply(), ownerReply));
         return new VerticalProbe(probe, context.ports().listings()).run(reach);
+    }
+
+    private boolean refusedOnlyAtCapturedVersion(PrincipalProbe probe, Replay replay) {
+        if (expectation == AccessExpectation.SHARED_BY_DESIGN) {
+            return false;
+        }
+        IdentityReach reach = new IdentityReplay(probe, replay).atOlderVersions();
+        if (!reach.ownerResultReached()) {
+            return false;
+        }
+        outcomes.record(probe.principal(), Outcomes.compared(reach.finalReply(), ownerReply));
+        return new VerticalProbe(probe, context.ports().listings()).runRefusedAtCapturedVersion(reach);
     }
 
     private boolean advertisedResource(PrincipalProbe probe) {
@@ -77,11 +89,25 @@ final class IdentityFindings {
         return advertised;
     }
 
+    private void compareOrConfirmMarker(PrincipalProbe probe, Replay replay) {
+        if (advertisedResource(probe)) {
+            reportMarkerLeak(probe, replay.reply());
+        } else {
+            compareObjects(probe, replay);
+        }
+    }
+
+    private boolean reportMarkerLeak(PrincipalProbe probe, OperationReply reply) {
+        boolean leaked = leaks(reply);
+        if (leaked) {
+            probe.findings().accept(markerFinding(probe.principal(), reply));
+        }
+        return leaked;
+    }
+
     private void compareObjects(PrincipalProbe probe, Replay replay) {
         OperationReply reply = replay.reply();
-        if (leaks(reply)) {
-            probe.findings().accept(markerFinding(probe.principal(), reply));
-        } else if (ownerResult(reply)) {
+        if (!reportMarkerLeak(probe, reply) && ownerResult(reply)) {
             replay.request().ifPresent(new PeerReplayProbe(probe, referencesOf(owner))::run);
         }
         if (!probe.principal().ownedObjects().isEmpty()) {

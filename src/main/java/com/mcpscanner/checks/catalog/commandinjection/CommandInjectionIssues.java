@@ -16,6 +16,8 @@ final class CommandInjectionIssues {
     private static final String REMEDIATION = new IssueBodyBuilder()
             .paragraph("Pass MCP request values to subprocesses as separate argument-vector entries, never through "
                     + "a shell command string, and never pass them to eval, exec, Function or a template engine.")
+            .paragraph("Put a -- separator before caller-supplied positional arguments, or reject values that "
+                    + "start with a dash, so a value cannot be parsed as an option.")
             .paragraph("Where a tool must run code or commands by design, restrict who can call it and run it in a "
                     + "sandbox without network access.")
             .build();

@@ -16,15 +16,14 @@ final class OriginHostAdmissionDescriptor {
             "Replays a captured read-only MCP request under hostile Origin and Host headers and reports when the "
                     + "server returns the same successful result, which is the precondition for DNS rebinding "
                     + "and cross-site requests against local MCP servers. On Streamable HTTP it also opens the "
-                    + "GET event stream under hostile Origins beside a same-origin control.",
+                    + "GET event stream under hostile Origins beside a same-origin control, and reports when CORS lets a "
+                    + "foreign origin read the replies (approved preflight and reply, or a legacy SSE stream).",
             CheckKind.HOST,
-            AuditIssueSeverity.MEDIUM,
+            AuditIssueSeverity.HIGH,
             AuditIssueConfidence.FIRM,
             true,
             List.of(
                     "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#security-warning",
-                    "https://github.com/modelcontextprotocol/python-sdk/security/advisories/GHSA-9h52-p55h-vw2f",
-                    "https://github.com/modelcontextprotocol/typescript-sdk/security/advisories/GHSA-w48q-cv73-mx4w",
                     "https://portswigger.net/web-security/cors"),
             "The MCP transport specification requires servers to validate the Origin header and recommends "
                     + "binding local servers to loopback. Accepting a foreign Origin or Host is a precondition for "

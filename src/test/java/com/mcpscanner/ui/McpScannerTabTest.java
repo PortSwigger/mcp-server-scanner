@@ -189,7 +189,7 @@ class McpScannerTabTest {
 
     private ServerConfigPanel panelWithEnterpriseProvider() {
         var oauth = new OAuthConfigPanel(TestOAuthFlows.recording(), new OAuthDiscoveryPresenter(
-                mock(OAuthMetadataDiscoverer.class)));
+                mock(OAuthMetadataDiscoverer.class)), TestDialogOwners.withoutSuiteFrame());
         oauth.bindConfigStore(fixture.configStore);
         return panelWithEnterpriseProvider(oauth);
     }

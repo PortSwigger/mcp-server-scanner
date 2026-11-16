@@ -15,6 +15,7 @@ import com.mcpscanner.checks.api.InsertionPointCheck;
 import com.mcpscanner.checks.api.RecordingChecks;
 import com.mcpscanner.checks.api.RequestCheck;
 import com.mcpscanner.checks.api.SkipReason;
+import com.mcpscanner.http.ExchangeLease;
 import com.mcpscanner.http.OutsideBurpSends;
 import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
@@ -222,6 +223,107 @@ class McpCheckAdapterTest {
                 assertThat(translated.requestResponses()).singleElement()
                         .extracting(HttpRequestResponse::request).isSameAs(upstream.request()));
         assertThat(reported).isEqualTo(result.auditIssues());
+    }
+
+    @Test
+    void reportedAndLateIssuesCarryNoScannerSentinelHeadersInTheirEvidence() {
+        HttpRequestResponse leaking = HttpRequestResponse.httpRequestResponse(
+                burp.api.montoya.http.message.requests.HttpRequest.httpRequestFromUrl("https://mcp.example.test/mcp")
+                        .withHeader(com.mcpscanner.mcp.ScannerSentinels.AUDIT_CAPABILITY_HEADER, "0.token"),
+                burp.api.montoya.http.message.responses.HttpResponse.httpResponse(
+                        "HTTP/1.1 200 OK\r\n" + com.mcpscanner.mcp.ScannerSentinels.EXCHANGE_HEADER + ": abc\r\n\r\n{}"));
+        AuditIssue issue = AuditIssue.auditIssue("Name", "Detail", "Fix", "https://mcp.example.test/mcp",
+                AuditIssueSeverity.HIGH, AuditIssueConfidence.FIRM, "Background", "Fix background",
+                AuditIssueSeverity.HIGH, List.of(leaking));
+        RequestCheckAdapter adapter = new RequestCheckAdapter(AdapterFixtures.settingsAllowing(true), eventLog,
+                new RecordingChecks.Request(DESCRIPTOR, List.of(issue)));
+
+        List<AuditIssue> issues = new ArrayList<>(adapter.doCheck(base, null, http).auditIssues());
+        issues.addAll(adapter.lateIssues(List.of(issue)));
+
+        assertThat(issues).hasSize(2).allSatisfy(reported -> {
+            HttpRequestResponse evidence = reported.requestResponses().get(0);
+            assertThat(evidence.request().headers()).as("request")
+                    .noneMatch(header -> com.mcpscanner.mcp.ScannerSentinels.ALL.contains(header.name()));
+            assertThat(evidence.response().headers()).as("response")
+                    .noneMatch(header -> com.mcpscanner.mcp.ScannerSentinels.ALL.contains(header.name()));
+        });
+    }
+
+    @Test
+    void theBaseAndEveryProbeReplyStayStoredWhileTheCheckRunsAndAreReleasedWhenItEnds() {
+        HttpRequestResponse probeReply = HttpRequestResponse.httpRequestResponse(
+                HttpRequest.httpRequestFromUrl("http://127.0.0.1:40123/mcp"),
+                HttpResponse.httpResponse("HTTP/1.1 200 OK\r\n\r\n{}"));
+        org.mockito.Mockito.when(http.sendRequest(org.mockito.ArgumentMatchers.any(HttpRequest.class)))
+                .thenReturn(probeReply);
+        List<HttpRequestResponse> held = new ArrayList<>();
+        List<Boolean> heldWhileRunning = new ArrayList<>();
+        boolean[] closed = {false};
+        UpstreamExchanges exchanges = new UpstreamExchanges() {
+            @Override
+            public Optional<HttpRequestResponse> upstreamOf(HttpRequestResponse proxied) {
+                heldWhileRunning.add(!closed[0] && held.containsAll(List.of(base, probeReply)));
+                return Optional.empty();
+            }
+
+            @Override
+            public ExchangeLease retaining() {
+                return new ExchangeLease() {
+                    @Override
+                    public void hold(HttpRequestResponse proxied) {
+                        held.add(proxied);
+                    }
+
+                    @Override
+                    public com.mcpscanner.http.ExchangeRetention retainBeyondClose() {
+                        return com.mcpscanner.http.ExchangeRetention.NONE;
+                    }
+
+                    @Override
+                    public void close() {
+                        closed[0] = true;
+                    }
+                };
+            }
+        };
+        AuditIssue issue = AuditIssue.auditIssue("Name", "Detail", "Fix", "https://mcp.example.test/mcp",
+                AuditIssueSeverity.HIGH, AuditIssueConfidence.FIRM, "Background", "Fix background",
+                AuditIssueSeverity.HIGH, List.of(probeReply));
+        RequestCheck sendingAndReporting = new RequestCheck() {
+            @Override
+            public CheckDescriptor descriptor() {
+                return DESCRIPTOR;
+            }
+
+            @Override
+            public List<AuditIssue> audit(HttpRequestResponse baseRequestResponse, Http probes) {
+                probes.sendRequest(HttpRequest.httpRequestFromUrl("https://mcp.example.com/mcp"));
+                return List.of(issue);
+            }
+        };
+
+        new RequestCheckAdapter(AdapterFixtures.settingsAllowing(true), eventLog, sendingAndReporting,
+                CheckInstrumentation.NONE, exchanges).doCheck(base, null, http);
+
+        assertThat(heldWhileRunning).containsExactly(true);
+        assertThat(closed[0]).isTrue();
+    }
+
+    @Test
+    void evidenceStillShowingTheProxyHopIsStrippedAndWarnedAbout() {
+        HttpRequestResponse leaking = HttpRequestResponse.httpRequestResponse(
+                HttpRequest.httpRequestFromUrl("https://mcp.example.test/mcp"),
+                HttpResponse.httpResponse("HTTP/1.1 200 OK\r\n"
+                        + com.mcpscanner.mcp.ScannerSentinels.EXCHANGE_HEADER + ": gone\r\n\r\n{}"));
+        AuditIssue issue = AuditIssue.auditIssue("Name", "Detail", "Fix", "https://mcp.example.test/mcp",
+                AuditIssueSeverity.HIGH, AuditIssueConfidence.FIRM, "Background", "Fix background",
+                AuditIssueSeverity.HIGH, List.of(leaking));
+
+        adapterFor(DESCRIPTOR, List.of(issue), true).doCheck(base, null, http);
+
+        assertThat(eventLog.snapshot()).extracting(McpEventLog.LogEntry::message)
+                .anyMatch(message -> message.contains("still shows the proxy hop for 1 exchange"));
     }
 
     private static HttpRequestResponse exchange(String url) {

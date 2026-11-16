@@ -48,6 +48,10 @@ final class HttpForwarding implements ForwardingStrategy {
             return forwardAsPresented(audit.connection(), body,
                     unmanaged ? headers : withSessionCredentials(headers));
         }
+        if (opensASessionOfItsOwn(audit.connection(), body)) {
+            return isolated.forwardInitialize(audit.connection(), body,
+                    unmanaged ? headers : withSessionCredentials(headers));
+        }
         if (unmanaged && presentedSession != null && SentinelHeaders.hasKeepSession(headers)) {
             return forwardOnLiveSession(audit.connection(), body, headers);
         }
@@ -55,6 +59,10 @@ final class HttpForwarding implements ForwardingStrategy {
             return forwardUnmanaged(audit.connection(), body, headers);
         }
         return forwardAuthenticated(audit.connection(), body, headers);
+    }
+
+    private static boolean opensASessionOfItsOwn(ProxyConnection connection, String body) {
+        return connection.transport() == TransportType.STREAMABLE_HTTP && McpRequestDetector.isInitializeBody(body);
     }
 
     private ProxyResponse forwardAsIdentity(ProxyConnection connection, String body, Map<String, String> headers)

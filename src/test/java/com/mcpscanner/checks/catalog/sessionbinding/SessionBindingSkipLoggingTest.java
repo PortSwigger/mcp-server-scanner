@@ -41,7 +41,7 @@ class SessionBindingSkipLoggingTest {
         var run = withPeerB().run(FakeServers.objectStore(true), toolCall("get_note", "{\"id\":\"a1\"}", "A"));
 
         assertThat(run.infoLines()).containsExactly(PREFIX + "skipped tools/call get_note at https://example.test:443/mcp "
-                + "(not applicable: the request carries no Mcp-Session-Id)");
+                + "(not applicable: the server issues no Mcp-Session-Id)");
     }
 
     @Test
@@ -58,6 +58,32 @@ class SessionBindingSkipLoggingTest {
 
         assertThat(run.infoLines()).containsExactly(PREFIX + "skipped " + RECORD_AT
                 + " (prerequisite missing: no compared identities with credentials)");
+    }
+
+    @Test
+    void anOwnerInitializeTheServerRefusesIsNotLoggedAsAStatelessServer() {
+        Function<HttpRequest, FakeReply> sessions = FakeServers.sessions(true);
+        var run = withPeerB().run(request -> "initialize".equals(FakeMcpTarget.method(request))
+                ? FakeReply.unauthorized() : sessions.apply(request),
+                toolCall("read_session_record", "{}", "A"));
+
+        assertThat(run.infoLines()).containsExactly(PREFIX + "stopped " + RECORD_AT
+                + " (transport failure: the owner's initialize was refused or got no reply, "
+                + "so no probe session could be opened)");
+        assertThat(run.decisions()).containsOnly("session_binding:owner_initialize_failed");
+    }
+
+    @Test
+    void aSessionIssuedToTheOwnerIsDeletedEvenWhenJoiningItThrows() {
+        Function<HttpRequest, FakeReply> sessions = FakeServers.sessions(true);
+        var run = withPeerB().run(request -> {
+            if ("notifications/initialized".equals(FakeMcpTarget.method(request))) {
+                throw new IllegalStateException("connection reset");
+            }
+            return sessions.apply(request);
+        }, toolCall("read_session_record", "{}", "A"));
+
+        assertThat(run.sent()).filteredOn(request -> "DELETE".equals(request.method())).isNotEmpty();
     }
 
     @Test
@@ -105,6 +131,17 @@ class SessionBindingSkipLoggingTest {
 
         assertThat(run.infoLines()).contains(PREFIX + "skipped " + RECORD_AT
                 + " as identity-B (prerequisite missing: the owner's call failed in a fresh session)");
+    }
+
+    @Test
+    void aSessionlessRequestWhoseFreshSessionHoldsNoRecordIsSkippedWithTheReason() {
+        Function<HttpRequest, FakeReply> sessions = FakeServers.sessions(false);
+        var run = withPeerB().run(request -> "tools/call".equals(FakeMcpTarget.method(request))
+                ? FakeReply.result("") : sessions.apply(request), toolCall("read_session_record", "{}", "A"));
+
+        assertThat(run.issues()).isEmpty();
+        assertThat(run.infoLines()).contains(PREFIX + "skipped " + RECORD_AT
+                + " (prerequisite missing: the owner's request returned an empty result)");
     }
 
     @Test

@@ -66,6 +66,25 @@ class DownstreamRouteEscapeLiveTargetTest {
     }
 
     @Test
+    void firesThoughTheBaseValueIsUnknownToTheServerAndItsCallWasRejected() throws IOException {
+        try (RouteModelServer server = new RouteModelServer(
+                RouteModelServer.PathBuilding.RAW_JOIN_BEFORE_FIXED_SUFFIX, true)) {
+            List<AuditIssue> issues = runner.run(check, List.of(call(server, "get_item", "{\"id\":\"test\"}")));
+
+            assertThat(issues).hasSize(1);
+            assertThat(issues.get(0).detail()).contains("params.arguments.id").contains("../?mcp_route=1");
+        }
+    }
+
+    @Test
+    void staysSilentOnAnEncodedSegmentWhenTheBaseValueIsUnknownToTheServer() throws IOException {
+        try (RouteModelServer server = new RouteModelServer(RouteModelServer.PathBuilding.ENCODED_SEGMENT, true)) {
+            assertThat(runner.run(check, List.of(call(server, "get_item", "{\"id\":\"test\"}")))).isEmpty();
+            assertThat(server.requests.get()).isGreaterThan(1);
+        }
+    }
+
+    @Test
     void encodedSegmentWithDotResolutionFiresThroughTheBareParentProbe() throws IOException {
         try (RouteModelServer server = new RouteModelServer(RouteModelServer.PathBuilding.ENCODED_SEGMENT_RESOLVED)) {
             List<AuditIssue> issues = runner.run(check, baseRequests(server));

@@ -2,6 +2,7 @@ package com.mcpscanner.ui;
 
 import com.mcpscanner.auth.oauth.OAuthException;
 import com.mcpscanner.core.oauth.AuthorizationApproval;
+import com.mcpscanner.ui.widgets.DialogOwner;
 
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -21,8 +22,9 @@ final class OAuthScopeApproval {
     private final Function<String, Boolean> dialog;
     private final Consumer<String> declineLog;
 
-    OAuthScopeApproval(Component parent, URI issuer, URI resource, String clientId, Consumer<String> declineLog) {
-        this(issuer, resource, clientId, message -> JOptionPane.showConfirmDialog(parent, message,
+    OAuthScopeApproval(DialogOwner owner, Component parent, URI issuer, URI resource, String clientId,
+                       Consumer<String> declineLog) {
+        this(issuer, resource, clientId, message -> JOptionPane.showConfirmDialog(owner.of(parent), message,
                 "Approve OAuth scope increase", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE)
                 == JOptionPane.YES_OPTION, declineLog);
     }

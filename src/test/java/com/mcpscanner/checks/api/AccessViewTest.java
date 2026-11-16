@@ -30,12 +30,10 @@ class AccessViewTest {
     }
 
     @Test
-    void expectationsCarryTheirDisplayLabels() {
-        assertThat(AccessExpectation.ANY_SIGNED_IN.label()).isEqualTo("Any signed-in user");
-        assertThat(AccessExpectation.NOT_LOWER.label()).isEqualTo("Not lower privilege");
-        assertThat(AccessExpectation.OWNER_ONLY.label()).isEqualTo("Owner only");
-        assertThat(AccessExpectation.HIGHER_ONLY.label()).isEqualTo("Higher privilege only");
-        assertThat(AccessExpectation.SHARED_BY_DESIGN.label()).isEqualTo("Shared by design");
+    void expectationsAreOrderedFromOpenToClosed() {
+        assertThat(AccessExpectation.values()).containsExactly(AccessExpectation.SHARED_BY_DESIGN,
+                AccessExpectation.ANY_SIGNED_IN, AccessExpectation.NOT_LOWER, AccessExpectation.HIGHER_ONLY,
+                AccessExpectation.OWNER_ONLY);
     }
 
     @Test

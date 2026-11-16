@@ -1,6 +1,7 @@
 package com.mcpscanner.scan;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mcpscanner.checks.shared.probe.McpMethodClass;
 import com.mcpscanner.mcp.McpResourceDefinition;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.scan.request.AdvertisedAuthorizationServer;
@@ -87,6 +88,30 @@ class ScanPlannerTest {
 
         assertThat(toolArguments(planner.planItem(new ScanTarget.Tool(GET_DOCUMENT))).path("doc_id").asText())
                 .isEqualTo("second");
+    }
+
+    @Test
+    void withNothingTickedNoToolIsCalledEvenThoughTheServerAdvertisesTools() {
+        GeneratedScan scan = planner.planSelection(ScanInventory.empty());
+
+        assertThat(scan.messages()).isNotEmpty()
+                .noneMatch(message -> message.family().group().invokesInventoryItems());
+        assertThat(scan.invokedTools()).isEmpty();
+    }
+
+    @Test
+    void withNothingTickedEveryProtocolRequestIsOutsideTheOperationClassThatAnonymousExecutionReports() {
+        ScanPlanner everyCapability = new ScanPlanner(family -> true, () -> new ServerCapabilities(Map.of(
+                "tools", Map.of(), "resources", Map.of("subscribe", true), "prompts", Map.of(),
+                "logging", Map.of(), "completions", Map.of())), () -> "2026-07-28",
+                AdvertisedAuthorizationServer::none, tool -> Map.of());
+
+        List<String> methods = everyCapability.planSelection(ScanInventory.empty()).messages().stream()
+                .filter(McpMessage.class::isInstance).map(McpMessage.class::cast)
+                .filter(message -> !message.notification()).map(McpMessage::method).toList();
+
+        assertThat(methods).isNotEmpty().allSatisfy(method ->
+                assertThat(McpMethodClass.of(method, false)).isNotEqualTo(McpMethodClass.OPERATION));
     }
 
     private static JsonNode toolArguments(GeneratedScan scan) {

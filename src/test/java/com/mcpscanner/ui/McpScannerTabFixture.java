@@ -16,6 +16,7 @@ import com.mcpscanner.identity.ToolCallRefusals;
 import com.mcpscanner.identity.credentials.IdentityCredentialServices;
 import com.mcpscanner.auth.oauth.OAuthClientHints;
 import com.mcpscanner.identity.credentials.ScopeApprovals;
+import com.mcpscanner.identity.discovery.ComparedDiscovery;
 import com.mcpscanner.identity.discovery.IdentityListings;
 import com.mcpscanner.auth.CurrentAuthHolder;
 import com.mcpscanner.auth.grants.OptionalGrantSettings;
@@ -97,6 +98,17 @@ final class McpScannerTabFixture {
     final IdentityRegistry identities = new IdentityRegistry(
             new IdentityStore(InMemoryPersistedObject.configStore(), McpEventLog.noop()));
     final IdentityListings identityListings = new IdentityListings();
+    final ComparedDiscovery comparedDiscovery =
+            new ComparedDiscovery() {
+                @Override
+                public void discover(String identityId) {
+                }
+
+                @Override
+                public boolean credentialChangedSinceDiscovery(String identityId) {
+                    return false;
+                }
+            };
     final ToolCallRefusals toolCallRefusals = new ToolCallRefusals(identities);
     BiFunction<URI, OptionalGrantSettings, AuthStrategy> optionalGrants = ConnectCoordinator.NO_OPTIONAL_GRANTS;
     Map<String, String> scanOwnerArguments = Map.of();
@@ -104,7 +116,7 @@ final class McpScannerTabFixture {
     WriteCallPrompt minedWritePrompt = (parent, lines) -> {
         throw new AssertionError("Unexpected mined write-tool confirmation: " + lines.items());
     };
-    DestructiveScanPrompt scanPrompt = (parent, tools, count, invoker) -> {
+    ToolsPrompt scanPrompt = (parent, tools, count, invoker) -> {
         throw new AssertionError("Unexpected destructive-scan confirmation for " + tools);
     };
 
@@ -115,6 +127,12 @@ final class McpScannerTabFixture {
     ReconnectPrompt reconnectPrompt = (parent, user, previous) -> {
         throw new AssertionError("Unexpected reconnect prompt for " + user);
     };
+
+    @FunctionalInterface
+    interface ToolsPrompt {
+        DestructiveScanConfirmation.Result ask(java.awt.Component parent,
+                List<com.mcpscanner.mcp.McpToolDefinition> tools, int count, String invoker);
+    }
 
     McpScannerTabFixture() {
         MontoyaTestFactory.install();
@@ -168,7 +186,7 @@ final class McpScannerTabFixture {
                     }
                 },
                 parent -> burpNetworkingPrompt.offerToTurnOff(parent),
-                new IdentityDependencies(identities, identityListings, toolCallRefusals, this::identityCredentials,
+                new IdentityDependencies(identities, identityListings, comparedDiscovery, toolCallRefusals, this::identityCredentials,
                         (parent, user, previous) -> reconnectPrompt.confirm(parent, user, previous)),
                 new com.mcpscanner.scan.OwnerArgumentSource() {
                     @Override
@@ -180,7 +198,7 @@ final class McpScannerTabFixture {
                     public java.util.Set<String> minedArgumentsFor(com.mcpscanner.mcp.McpToolDefinition tool) {
                         return scanMinedArguments;
                     }
-                }, ManualReadScheduler.immediateReads()));
+                }, ManualReadScheduler.immediateReads(), TestDialogOwners.withoutSuiteFrame()));
     }
 
     private IdentityCredentialServices identityCredentials(SharedAuthSettings sharedClient,

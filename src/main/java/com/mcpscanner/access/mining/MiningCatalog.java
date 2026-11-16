@@ -23,6 +23,11 @@ record MiningCatalog(ScanInventory inventory, List<ToolArguments> tools, List<Te
         return slots().filter(slot -> slot.takes(aliases, value)).map(ArgumentSlot::name).distinct().toList();
     }
 
+    JsonNode storedForm(Set<String> aliases, JsonNode value) {
+        return slots().filter(slot -> slot.takes(aliases, value)).findFirst().map(slot -> slot.stored(value))
+                .orElse(value);
+    }
+
     private Stream<ArgumentSlot> slots() {
         return Stream.concat(tools.stream().flatMap(tool -> tool.slots().stream()),
                 templates.stream().flatMap(template -> template.slots().stream()));

@@ -12,20 +12,31 @@ public enum ResourceCap {
             256L * 1024 * 1024, Long.MAX_VALUE, CapUnit.BYTES, CapKind.SAFETY_LIMIT),
     DISCOVERY_MAX_PAGES("mcp.cap.discovery_max_pages", "Discovery pages per list",
             100, Integer.MAX_VALUE, CapUnit.COUNT, CapKind.SAFETY_LIMIT),
+    MINING_REQUESTS_PER_USER("mcp.mining.requests_per_user", "Collect IDs requests per user",
+            0, 0, Integer.MAX_VALUE, CapUnit.COUNT, CapKind.SAFETY_LIMIT),
     EXTENSION_SCAN_WORKERS("mcp.scan.engine_workers", "Extension scan workers", 10, 50, CapUnit.COUNT,
             CapKind.SCAN_THROUGHPUT);
+
+    private static final long LOWEST_POSITIVE = 1;
 
     private final String key;
     private final String label;
     private final long defaultValue;
+    private final long minValue;
     private final long maxValue;
     private final CapUnit unit;
     private final CapKind kind;
 
     ResourceCap(String key, String label, long defaultValue, long maxValue, CapUnit unit, CapKind kind) {
+        this(key, label, defaultValue, LOWEST_POSITIVE, maxValue, unit, kind);
+    }
+
+    ResourceCap(String key, String label, long defaultValue, long minValue, long maxValue, CapUnit unit,
+                CapKind kind) {
         this.key = key;
         this.label = label;
         this.defaultValue = defaultValue;
+        this.minValue = minValue;
         this.maxValue = maxValue;
         this.unit = unit;
         this.kind = kind;
@@ -55,11 +66,15 @@ public enum ResourceCap {
         return defaultValue;
     }
 
+    public long minValue() {
+        return minValue;
+    }
+
     public long maxValue() {
         return maxValue;
     }
 
     public boolean accepts(long value) {
-        return value > 0 && value <= maxValue;
+        return value >= minValue && value <= maxValue;
     }
 }

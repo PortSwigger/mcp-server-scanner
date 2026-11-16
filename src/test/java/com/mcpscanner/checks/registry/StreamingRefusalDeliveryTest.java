@@ -22,6 +22,7 @@ import com.mcpscanner.checks.api.RecordingChecks;
 import com.mcpscanner.checks.api.RequestCheck;
 import com.mcpscanner.http.ConnectionReuse;
 import com.mcpscanner.http.ConnectionReusingHttp;
+import com.mcpscanner.http.OutsideBurpSends;
 import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.ImmutableHttpRequest;
@@ -91,6 +92,25 @@ class StreamingRefusalDeliveryTest {
     }
 
     @Test
+    void aRefusalWarnsOncePerScanThatProbesWereSentAgainOutsideBurp() {
+        McpCheckAdapter<?> adapter = adapter(Kind.REQUEST, Probe.ON_CHECK_THREAD, List.of());
+
+        adapter.doCheck(base, null, failingWith(messagelessRefusal()));
+        adapter.doCheck(base, null, failingWith(messagelessRefusal()));
+
+        assertThat(eventLog.snapshot()).filteredOn(entry -> entry.level() == McpEventLog.Level.WARN)
+                .singleElement().satisfies(entry -> assertThat(entry.message())
+                        .contains("streaming-probe", "sent again outside Burp", "twice"));
+    }
+
+    @Test
+    void noRefusalMeansNoResendWarning() {
+        adapter(Kind.REQUEST, Probe.ON_CHECK_THREAD, List.of()).doCheck(base, null, mock(Http.class));
+
+        assertThat(eventLog.snapshot()).noneMatch(entry -> entry.level() == McpEventLog.Level.WARN);
+    }
+
+    @Test
     void aRefusalOnAnotherThreadIsObserved() {
         AuditIssue issue = mock(AuditIssue.class);
 
@@ -118,6 +138,28 @@ class StreamingRefusalDeliveryTest {
 
         AuditResult result = adapter(Kind.REQUEST, Probe.ON_CHECK_THREAD, List.of(issue))
                 .doCheck(base, null, failingWith(new RuntimeException("Connection refused")));
+
+        assertThat(result.auditIssues()).containsExactly(issue);
+        assertThat(destination.deliveries).isEmpty();
+    }
+
+    @Test
+    void issuesFoundAfterAProbeWasResentOutsideBurpGoToTheDestinationInsteadOfBurp() {
+        AuditIssue issue = mock(AuditIssue.class);
+
+        AuditResult result = adapter(Kind.REQUEST, Probe.RESENDING_OUTSIDE_BURP, List.of(issue))
+                .doCheck(base, null, mock(Http.class));
+
+        assertThat(result.auditIssues()).isEmpty();
+        assertThat(destination.issues()).containsExactly(issue);
+    }
+
+    @Test
+    void aSendOutsideBurpThatBurpDidNotRefuseLeavesIssuesWithBurp() {
+        AuditIssue issue = mock(AuditIssue.class);
+
+        AuditResult result = adapter(Kind.REQUEST, Probe.OPENING_ITS_OWN_STREAM_OUTSIDE_BURP, List.of(issue))
+                .doCheck(base, null, mock(Http.class));
 
         assertThat(result.auditIssues()).containsExactly(issue);
         assertThat(destination.deliveries).isEmpty();
@@ -265,7 +307,20 @@ class StreamingRefusalDeliveryTest {
 
     enum Probe {
         ON_CHECK_THREAD(Runnable::run),
-        ON_POOL_THREAD(send -> CompletableFuture.runAsync(send).join());
+        ON_POOL_THREAD(send -> CompletableFuture.runAsync(send).join()),
+        RESENDING_OUTSIDE_BURP(Runnable::run) {
+            @Override
+            void sendRecoveringFromFailure(Http http) {
+                OutsideBurpSends.reportRefusal(http);
+                OutsideBurpSends.report(http, exchange(URL));
+            }
+        },
+        OPENING_ITS_OWN_STREAM_OUTSIDE_BURP(Runnable::run) {
+            @Override
+            void sendRecoveringFromFailure(Http http) {
+                OutsideBurpSends.report(http, exchange(URL));
+            }
+        };
 
         private final Consumer<Runnable> runner;
 

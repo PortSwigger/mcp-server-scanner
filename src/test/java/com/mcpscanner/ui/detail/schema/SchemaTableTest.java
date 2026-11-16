@@ -1,6 +1,7 @@
 package com.mcpscanner.ui.detail.schema;
 
 import com.mcpscanner.testutil.SwingTree;
+import com.mcpscanner.ui.detail.RawJsonView;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JComponent;
@@ -28,6 +29,15 @@ class SchemaTableTest {
                 "id", "required", "string", "format: uuid", "pattern", SchemaFixtures.UUID_PATTERN, "None given");
         assertThat(table.parameterCount()).isEqualTo(1);
         assertThat(table.isEmpty()).isFalse();
+    }
+
+    @Test
+    void headingHasTheSameTopPaddingAsTheRawTabHeading() {
+        table.show(json(SchemaFixtures.PETERS_SCHEMA), null);
+
+        Component header = SwingTree.descendants(table).stream().filter(SchemaHeader.class::isInstance).findFirst().orElseThrow();
+
+        assertThat(((JComponent) header).getInsets().top).isEqualTo(RawJsonView.PADDING);
     }
 
     @Test

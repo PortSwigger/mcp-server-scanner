@@ -21,7 +21,7 @@ final class AccessIssues {
         AuditIssueConfidence confidence = finding.confidence();
         IdentityObservation observation = new IdentityObservation(finding.principal(), finding.family(),
                 finding.observation(), finding.evidence());
-        return new IdentityIssue(kind.issueName(), kind.severity(confidence), confidence, kind.background(),
+        return new IdentityIssue(kind.issueNameFor(finding.principal().role()), kind.severity(confidence), confidence, kind.background(),
                 kind.strength(confidence), observation)
                 .render(seed, ReplayedOperation.of(seed, replays), AccessIssueMetadata.CWES,
                         AccessIssueMetadata.REFERENCES);

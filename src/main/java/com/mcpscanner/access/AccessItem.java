@@ -1,5 +1,6 @@
 package com.mcpscanner.access;
 
+import com.mcpscanner.mcp.ToolHarm;
 import com.mcpscanner.mcp.ToolSafety;
 import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.mcp.McpResourceDefinition;
@@ -21,6 +22,10 @@ public record AccessItem(AccessItemKey key, ScanTarget target) {
 
     public Optional<McpToolDefinition> tool() {
         return target instanceof ScanTarget.Tool toolTarget ? Optional.of(toolTarget.tool()) : Optional.empty();
+    }
+
+    public ToolHarm harm() {
+        return tool().map(ToolSafety::harm).orElse(ToolHarm.READ);
     }
 
     public boolean writes() {

@@ -7,6 +7,8 @@ import com.mcpscanner.access.mining.MiningPreferences;
 import com.mcpscanner.access.AccessMatrix;
 import com.mcpscanner.access.AccessRuns;
 import com.mcpscanner.access.CheckAccessRunner;
+import com.mcpscanner.access.DirectIdentityBinding;
+import com.mcpscanner.access.IdentityBinding;
 import com.mcpscanner.access.IdentityRequests;
 import com.mcpscanner.access.InvokedTools;
 import com.mcpscanner.access.MatrixAccessLedger;
@@ -22,16 +24,20 @@ import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.checks.api.AccessLedger;
 import com.mcpscanner.checks.api.PrincipalRoster;
 import com.mcpscanner.checks.api.crossidentity.IdentityIssue;
+import com.mcpscanner.checks.shared.session.StreamingFallback;
 import com.mcpscanner.client.McpScannerSession;
 import com.mcpscanner.identity.IdentityRosterSource;
 import com.mcpscanner.identity.discovery.IdentityListings;
+import com.mcpscanner.identity.discovery.PreComparisonDiscovery;
 import com.mcpscanner.scan.McpRepeaterRequestFactory;
 import com.mcpscanner.scan.ScanConnection;
 import com.mcpscanner.scan.ScanSession;
 import com.mcpscanner.scan.ScanTarget;
+import com.mcpscanner.scan.SendToConnectionPolicy;
 import com.mcpscanner.scan.request.RequestGenerator;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -43,6 +49,7 @@ final class AccessWiring {
     private final CurrentAuthHolder authHolder;
     private final Supplier<PrincipalRoster> roster;
     private final IdentityListings listings;
+    private final PreComparisonDiscovery discovery;
     private final AccessMatrix matrix;
     private final WriteReplayConfirmations confirmations = new WriteReplayConfirmations();
     private final AccessLedger ledger;
@@ -52,7 +59,9 @@ final class AccessWiring {
         return thread;
     }));
 
-    private AccessWiring(ExtensionFoundation foundation, McpScannerSession session, IdentityListings listings) {
+    private AccessWiring(ExtensionFoundation foundation, McpScannerSession session, IdentityListings listings,
+                         PreComparisonDiscovery discovery) {
+        this.discovery = discovery;
         this.foundation = foundation;
         this.authHolder = new CurrentAuthHolder();
         this.roster = new IdentityRosterSource(authHolder, foundation.identities());
@@ -64,7 +73,12 @@ final class AccessWiring {
 
     static AccessWiring create(ExtensionFoundation foundation, ConnectionWiring connection,
                                IdentityListings listings) {
-        AccessWiring wiring = new AccessWiring(foundation, connection.scannerSession(), listings);
+        return create(foundation, connection, listings, PreComparisonDiscovery.NONE);
+    }
+
+    static AccessWiring create(ExtensionFoundation foundation, ConnectionWiring connection,
+                               IdentityListings listings, PreComparisonDiscovery discovery) {
+        AccessWiring wiring = new AccessWiring(foundation, connection.scannerSession(), listings, discovery);
         listings.addListener(wiring.matrix::changed);
         foundation.identities().addListener(wiring.matrix::changed);
         return wiring;
@@ -80,6 +94,10 @@ final class AccessWiring {
 
     IdentityListings listings() {
         return listings;
+    }
+
+    PreComparisonDiscovery preComparisonDiscovery() {
+        return discovery;
     }
 
     AccessLedger ledger() {
@@ -99,8 +117,17 @@ final class AccessWiring {
                 .flatMap(row -> row.item().tool()));
     }
 
-    OwnerRequests sendToOwnerRequests(McpScannerSession session, ScanningWiring scanning) {
-        return ownerRequests(session, scanning, scanning.sendToConnections());
+    OwnerRequests sendToOwnerRequests(ConnectionWiring connection, ScanningWiring scanning) {
+        McpScannerSession session = connection.scannerSession();
+        return new OwnerRequests(primaryRequests(session, scanning, scanning.sendToConnections())::requestFor,
+                new IdentityRequests(roster, sendToBinding(connection, scanning.sendToConnections())), minedValues());
+    }
+
+    private IdentityBinding sendToBinding(ConnectionWiring connection, SendToConnectionPolicy policy) {
+        McpScannerSession session = connection.scannerSession();
+        return IdentityBinding.routedWhen(policy::handlesAuthentication, new DirectIdentityBinding(
+                StreamingFallback.outsideBurp().around(connection.burpHttp()),
+                () -> Optional.ofNullable(session.sessionId()), foundation.eventLog()::warn));
     }
 
     CheckAccessRunner runner(ConnectionWiring connection, ScanningWiring scanning) {
@@ -122,7 +149,8 @@ final class AccessWiring {
         OwnerRequests auditRequests = new OwnerRequests(
                 target -> primaryRequests.requestFor(ownerTargets.apply(target)), identityRequests(), minedValues());
         return new CheckAccessRunner(comparison(), http, auditRequests, issueSink,
-                new WriteReplays(confirmations, ledger), runs, foundation.eventLog(), connection.upstreamExchanges());
+                new WriteReplays(confirmations, ledger), runs, foundation.eventLog(), connection.upstreamExchanges(),
+                matrix::snapshot, discovery);
     }
 
     CrossIdentityComparison comparison() {
@@ -136,12 +164,6 @@ final class AccessWiring {
 
     IdentityRequests identityRequests() {
         return new IdentityRequests(roster);
-    }
-
-    private OwnerRequests ownerRequests(McpScannerSession session, ScanningWiring scanning,
-                                        Supplier<ScanConnection> connections) {
-        return new OwnerRequests(primaryRequests(session, scanning, connections)::requestFor, identityRequests(),
-                minedValues());
     }
 
     private MinedValueRule minedValues() {

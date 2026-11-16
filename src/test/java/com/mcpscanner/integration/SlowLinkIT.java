@@ -51,6 +51,7 @@ class SlowLinkIT {
     private static final int EXTENSION_SCAN_WORKERS = (int) ResourceCap.EXTENSION_SCAN_WORKERS.defaultValue();
     private static final int EXTENSION_SCAN_EFFECTIVE_CONCURRENCY = 5;
     private static final int CHECK_ACCESS_EFFECTIVE_CONCURRENCY = 3;
+    private static final int COLLECT_IDS_EFFECTIVE_CONCURRENCY = 7;
     private static final String USER_INFO_CALL = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
             + "\"params\":{\"name\":\"user_info\",\"arguments\":{\"username\":\"alice\"}}}";
 
@@ -83,6 +84,17 @@ class SlowLinkIT {
              CheckAccessFixture access = CheckAccessFixture.prepare(endpoint(relay))) {
             stopwatch(relay, server).time("Check access over every item",
                     CHECK_ACCESS_EFFECTIVE_CONCURRENCY, SLACK, access::checkAllItems);
+        }
+    }
+
+    @Test
+    void collectIdsForEveryUserFinishesWithinItsRoundTripBudget() throws Exception {
+        try (DelayingRelay relay = DelayingRelay.listening(ONE_WAY_DELAY);
+             McpCheckItSupport.RunningServer server = behind(relay,
+                     McpCheckItSupport.startServer("--default-mode", "safe", "--public-url", relay.baseUrl()));
+             CollectIdsFixture collecting = CollectIdsFixture.connect(endpoint(relay))) {
+            stopwatch(relay, server).time("Collect IDs for every user", COLLECT_IDS_EFFECTIVE_CONCURRENCY, SLACK,
+                    collecting::collect);
         }
     }
 

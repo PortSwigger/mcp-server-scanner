@@ -1,5 +1,6 @@
 package com.mcpscanner.access.mining;
 
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.mcpscanner.mcp.McpResourceTemplateDefinition;
 import com.mcpscanner.scan.UriTemplateExpansion;
 
@@ -17,7 +18,8 @@ record TemplateArguments(String uriTemplate, List<ArgumentSlot> slots) {
                         .map(UriTemplateExpansion.Variable::name).distinct()
                         .filter(variable -> !SecretName.matches(variable))
                         .map(variable -> new ArgumentSlot(variable,
-                                Aliases.ofArgument(variable, template.uriTemplate()), SlotType.STRING))
+                                Aliases.ofArgument(variable, template.uriTemplate()), SlotType.STRING,
+                                MissingNode.getInstance()))
                         .toList());
     }
 }

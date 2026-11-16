@@ -4,6 +4,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 import static com.mcpscanner.checks.api.crossidentity.FakeMcpTarget.argument;
@@ -25,6 +26,12 @@ public final class FakeServers {
             if (!vulnerable && !"A".equals(principal(request))) return FakeReply.toolError("note not found");
             return FakeReply.result("A-PRIVATE-a1 body");
         });
+    }
+
+    public static Function<HttpRequest, FakeReply> sharedTemplates() {
+        return authenticated(request -> Set.of("t1", "t2").contains(argument(request, "template_id"))
+                ? FakeReply.result("TEMPLATE-" + argument(request, "template_id") + " body shared by every user")
+                : FakeReply.toolError("template not found"));
     }
 
     public static Function<HttpRequest, FakeReply> flakyForPeer() {

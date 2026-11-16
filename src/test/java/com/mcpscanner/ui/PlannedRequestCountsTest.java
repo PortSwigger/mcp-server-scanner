@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PlannedRequestCountsTest {
 
     private final ManualReadScheduler scheduler = new ManualReadScheduler();
-    private final PlannedRequestCounts counts = new PlannedRequestCounts(scheduler.reads());
+    private final PlannedRequestCounts<Integer> counts = new PlannedRequestCounts<>(scheduler.reads());
     private final AtomicInteger plans = new AtomicInteger();
     private final AtomicInteger counted = new AtomicInteger();
 
@@ -75,7 +75,7 @@ class PlannedRequestCountsTest {
 
     @Test
     void anImmediateCountIsReturnedToTheCallerThatStartedIt() {
-        PlannedRequestCounts immediate = new PlannedRequestCounts(ManualReadScheduler.immediateReads());
+        PlannedRequestCounts<Integer> immediate = new PlannedRequestCounts<>(ManualReadScheduler.immediateReads());
 
         assertThat(immediate.count("a", () -> 5)).contains(5);
     }

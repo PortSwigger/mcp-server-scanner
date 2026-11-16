@@ -1,6 +1,7 @@
 package com.mcpscanner.checks.catalog.originhostadmission;
 
 import burp.api.montoya.http.message.HttpRequestResponse;
+import com.mcpscanner.checks.api.HostSettlement;
 
 import java.util.List;
 import java.util.Optional;
@@ -52,6 +53,16 @@ record TrialOutcome(TrialStatus status, HttpRequestResponse baseline, List<Probe
 
     boolean fullyAnswered() {
         return conclusive() && everyProbeAnswered();
+    }
+
+    HostSettlement requestSettlement() {
+        if (baselineUnansweredOutsideBurp()) {
+            return HostSettlement.SETTLED;
+        }
+        if (status == TrialStatus.BASELINE_NOT_SUCCESSFUL) {
+            return HostSettlement.NOT_PROBED;
+        }
+        return fullyAnswered() ? HostSettlement.SETTLED : HostSettlement.INCONCLUSIVE;
     }
 
     List<ProbeObservation> admittedIn(AdmissionCategory category) {

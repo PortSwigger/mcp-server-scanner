@@ -2,6 +2,7 @@ package com.mcpscanner.checks.api.crossidentity;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.mcpscanner.checks.shared.session.SessionHeaders;
+import com.mcpscanner.mcp.ScannerSentinels;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -64,5 +65,23 @@ class OpenedSessionsTest {
 
         assertThat(target.sent()).extracting(request -> request.headerValue("Mcp-Session-Id"))
                 .containsExactly("first", "second");
+    }
+
+    @Test
+    void sendsEachDeleteStraightToTheTargetWithoutTheSentinelsThatRouteItThroughTheLocalProxy() {
+        FakeMcpTarget target = new FakeMcpTarget(request -> FakeReply.result("ok"));
+        OpenedSessions sessions = new OpenedSessions();
+        sessions.record(SessionHeaders.inSession(FakeMcpTarget.toolCall("t", "{}", "B")
+                .withHeader(ScannerSentinels.IDENTITY_HEADER, "b")
+                .withHeader(ScannerSentinels.STRIP_AUTH_HEADER, ScannerSentinels.SENTINEL_VALUE), "probe"));
+
+        sessions.deleteAll(target.http(), Optional.empty());
+
+        assertThat(target.sent()).singleElement().satisfies(delete -> {
+            assertThat(delete.headerValue(ScannerSentinels.DIRECT_DELIVERY_HEADER))
+                    .isEqualTo(ScannerSentinels.SENTINEL_VALUE);
+            assertThat(delete.headers()).noneMatch(header -> ScannerSentinels.ROUTES_TO_PROXY.contains(header.name()));
+            assertThat(FakeMcpTarget.principal(delete)).isEqualTo("B");
+        });
     }
 }

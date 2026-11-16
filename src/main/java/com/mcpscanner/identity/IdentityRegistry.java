@@ -192,6 +192,10 @@ public final class IdentityRegistry {
         return identities.stream().filter(identity -> !primaryId.equals(identity.id())).toList();
     }
 
+    public synchronized int otherUserCount() {
+        return otherUsers().size();
+    }
+
     public synchronized List<Identity> compared() {
         return otherUsers().stream()
                 .filter(Identity::compared)

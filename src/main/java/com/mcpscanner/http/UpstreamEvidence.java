@@ -16,6 +16,10 @@ public final class UpstreamEvidence {
         this.exchanges = Objects.requireNonNull(exchanges, "exchanges must not be null");
     }
 
+    public ExchangeLease retaining() {
+        return exchanges.retaining();
+    }
+
     public List<AuditIssue> translate(List<AuditIssue> issues) {
         return issues.stream().map(this::translate).toList();
     }

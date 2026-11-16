@@ -5,11 +5,13 @@ import com.mcpscanner.access.mining.MiningInputs;
 import com.mcpscanner.access.mining.MiningPreferences;
 import com.mcpscanner.access.mining.MiningSender;
 import com.mcpscanner.access.mining.RoutedMiningSender;
+import com.mcpscanner.engine.EngineWorkers;
 import com.mcpscanner.identity.OwnedValueStore;
 import com.mcpscanner.identity.RegistryOwnedValues;
 import com.mcpscanner.scan.McpRepeaterRequestFactory;
 
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -18,6 +20,7 @@ final class MiningWiring {
     private final ConnectedInventory inventory;
     private final OwnedValueStore ownedValues;
     private final ExecutorService worker;
+    private final EngineWorkers sendWorkers;
     private final AccessMining mining;
 
     private MiningWiring(ExtensionFoundation foundation, AccessWiring access, ConnectedInventory inventory,
@@ -29,9 +32,11 @@ final class MiningWiring {
             thread.setDaemon(true);
             return thread;
         });
+        this.sendWorkers = EngineWiring.extensionScanWorkers(foundation.configStore(), "mcp-collect-ids-");
         this.mining = new AccessMining(new MiningInputs(inventory, access.roster(),
                 () -> foundation.identities().primaryUser().id()), sender,
-                new MiningPreferences(foundation.configStore()), ownedValues, worker, foundation.eventLog());
+                new MiningPreferences(foundation.configStore()), ownedValues, worker, this::resizedSendWorkers,
+                foundation.eventLog());
     }
 
     static MiningWiring create(ExtensionFoundation foundation, ConnectionWiring connection, AccessWiring access,
@@ -47,6 +52,11 @@ final class MiningWiring {
     static MiningWiring withSender(ExtensionFoundation foundation, AccessWiring access, ConnectedInventory inventory,
                                    MiningSender sender) {
         return new MiningWiring(foundation, access, inventory, sender);
+    }
+
+    private Executor resizedSendWorkers() {
+        sendWorkers.applyWorkerCount();
+        return sendWorkers.executor();
     }
 
     AccessMining mining() {
@@ -65,6 +75,7 @@ final class MiningWiring {
         shutdown.add("Collecting IDs", () -> {
             mining.cancel();
             worker.shutdownNow();
+            sendWorkers.executor().shutdownNow();
         });
     }
 }

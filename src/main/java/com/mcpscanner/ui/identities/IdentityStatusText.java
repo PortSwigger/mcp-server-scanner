@@ -15,6 +15,9 @@ final class IdentityStatusText {
 
     static final String READY_MARK = "● ";
     static final String WARNING_MARK = "▲ ";
+    static final String NOT_DISCOVERED = "Not discovered yet";
+    static final String CREDENTIAL_CHANGED = "Credential changed - press " + DiscoverButton.LABEL;
+    static final String DISCOVERING = "Discovering…";
     private static final String NO_CREDENTIALS = "No credentials";
 
     private final IdentityUiServices services;
@@ -31,8 +34,11 @@ final class IdentityStatusText {
         if (services.registry().isPrimary(identity.id())) {
             return connectAsSession(identity.name());
         }
+        if (credentialChanged(identity)) {
+            return CREDENTIAL_CHANGED;
+        }
         return outcome(identity).map(IdentityStatusText::describeSession)
-                .orElseGet(() -> services.isConnected() ? "Not discovered yet" : "Discovered after Connect");
+                .orElseGet(() -> services.isConnected() ? NOT_DISCOVERED : "Discovered after Connect");
     }
 
     String signIn(Identity identity) {
@@ -65,9 +71,21 @@ final class IdentityStatusText {
             return READY_MARK + "Connected";
         }
         if (services.registry().credential(identity.id()).isPresent()) {
-            return outcome(identity).map(IdentityStatusText::describeOutcome).orElse(READY_MARK + "Ready");
+            return describeDiscovery(identity);
         }
         return describeMissing(identity);
+    }
+
+    private String describeDiscovery(Identity identity) {
+        if (credentialChanged(identity)) {
+            return WARNING_MARK + CREDENTIAL_CHANGED;
+        }
+        return outcome(identity).map(IdentityStatusText::describeOutcome)
+                .orElseGet(() -> services.isConnected() ? NOT_DISCOVERED : READY_MARK + "Ready");
+    }
+
+    private boolean credentialChanged(Identity identity) {
+        return services.discovery().credentialChangedSinceDiscovery(identity.id());
     }
 
     private String describeMissing(Identity identity) {
@@ -101,12 +119,12 @@ final class IdentityStatusText {
 
     private static String describeOutcome(DiscoveryOutcome outcome) {
         if (outcome instanceof DiscoveryOutcome.Listed listed) {
-            return READY_MARK + counts(listed.listing());
+            return READY_MARK + "Listed " + counts(listed.listing());
         }
         if (outcome instanceof DiscoveryOutcome.Failed failed) {
-            return WARNING_MARK + failed.reason();
+            return WARNING_MARK + "Failed: " + failed.reason();
         }
-        return "Discovering…";
+        return DISCOVERING;
     }
 
     private static String describeSession(DiscoveryOutcome outcome) {

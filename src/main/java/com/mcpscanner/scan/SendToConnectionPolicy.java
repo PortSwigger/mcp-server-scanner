@@ -18,10 +18,14 @@ public final class SendToConnectionPolicy implements Supplier<ScanConnection> {
         this.currentCredentials = Objects.requireNonNull(currentCredentials);
     }
 
+    public boolean handlesAuthentication() {
+        return handleAuthentication.getAsBoolean();
+    }
+
     @Override
     public ScanConnection get() {
         ScanConnection managed = managedConnection.get();
-        return handleAuthentication.getAsBoolean()
+        return handlesAuthentication()
                 ? managed
                 : managed.withHeaders(baseline -> currentCredentials.get());
     }

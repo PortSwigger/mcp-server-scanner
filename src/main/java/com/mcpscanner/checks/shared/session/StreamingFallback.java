@@ -51,7 +51,7 @@ public final class StreamingFallback {
 
     HttpRequestResponse send(Http http, HttpRequest probe, Supplier<HttpRequestResponse> throughBurp) {
         if (sendsOutsideBurp(probe)) {
-            return outsideBurp(http, probe);
+            return refusedByBurp(http, probe);
         }
         try {
             return throughBurp.get();
@@ -60,8 +60,13 @@ public final class StreamingFallback {
                 throw failure;
             }
             streamingRoutes.streamed(probe);
-            return outsideBurp(http, probe);
+            return refusedByBurp(http, probe);
         }
+    }
+
+    private HttpRequestResponse refusedByBurp(Http http, HttpRequest probe) {
+        OutsideBurpSends.reportRefusal(http);
+        return outsideBurp(http, probe);
     }
 
     private HttpRequestResponse outsideBurp(Http http, HttpRequest probe) {

@@ -1,20 +1,22 @@
 package com.mcpscanner.access.mining;
 
 import com.mcpscanner.checks.api.Principal;
-import com.mcpscanner.checks.shared.probe.SendBudget;
 
 import java.util.Optional;
 
 final class StableExchange {
 
+    static final int SENDS_PER_CALL = 2;
+    static final int MOST_SENDS_PER_CALL = SENDS_PER_CALL + 1;
+
     private final MiningSender sender;
     private final Principal identity;
-    private final SendBudget budget;
+    private final RequestAllowance allowance;
 
-    StableExchange(MiningSender sender, Principal identity, SendBudget budget) {
+    StableExchange(MiningSender sender, Principal identity, RequestAllowance allowance) {
         this.sender = sender;
         this.identity = identity;
-        this.budget = budget;
+        this.allowance = allowance;
     }
 
     Optional<Replies> send(MiningCall call) {
@@ -28,7 +30,7 @@ final class StableExchange {
     }
 
     private Optional<Replies> retried(MiningCall call, MiningReply succeeded) {
-        if (!budget.affords(1)) {
+        if (!allowance.reserve(1)) {
             return Optional.of(new Replies(succeeded, MiningReply.unanswered()));
         }
         return sent(call).map(retry -> new Replies(succeeded, retry));
@@ -36,7 +38,7 @@ final class StableExchange {
 
     private Optional<MiningReply> sent(MiningCall call) {
         MiningReply reply = sender.send(identity, call);
-        budget.record(reply.rateLimited());
+        allowance.recordSend();
         return reply.rateLimited() ? Optional.empty() : Optional.of(reply);
     }
 

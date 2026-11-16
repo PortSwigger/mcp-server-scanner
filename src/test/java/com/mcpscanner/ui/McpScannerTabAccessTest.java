@@ -144,7 +144,7 @@ class McpScannerTabAccessTest {
         CheckAccessRunner runner = new CheckAccessRunner(new RecordingComparison(), new RecordingHttp(), requests,
                 issue -> { }, new WriteReplays(confirmations, new MatrixAccessLedger(matrix, confirmations)), runs,
                 McpEventLog.noop());
-        tab.installAccess(new AccessServices(matrix, runner, requests, confirmations, () -> { }, () -> fixture.identities.identities().size()));
+        tab.installAccess(new AccessServices(matrix, runner, requests, confirmations, () -> { }, fixture.identities::otherUserCount));
     }
 
     private static List<String> titles(InventoryTabs tabs) throws Exception {

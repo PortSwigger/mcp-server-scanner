@@ -1,7 +1,6 @@
 package com.mcpscanner.access.mining;
 
 import com.mcpscanner.identity.MinedValue;
-import com.mcpscanner.identity.ValueScope;
 
 import java.util.List;
 
@@ -14,6 +13,6 @@ public record IdentityMining(String identityId, List<MinedValue> values, int req
     }
 
     public List<MinedValue> privateValues() {
-        return values.stream().filter(value -> value.scope() == ValueScope.PRIVATE).toList();
+        return values.stream().filter(value -> value.isOwned()).toList();
     }
 }

@@ -11,6 +11,10 @@ public final class ConnectionReuse {
 
     static final String CONNECTION_ID = "mcp-scanner";
 
+    static String connectionIdFor(HttpService origin) {
+        return CONNECTION_ID + "-" + OriginConnections.originOf(origin);
+    }
+
     private final OriginConnections origins = new OriginConnections();
     private final Predicate<HttpRequest> answeredLocally;
 
@@ -48,7 +52,7 @@ public final class ConnectionReuse {
 
     private HttpRequestResponse reusing(HttpService origin, HttpRequest request, ConnectionSender sender) {
         try {
-            HttpRequestResponse exchange = sender.reusing(request, CONNECTION_ID);
+            HttpRequestResponse exchange = sender.reusing(request, connectionIdFor(origin));
             if (!answered(exchange)) {
                 origins.reuseFailed(origin);
             }

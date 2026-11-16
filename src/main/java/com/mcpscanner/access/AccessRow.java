@@ -1,11 +1,15 @@
 package com.mcpscanner.access;
 
 import com.mcpscanner.checks.api.AccessExpectation;
+import com.mcpscanner.checks.api.AccessOutcome;
 import com.mcpscanner.checks.api.Principal;
+import com.mcpscanner.checks.api.PrincipalRole;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public record AccessRow(AccessItem item, Principal owner, AccessExpectation expectation, boolean inferred,
                         Map<String, AccessCell> cells, AccessCell anonymous) {
@@ -20,6 +24,16 @@ public record AccessRow(AccessItem item, Principal owner, AccessExpectation expe
 
     public boolean ownedBy(Principal principal) {
         return owner.id().equals(principal.id());
+    }
+
+    public boolean unconfirmedSameResult(Principal principal) {
+        AccessCell cell = cells.get(principal.id());
+        return inferred && cell != null && !ownedBy(principal) && principal.role() == PrincipalRole.LOWER
+                && !cell.anomaly() && cell.outcome().equals(Optional.of(AccessOutcome.SAME_RESULT));
+    }
+
+    public boolean unconfirmedSameResult(List<Principal> principals) {
+        return principals.stream().anyMatch(this::unconfirmedSameResult);
     }
 
     public long anomalies() {

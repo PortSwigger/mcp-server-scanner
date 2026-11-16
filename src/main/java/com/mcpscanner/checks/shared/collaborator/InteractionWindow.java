@@ -5,7 +5,7 @@ import java.util.Objects;
 
 public record InteractionWindow(Duration settle, Duration pollInterval) {
 
-    private static final InteractionWindow STANDARD = new InteractionWindow(Duration.ofSeconds(3), Duration.ofSeconds(1));
+    private static final InteractionWindow STANDARD = new InteractionWindow(Duration.ofSeconds(3), Duration.ofSeconds(60));
 
     public InteractionWindow {
         Objects.requireNonNull(settle, "settle must not be null");

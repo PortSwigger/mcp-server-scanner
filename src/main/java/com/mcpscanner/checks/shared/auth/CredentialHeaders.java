@@ -1,9 +1,11 @@
 package com.mcpscanner.checks.shared.auth;
 
+import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.mcpscanner.auth.AuthHeaderNames;
 import com.mcpscanner.auth.AuthStrategy;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -17,8 +19,12 @@ public final class CredentialHeaders {
     }
 
     public boolean carriedBy(HttpRequest request) {
+        return !carriedNames(request).isEmpty();
+    }
+
+    public List<String> carriedNames(HttpRequest request) {
         Set<String> names = AuthHeaderNames.authBearingHeaderNames(authStrategy.get());
-        return request.headers().stream().anyMatch(header -> names.contains(header.name()));
+        return request.headers().stream().map(HttpHeader::name).filter(names::contains).distinct().toList();
     }
 
     public HttpRequest withMissingAdded(HttpRequest request) {

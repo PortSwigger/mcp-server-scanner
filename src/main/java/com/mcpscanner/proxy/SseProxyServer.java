@@ -6,6 +6,7 @@ import com.mcpscanner.mcp.ScannerSentinels;
 import com.mcpscanner.mcp.ServerPings;
 import com.mcpscanner.mcp.StreamingResponseReader;
 
+import com.mcpscanner.client.ConnectionLossWatch;
 import com.mcpscanner.client.McpScannerSession;
 import com.mcpscanner.client.RedirectFollowingTransport;
 import com.mcpscanner.client.RedirectLoggingInterceptor;
@@ -53,19 +54,22 @@ public class SseProxyServer extends NanoHTTPD {
     private final UpstreamRecording recording;
     private final LoopbackRoutingKey routingKey = LoopbackRoutingKey.mint();
     private final BrowserRequestGuard browserGuard = new BrowserRequestGuard(routingKey);
+    private final ConnectionLossWatch lossWatch;
 
     public SseProxyServer(McpScannerSession scannerSession, ProxySettings settings,
                           ToolCallReplyObserver toolCallReplies, UpstreamRecording recording,
-                          McpOperationFraming.Framer operationFramer, ResendableRequests resendableRequests) {
+                          McpOperationFraming.Framer operationFramer, ResendableRequests resendableRequests,
+                          ConnectionLossWatch lossWatch) {
         this(scannerSession, settings, SseScanSession::new, toolCallReplies, recording, operationFramer,
-                resendableRequests);
+                resendableRequests, lossWatch);
     }
 
     SseProxyServer(McpScannerSession scannerSession, ProxySettings settings,
                    SseScanSessionFactory managedSessionFactory, ToolCallReplyObserver toolCallReplies,
                    UpstreamRecording recording, McpOperationFraming.Framer operationFramer,
-                   ResendableRequests resendableRequests) {
+                   ResendableRequests resendableRequests, ConnectionLossWatch lossWatch) {
         super(LOOPBACK_HOST, 0);
+        this.lossWatch = lossWatch;
         this.scannerSession = scannerSession;
         this.recording = recording;
         this.toolCallReplies = new ConnectAsToolCallTap(toolCallReplies);
@@ -93,7 +97,7 @@ public class SseProxyServer extends NanoHTTPD {
                 () -> settings.identityProvider().current().profile(), scannerSession.eventLog(), redirects,
                 settings.pendingResponseBudget(), SseSessionContext.DEFAULT_RESPONSE_TIMEOUT,
                 SseSessionContext.DEFAULT_HANDSHAKE_TIMEOUT, serverPings, recording.captures(),
-                recording.legacySseRoutes());
+                recording.legacySseRoutes(), new MalformedRequestWaits(MalformedRequestWaits.DEFAULT_SHORT_WAIT));
     }
 
     public int port() {
@@ -175,7 +179,7 @@ public class SseProxyServer extends NanoHTTPD {
     private Response forwardWith(ForwardingStrategy strategy, ScannerRequest request, Map<String, String> headers,
                                  AuditRequest audit) {
         try (ForwardCapture capture = recording.open()) {
-            ProxyResponse forwarded = strategy.forward(request.rewrittenBody(), headers, audit);
+            ProxyResponse forwarded = forwardUpstream(strategy, request, headers, audit);
             toolCallReplies.observe(request.scannerBody(), headers, audit, forwarded);
             Response response = newFixedLengthResponse(statusOf(forwarded.statusCode()), forwarded.contentType(),
                     idRewriter.restoreId(Objects.requireNonNullElse(forwarded.body(), ""), request.rewrittenBody(),
@@ -186,6 +190,18 @@ public class SseProxyServer extends NanoHTTPD {
             return response;
         } catch (Exception e) {
             return failure(strategy, e);
+        }
+    }
+
+    private ProxyResponse forwardUpstream(ForwardingStrategy strategy, ScannerRequest request,
+                                          Map<String, String> headers, AuditRequest audit) throws Exception {
+        try {
+            return strategy.forward(request.rewrittenBody(), headers, audit);
+        } catch (ExpiredAuditException | InterruptedException notAnUpstreamFailure) {
+            throw notAnUpstreamFailure;
+        } catch (Exception upstreamFailure) {
+            lossWatch.failed();
+            throw upstreamFailure;
         }
     }
 

@@ -28,6 +28,13 @@ final class SingleFlightPoll {
         return true;
     }
 
+    synchronized Duration untilDue(Duration minimumInterval) {
+        if (!polled) {
+            return minimumInterval;
+        }
+        return Duration.ofNanos(Math.max(0, minimumInterval.toNanos() - (nanoClock.getAsLong() - lastPollNanos)));
+    }
+
     synchronized void release() {
         inFlight = false;
         notifyAll();

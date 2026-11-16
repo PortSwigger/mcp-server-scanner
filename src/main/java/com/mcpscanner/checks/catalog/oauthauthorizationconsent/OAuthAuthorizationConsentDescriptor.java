@@ -31,9 +31,7 @@ final class OAuthAuthorizationConsentDescriptor {
             List.of(
                     "https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices",
                     "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2",
-                    "https://datatracker.ietf.org/doc/html/rfc9700#section-4.2",
-                    "https://github.com/advisories/GHSA-hwhg-mrjc-8g43",
-                    "https://github.com/advisories/GHSA-7w99-5wm4-3g79"),
+                    "https://datatracker.ietf.org/doc/html/rfc9700#section-4.2"),
             "An MCP server's authorization endpoint must authenticate the user and obtain their consent before it "
                     + "issues an authorization code, and an authorization code must be redeemable only once. "
                     + "When it issues codes to anyone, any client that can reach it obtains the user's access, and "

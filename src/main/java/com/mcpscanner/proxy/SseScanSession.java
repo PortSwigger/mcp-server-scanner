@@ -48,6 +48,7 @@ class SseScanSession implements Closeable {
     private final InFlightServerPings inFlightPings;
     private final UpstreamCaptures captures;
     private final LegacySseRoutes legacySseRoutes;
+    private final MalformedRequestWaits malformedRequestWaits;
     private final Object connectionLock = new Object();
     private RedirectMode sessionRedirectMode;
     private Thread connectingThread;
@@ -65,6 +66,7 @@ class SseScanSession implements Closeable {
         this.redirectInterceptor = context.redirects();
         this.captures = context.captures();
         this.legacySseRoutes = context.legacySseRoutes();
+        this.malformedRequestWaits = context.malformedRequestWaits();
         this.replies = new SseReplyDispatcher(eventLog, context.pendingResponseBudget());
         this.inFlightPings = new InFlightServerPings(context.serverPings(), this::postServerRequestReply);
         this.streamReader = new SseStreamReader("SseScanSession-reader-" + sseUrl, replies, eventLog, lifecycle,
@@ -121,6 +123,7 @@ class SseScanSession implements Closeable {
 
     private ProxyResponse exchange(String id, String jsonBody, Map<String, String> requestHeaders)
             throws IOException, InterruptedException {
+        boolean malformed = JsonRpcEnvelopes.isMalformedRequest(jsonBody);
         CompletableFuture<String> reply = replies.expect(id);
         try {
             MessagePostResult posted = postToMessageEndpoint(jsonBody,
@@ -129,11 +132,14 @@ class SseScanSession implements Closeable {
                 captures.record(posted.exchange());
                 return posted.toProxyResponse();
             }
-            String json = replies.await(reply, responseTimeout);
+            String json = awaitReply(reply, malformed);
             captures.record(posted.exchange().withResponseBody(asMessageEvent(json)));
             return new ProxyResponse(200, "application/json", json, posted.headers());
         } catch (TimeoutException te) {
             eventLog.warn("SSE waiter timed out for id=" + id);
+            if (malformed) {
+                malformedRequestWaits.unanswered(eventLog);
+            }
             return errorResponse(502, "Timed out waiting for SSE response");
         } catch (ExecutionException ee) {
             return errorResponse(502, streamFailureMessage(ee));
@@ -141,6 +147,16 @@ class SseScanSession implements Closeable {
             replies.release(id, reply);
             inFlightPings.callEnded(new McpRequests.Request(jsonBody, Map.of()));
         }
+    }
+
+    private String awaitReply(CompletableFuture<String> reply, boolean malformed)
+            throws InterruptedException, ExecutionException, TimeoutException {
+        if (!malformed) {
+            return replies.await(reply, responseTimeout);
+        }
+        String json = replies.await(reply, malformedRequestWaits.timeout(responseTimeout));
+        malformedRequestWaits.answered();
+        return json;
     }
 
     private static byte[] asMessageEvent(String json) {

@@ -9,6 +9,7 @@ import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.checks.api.CheckDescriptor;
 import com.mcpscanner.checks.api.CheckLog;
 import com.mcpscanner.checks.api.HostCheck;
+import com.mcpscanner.checks.api.HostTrial;
 import com.mcpscanner.checks.api.SkipSubject;
 import com.mcpscanner.checks.shared.auth.AuthVariantSuite;
 import com.mcpscanner.checks.shared.auth.CredentialStripper;
@@ -71,13 +72,23 @@ public final class SiblingRouteAuthParityCheck implements HostCheck {
     }
 
     @Override
+    public List<HostTrial> trials() {
+        return List.of(new SiblingRouteTrial(this));
+    }
+
+    @Override
     public List<AuditIssue> audit(HttpRequestResponse hostBaseRequestResponse, Http http) {
+        return render(outcomeOf(hostBaseRequestResponse, http));
+    }
+
+    AuditOutcome outcomeOf(HttpRequestResponse hostBaseRequestResponse, Http http) {
         ProbeChannel channel = new ProbeChannel(streamedReplies.around(http), requestBudget);
         ProbeStops stops = new ProbeStops(log, channel, SkipSubject.of(hostBaseRequestResponse));
-        return auditOver(channel, stops).run(hostBaseRequestResponse)
-                .map(issues::render)
-                .stream()
-                .toList();
+        return auditOver(channel, stops).run(hostBaseRequestResponse);
+    }
+
+    List<AuditIssue> render(AuditOutcome outcome) {
+        return outcome.finding().map(issues::render).stream().toList();
     }
 
     private SiblingRouteAudit auditOver(ProbeChannel channel, ProbeStops stops) {

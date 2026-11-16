@@ -67,4 +67,13 @@ class SendToConnectionPolicyTest {
 
         assertThatThrownBy(() -> stale.get().requireCurrent()).hasMessage("connection changed");
     }
+
+    @Test
+    void reportsWhetherBurpToolRequestsAreHandledByTheExtension() {
+        assertThat(policy.handlesAuthentication()).isFalse();
+
+        handleAuthentication.set(true);
+
+        assertThat(policy.handlesAuthentication()).isTrue();
+    }
 }

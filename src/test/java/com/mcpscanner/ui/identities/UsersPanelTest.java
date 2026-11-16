@@ -460,6 +460,89 @@ class UsersPanelTest {
     }
 
     @Test
+    void typingACredentialNeverDiscoversUntilDiscoverIsPressed() throws Exception {
+        Identity bob = harness.add("bob", IdentityRole.PEER, IdentityAuthKind.BEARER);
+        harness.connectDiscovery();
+        open();
+        onEdt(() -> panel.select(bob.id()));
+        assertThat(fromEdt(() -> panel.comparedEditor().discoverButton().isEnabled())).isFalse();
+
+        typeToken("b");
+        typeToken("bo");
+        typeToken("bob");
+        harness.runDiscoveries();
+
+        assertThat(harness.discoveredWith).isEmpty();
+        assertThat(cell(0, IdentityTableModel.STATUS)).isEqualTo(IdentityStatusText.NOT_DISCOVERED);
+        assertThat(fromEdt(() -> panel.comparedEditor().sessionLine())).isEqualTo(IdentityStatusText.NOT_DISCOVERED);
+        assertThat(fromEdt(() -> panel.comparedEditor().discoverButton().isEnabled())).isTrue();
+    }
+
+    @Test
+    void theStatusColumnFollowsDiscoveryFromThePressedButtonToTheListing() throws Exception {
+        Identity bob = harness.add("bob", IdentityRole.PEER, IdentityAuthKind.BEARER);
+        harness.connectDiscovery();
+        open();
+        onEdt(() -> panel.select(bob.id()));
+        typeToken("bob");
+
+        onEdt(() -> panel.comparedEditor().discoverButton().doClick());
+        await().until(() -> cell(0, IdentityTableModel.STATUS).equals(IdentityStatusText.DISCOVERING));
+
+        harness.runDiscoveries();
+        await().until(() -> cell(0, IdentityTableModel.STATUS).equals("● Listed 2 tools, 0 resources"));
+        assertThat(harness.discoveredWith).containsExactly("Bearer bob");
+    }
+
+    @Test
+    void editingADiscoveredCredentialMarksTheStatusStaleUntilDiscoveredAgain() throws Exception {
+        Identity bob = harness.add("bob", IdentityRole.PEER, IdentityAuthKind.BEARER);
+        harness.connectDiscovery();
+        open();
+        onEdt(() -> panel.select(bob.id()));
+        typeToken("bob");
+        onEdt(() -> panel.comparedEditor().discoverButton().doClick());
+        harness.runDiscoveries();
+
+        typeToken("bob-2");
+
+        String stale = IdentityStatusText.WARNING_MARK + IdentityStatusText.CREDENTIAL_CHANGED;
+        await().until(() -> cell(0, IdentityTableModel.STATUS).equals(stale));
+        assertThat(fromEdt(() -> panel.comparedEditor().sessionLine()))
+                .isEqualTo(IdentityStatusText.CREDENTIAL_CHANGED);
+        harness.runDiscoveries();
+        assertThat(harness.discoveredWith).containsExactly("Bearer bob");
+
+        onEdt(() -> panel.comparedEditor().discoverButton().doClick());
+        harness.runDiscoveries();
+        await().until(() -> cell(0, IdentityTableModel.STATUS).equals("● Listed 2 tools, 0 resources"));
+        assertThat(harness.discoveredWith).containsExactly("Bearer bob", "Bearer bob-2");
+    }
+
+    @Test
+    void theStatusColumnShowsWhyDiscoveryFailed() throws Exception {
+        Identity bob = harness.add("bob", IdentityRole.PEER, IdentityAuthKind.BEARER);
+        open();
+        onEdt(() -> panel.select(bob.id()));
+        typeToken("bob");
+
+        IdentityListingsFixture.failed(harness.listings, bob.id(), "HTTP 401 from the server");
+
+        await().until(() -> cell(0, IdentityTableModel.STATUS).equals("▲ Failed: HTTP 401 from the server"));
+    }
+
+    @Test
+    void discoverIsDisabledUntilConnected() throws Exception {
+        Identity bob = harness.add("bob", IdentityRole.PEER, IdentityAuthKind.BEARER);
+        open();
+        onEdt(() -> panel.select(bob.id()));
+        typeToken("bob");
+
+        assertThat(fromEdt(() -> panel.comparedEditor().discoverButton().isEnabled())).isFalse();
+        assertThat(fromEdt(() -> panel.comparedEditor().discoverButton().getToolTipText())).isEqualTo("Connect first");
+    }
+
+    @Test
     void tickingCompareInTheTableUpdatesTheIdentity() throws Exception {
         Identity bob = harness.add("bob", IdentityRole.PEER, IdentityAuthKind.BEARER);
         open();
@@ -529,6 +612,11 @@ class UsersPanelTest {
             assertThat(table.getTableHeader().getToolTipText(new java.awt.event.MouseEvent(table.getTableHeader(),
                     0, 0, 0, access.x + 2, access.y + 2, 0, false))).isEqualTo("Access vs User 1");
         });
+    }
+
+    private void typeToken(String token) throws Exception {
+        onEdt(() -> panel.comparedEditor().credentials().tokenField().setValue(token));
+        flush();
     }
 
     private void open() throws Exception {

@@ -21,12 +21,7 @@ final class DownstreamRouteEscapeDescriptor {
             AuditIssueSeverity.INFORMATION,
             AuditIssueConfidence.TENTATIVE,
             true,
-            List.of(
-                    "https://github.com/Labs64/NetLicensing-MCP/security/advisories/GHSA-hxpf-9xvq-wph8",
-                    "https://github.com/advisories/GHSA-vwxw-jrg6-9jxv",
-                    "https://github.com/PrefectHQ/fastmcp/security/advisories/GHSA-vv7q-7jx5-f767",
-                    "https://github.com/agentgateway/agentgateway/security/advisories/GHSA-v2x6-wwfw-r2rq",
-                    "https://github.com/zereight/gitlab-mcp/security/advisories/GHSA-4rm9-rfp2-j39q"),
+            List.of(),
             Optional.of("Possible MCP downstream route escape"),
             "MCP servers often wrap an HTTP API and build the downstream request path from tool arguments. When a "
                     + "value is joined into that path without encoding it as a single segment, dot segments let "

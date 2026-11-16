@@ -70,7 +70,7 @@ class McpSessionHandshakeTest {
                 .isEqualTo(McpObjectMapper.INSTANCE.readTree("{\"jsonrpc\":\"2.0\",\"method\":\"initialize\","
                         + "\"id\":\"anonymous-probe-initialize\",\"params\":{"
                         + "\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
-                        + "\"clientInfo\":{\"name\":\"mcp-server-scanner\",\"version\":\"2.0.0\"}}}"));
+                        + "\"clientInfo\":{\"name\":\"mcp-server-scanner\",\"version\":\"2.1.2\"}}}"));
         assertThat(handshake.initialized(probe(Map.of()), "fresh").bodyToString())
                 .isEqualTo("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
     }

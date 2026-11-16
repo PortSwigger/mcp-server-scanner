@@ -1,5 +1,6 @@
 package com.mcpscanner.proxy;
 
+import com.mcpscanner.client.ConnectionLossWatch;
 import com.mcpscanner.client.JdkProtocolHttpTransport;
 import com.mcpscanner.client.McpHttpClients;
 import com.mcpscanner.client.McpScannerSession;
@@ -42,6 +43,7 @@ public final class TestSseProxies {
         private UpstreamRecording recording = UpstreamRecording.create();
         private McpOperationFraming.Framer operationFramer;
         private ResendableRequests resendableRequests = new ResendableRequests();
+        private ConnectionLossWatch connectionLossWatch = ConnectionLossWatch.disabled();
 
         private Builder(McpScannerSession session) {
             this.session = session;
@@ -102,6 +104,11 @@ public final class TestSseProxies {
             return this;
         }
 
+        public Builder connectionLossWatch(ConnectionLossWatch connectionLossWatch) {
+            this.connectionLossWatch = connectionLossWatch;
+            return this;
+        }
+
         Builder managedSessions(SseScanSession... sessions) {
             managedSessions.addAll(List.of(sessions));
             return this;
@@ -114,7 +121,7 @@ public final class TestSseProxies {
             ProxySettings settings = new ProxySettings(client, transport, responseTimeout, identityProvider,
                     redirectMode, postBodyLimit, pendingResponseBudget, answerServerPings);
             return new SseProxyServer(session, settings, this::nextManagedSession, toolCallReplies, recording,
-                    operationFramer != null ? operationFramer : session, resendableRequests);
+                    operationFramer != null ? operationFramer : session, resendableRequests, connectionLossWatch);
         }
 
         private SseScanSession nextManagedSession(String sseUrl, java.util.Map<String, String> headers,

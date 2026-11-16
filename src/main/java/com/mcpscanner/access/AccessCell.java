@@ -8,14 +8,25 @@ import java.util.List;
 import java.util.Optional;
 
 public record AccessCell(ListingState listing, Optional<AccessOutcome> outcome, boolean anomaly,
-                         List<AccessFinding> findings, Optional<Principal> sameCredentialsAs) {
+                         List<AccessFinding> findings, Optional<Principal> sameCredentialsAs,
+                         Optional<String> notComparedReason) {
 
     public AccessCell {
         findings = List.copyOf(findings);
     }
 
+    public AccessCell(ListingState listing, Optional<AccessOutcome> outcome, boolean anomaly,
+                      List<AccessFinding> findings, Optional<Principal> sameCredentialsAs) {
+        this(listing, outcome, anomaly, findings, sameCredentialsAs, Optional.empty());
+    }
+
     public static AccessCell of(ListingState listing, Optional<AccessOutcome> outcome, boolean anomaly) {
         return new AccessCell(listing, outcome, anomaly, List.of(), Optional.empty());
+    }
+
+    AccessCell withNotComparedReason(Optional<String> reason) {
+        return new AccessCell(listing, outcome, anomaly, findings, sameCredentialsAs,
+                reason.filter(why -> outcome.equals(Optional.of(AccessOutcome.NOT_RUN))));
     }
 
     public boolean checked() {

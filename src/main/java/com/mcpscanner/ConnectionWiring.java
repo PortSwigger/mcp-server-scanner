@@ -5,6 +5,9 @@ import burp.api.montoya.http.Http;
 import com.mcpscanner.client.IsolatedCatalogDiscovery;
 import com.mcpscanner.client.McpClientManager;
 import com.mcpscanner.client.McpHttpClients;
+import com.mcpscanner.client.ConnectionLossWatch;
+import com.mcpscanner.client.LiveSessionProbe;
+import com.mcpscanner.client.PingOutcome;
 import com.mcpscanner.client.McpScannerSession;
 import com.mcpscanner.client.ProtocolHttpTransport;
 import com.mcpscanner.client.ScannerSessionSettings;
@@ -26,6 +29,7 @@ import com.mcpscanner.proxy.SseProxyServer;
 import com.mcpscanner.proxy.UpstreamRecording;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.util.List;
 
 final class ConnectionWiring {
@@ -56,7 +60,7 @@ final class ConnectionWiring {
     }
 
     static ConnectionWiring create(MontoyaApi api, ExtensionFoundation foundation) {
-        UpstreamRecording recording = UpstreamRecording.create();
+        UpstreamRecording recording = UpstreamRecording.create(foundation.eventLog());
         BoundEndpoint scannerEndpoint = new BoundEndpoint();
         ConnectionReuse connectionReuse = new ConnectionReuse(new ProxyRouting(scannerEndpoint)::answersLocally);
         Http burpHttp = ConnectionReusingHttp.around(api.http(), connectionReuse);
@@ -69,7 +73,7 @@ final class ConnectionWiring {
         clientManager.addDisconnectListener(upstreamTransport::forgetStreamingRoutes);
         McpOperationFraming.Framer operationFramer = operationFramer(clientManager, foundation.eventLog());
         return new ConnectionWiring(api, foundation, clientManager,
-                sseProxy(clientManager.scannerSession(), foundation, upstreamTransport.transport(), recording,
+                sseProxy(clientManager, foundation, upstreamTransport.transport(), recording,
                         operationFramer, resendableRequests(clientManager)),
                 upstreamTransport, recording, connectionReuse, burpHttp, operationFramer);
     }
@@ -101,18 +105,44 @@ final class ConnectionWiring {
                 configStore::useBurpNetworking, configStore::resourceCap);
     }
 
-    private static SseProxyServer sseProxy(McpScannerSession scannerSession, ExtensionFoundation foundation,
+    private static ConnectionLossWatch connectionLossWatch(McpClientManager clientManager, McpEventLog eventLog) {
+        LiveSessionProbe probe = new LiveSessionProbe(() -> clientManager.scannerSession().call("ping", null),
+                LiveSessionProbe.DEFAULT_TIMEOUT);
+        return new ConnectionLossWatch(ConnectionLossWatch.DEFAULT_THRESHOLD, ConnectionLossWatch.DEFAULT_WINDOW,
+                Clock.systemUTC(), () -> ping(clientManager, probe, eventLog),
+                ConnectionLossWatch.DEFAULT_CONFIRMING_PINGS,
+                ConnectionLossWatch.Pause.of(ConnectionLossWatch.DEFAULT_PING_SPACING),
+                ConnectionWiring::startDaemon, clientManager::connectionLost);
+    }
+
+    private static PingOutcome ping(McpClientManager clientManager, LiveSessionProbe probe, McpEventLog eventLog) {
+        if (!clientManager.isConnected()) {
+            return PingOutcome.INCONCLUSIVE;
+        }
+        PingOutcome outcome = probe.ping();
+        eventLog.warn("Repeated forward failures; the scanner session ping result: " + outcome);
+        return outcome;
+    }
+
+    private static void startDaemon(Runnable task) {
+        Thread thread = new Thread(task, "connection-loss-probe");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private static SseProxyServer sseProxy(McpClientManager clientManager, ExtensionFoundation foundation,
                                            ProtocolHttpTransport upstreamTransport, UpstreamRecording recording,
                                            McpOperationFraming.Framer operationFramer,
                                            ResendableRequests resendableRequests) {
         ExtensionConfigStore configStore = foundation.configStore();
+        McpScannerSession scannerSession = clientManager.scannerSession();
         return new SseProxyServer(scannerSession, new ProxySettings(
                 McpHttpClients.upstream(), upstreamTransport, ProxySettings.DEFAULT_RESPONSE_TIMEOUT, foundation.identityProvider(),
                 configStore::redirectMode,
                 () -> configStore.resourceCap(ResourceCap.PROXY_POST_BODY_BYTES),
                 () -> configStore.resourceCap(ResourceCap.SSE_PENDING_RESPONSE_BYTES),
                 configStore::answerServerPings), foundation.toolCallRefusals()::replied, recording, operationFramer,
-                resendableRequests);
+                resendableRequests, connectionLossWatch(clientManager, foundation.eventLog()));
     }
 
     McpClientManager clientManager() {

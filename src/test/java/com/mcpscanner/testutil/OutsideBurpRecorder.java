@@ -11,6 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class OutsideBurpRecorder extends ForwardingHttp {
 
     private final List<HttpRequestResponse> reported = new CopyOnWriteArrayList<>();
+    private final java.util.concurrent.atomic.AtomicInteger refusals = new java.util.concurrent.atomic.AtomicInteger();
 
     public OutsideBurpRecorder(Http delegate) {
         super(delegate);
@@ -18,6 +19,16 @@ public final class OutsideBurpRecorder extends ForwardingHttp {
 
     public List<HttpRequestResponse> reported() {
         return List.copyOf(reported);
+    }
+
+    public int refusals() {
+        return refusals.get();
+    }
+
+    @Override
+    public void streamRefused() {
+        refusals.incrementAndGet();
+        super.streamRefused();
     }
 
     @Override

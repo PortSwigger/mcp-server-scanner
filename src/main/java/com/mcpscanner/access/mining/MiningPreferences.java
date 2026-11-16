@@ -2,6 +2,7 @@ package com.mcpscanner.access.mining;
 
 import com.mcpscanner.mcp.ToolSafety;
 import com.mcpscanner.config.ExtensionConfigStore;
+import com.mcpscanner.config.ResourceCap;
 import com.mcpscanner.mcp.McpToolDefinition;
 
 import java.util.List;
@@ -42,7 +43,8 @@ public final class MiningPreferences {
     }
 
     public MiningSettings settings(List<McpToolDefinition> tools) {
-        return MiningSettings.defaults().withPasses(passes()).withAllowedTools(writeTools().allowedTools(tools));
+        return MiningSettings.defaults().withPasses(passes()).withAllowedTools(writeTools().allowedTools(tools))
+                .withRequestCeiling(Math.toIntExact(config.resourceCap(ResourceCap.MINING_REQUESTS_PER_USER)));
     }
 
     public static List<McpToolDefinition> writeToolsIn(List<McpToolDefinition> tools) {

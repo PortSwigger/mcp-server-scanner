@@ -46,8 +46,7 @@ public record OwnedValues(List<OwnedValue> all) {
     }
 
     public OwnedObjects ownerArguments() {
-        return new OwnedObjects(firstPerArgument(entered().stream()),
-                firstPerArgument(mined().stream().filter(MinedValue::isPrivate)));
+        return new OwnedObjects(firstPerArgument(entered().stream()), firstPerArgument(mined().stream().filter(MinedValue::isOwned)));
     }
 
     private static Map<String, String> firstPerArgument(Stream<? extends OwnedValue> values) {

@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 record Sighting(JsonNode node, Set<String> aliases, List<String> arguments, String operation, String path,
-                Kind kind) {
+                Kind kind, boolean ownerAttributed) {
 
     enum Kind {
         REPLY_FIELD,
@@ -19,8 +19,16 @@ record Sighting(JsonNode node, Set<String> aliases, List<String> arguments, Stri
         arguments = List.copyOf(arguments);
     }
 
+    Sighting(JsonNode node, Set<String> aliases, List<String> arguments, String operation, String path, Kind kind) {
+        this(node, aliases, arguments, operation, path, kind, false);
+    }
+
+    Sighting attributedTo(boolean attributed) {
+        return new Sighting(node, aliases, arguments, operation, path, kind, attributed);
+    }
+
     String value() {
-        return node.asText();
+        return node.isContainerNode() ? node.toString() : node.asText();
     }
 
     boolean feedable() {

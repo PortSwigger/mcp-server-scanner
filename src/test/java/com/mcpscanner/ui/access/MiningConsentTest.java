@@ -28,14 +28,46 @@ class MiningConsentTest {
                 new McpToolDefinition("get_profile", "", "{\"type\":\"object\"}"),
                 MiningUiFixture.ARCHIVE_DOCUMENT))));
 
-        assertThat(consent.toolsToCall()).containsExactly("list_documents", "get_profile");
+        assertThat(consent.toolsToCall().names()).containsExactly("list_documents", "get_profile");
+        assertThat(consent.toolsToCall().mayWrite()).containsExactly("get_profile");
 
-        fixture.mining.preferences().setWriteTools(WriteToolOptIn.selected(Set.of("archive_document")));
-        assertThat(consent.toolsToCall()).containsExactly("list_documents", "get_profile", "archive_document");
+        optInArchive();
+        assertThat(consent.toolsToCall().names()).containsExactly("list_documents", "get_profile", "archive_document");
+        assertThat(consent.toolsToCall().mayWrite()).containsExactly("get_profile", "archive_document");
+    }
+
+    @Test
+    void collectingOnlyReadOnlyToolsStartsWithoutAsking() {
+        assertThat(consent.confirmMining(null)).isTrue();
+
+        assertThat(fixture.dialogs.asked).isEmpty();
+    }
+
+    @Test
+    void anOptedInWriteToolForcesTheConfirmation() {
+        optInArchive();
+        fixture.dialogs.confirmAnswers.add(false);
+
+        assertThat(consent.confirmMining(null)).isFalse();
+
+        assertThat(fixture.dialogs.asked).containsExactly("confirm-mining");
+        assertThat(fixture.dialogs.confirmedTools).extracting(ToolsToCall::mayWrite)
+                .containsExactly(List.of("archive_document"));
+    }
+
+    @Test
+    void anUnannotatedToolCountsAsMayWrite() {
+        fixture.inventory.set(Optional.of(ScanInventory.toolsOnly(List.of(
+                new McpToolDefinition("get_profile", "", "{\"type\":\"object\"}")))));
+
+        consent.confirmMining(null);
+
+        assertThat(fixture.dialogs.asked).containsExactly("confirm-mining");
     }
 
     @Test
     void asksOncePerConnection() {
+        optInArchive();
         assertThat(consent.confirmMining(null)).isTrue();
         assertThat(consent.confirmMining(null)).isTrue();
         assertThat(fixture.dialogs.asked).containsExactly("confirm-mining");
@@ -46,7 +78,18 @@ class MiningConsentTest {
     }
 
     @Test
+    void readOnlyCollectingIsNotConsentForALaterWriteTool() {
+        consent.confirmMining(null);
+        optInArchive();
+
+        consent.confirmMining(null);
+
+        assertThat(fixture.dialogs.asked).containsExactly("confirm-mining");
+    }
+
+    @Test
     void aRefusalIsNotRemembered() {
+        optInArchive();
         fixture.dialogs.confirmAnswers.add(false);
 
         assertThat(consent.confirmMining(null)).isFalse();
@@ -56,22 +99,29 @@ class MiningConsentTest {
 
     @Test
     void theMineFirstPromptListsTheSameToolsAndMineCountsAsConsent() {
+        optInArchive();
         fixture.dialogs.mineFirstAnswers.add(MineFirstChoice.MINE);
 
         assertThat(consent.mineFirst(null)).isEqualTo(MineFirstChoice.MINE);
         assertThat(consent.confirmMining(null)).isTrue();
 
-        assertThat(fixture.dialogs.mineFirstTools).containsExactly(List.of("list_documents", "get_document"));
+        assertThat(fixture.dialogs.mineFirstTools).extracting(ToolsToCall::names)
+                .containsExactly(List.of("list_documents", "get_document", "archive_document"));
         assertThat(fixture.dialogs.asked).containsExactly("mine-first");
     }
 
     @Test
     void continuingWithoutMiningIsNotConsent() {
+        optInArchive();
         fixture.dialogs.mineFirstAnswers.add(MineFirstChoice.CONTINUE_WITHOUT);
 
         consent.mineFirst(null);
         consent.confirmMining(null);
 
         assertThat(fixture.dialogs.asked).containsExactly("mine-first", "confirm-mining");
+    }
+
+    private void optInArchive() {
+        fixture.mining.preferences().setWriteTools(WriteToolOptIn.selected(Set.of("archive_document")));
     }
 }

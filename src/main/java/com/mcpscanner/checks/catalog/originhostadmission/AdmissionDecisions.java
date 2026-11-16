@@ -13,7 +13,7 @@ import java.util.stream.Collectors;
 
 final class AdmissionDecisions {
 
-    private static final String UNREACHABLE_STREAMED_BASELINE = "the server answers with a stream "
+    static final String UNREACHABLE_STREAMED_BASELINE = "the server answers with a stream "
             + "(text/event-stream) and Burp withholds streamed replies from extensions, and the scanner's own HTTP "
             + "client could not reach the server (Burp's client certificates, upstream proxy and network settings "
             + "do not apply to it). This check cannot judge it unless Burp stops treating text/event-stream as a "

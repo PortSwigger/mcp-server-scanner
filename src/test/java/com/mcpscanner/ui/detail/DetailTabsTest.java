@@ -1,9 +1,15 @@
 package com.mcpscanner.ui.detail;
 
+import com.mcpscanner.testutil.SwingTree;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
+
+import java.awt.Dimension;
+import java.awt.Point;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -11,6 +17,15 @@ class DetailTabsTest {
 
     private final DetailTabs tabs = new DetailTabs();
     private final RawJsonView raw = new RawJsonView("hint");
+
+    @Test
+    void rebuildingShowsAScrollingTabFromTheTop() {
+        JScrollPane parameters = scrolledHalfwayDown();
+
+        tabs.rebuild(content -> content.add("Parameters", parameters), raw);
+
+        assertThat(parameters.getViewport().getViewPosition().y).isZero();
+    }
 
     @Test
     void addsOnlyTabsWithContentAndRawLast() {
@@ -97,5 +112,15 @@ class DetailTabsTest {
 
         assertThat(first.isVisible()).isTrue();
         assertThat(second.isVisible()).isTrue();
+    }
+
+    private static JScrollPane scrolledHalfwayDown() {
+        JPanel tall = new JPanel();
+        tall.setPreferredSize(new Dimension(100, 1000));
+        JScrollPane scrollPane = new JScrollPane(tall);
+        scrollPane.setSize(100, 100);
+        SwingTree.layOut(scrollPane);
+        scrollPane.getViewport().setViewPosition(new Point(0, 500));
+        return scrollPane;
     }
 }

@@ -22,7 +22,7 @@ final class CountText implements CapValueText {
 
     @Override
     public String invalidHint(ResourceCap cap) {
-        return "Enter a whole number from 1 to " + cap.maxValue() + ", or leave blank for the default ("
+        return "Enter a whole number from " + cap.minValue() + " to " + cap.maxValue() + ", or leave blank for the default ("
                 + cap.defaultValue() + ").";
     }
 }

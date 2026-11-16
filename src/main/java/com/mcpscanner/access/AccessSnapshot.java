@@ -27,6 +27,10 @@ public record AccessSnapshot(boolean connected, List<Principal> principals, List
         return rows.stream().mapToLong(AccessRow::issues).sum();
     }
 
+    public List<AccessRow> unconfirmedSameResults() {
+        return rows.stream().filter(row -> row.unconfirmedSameResult(principals)).toList();
+    }
+
     public boolean checked() {
         return rows.stream().anyMatch(AccessRow::checked);
     }

@@ -190,6 +190,8 @@ The prefix-sibling differential works like this:
 |---|---|---|---|
 | `shell_command_injection` | `ping_host` (`host`) | `sh -c "ping -c 1 -W 1 <host>"` and returns the output. `; printf mcp%s $((20+22)) #` gives `mcp42` | Hostname regex, then argv `ping` |
 | `blind_shell_command_injection` | `archive_logs` (`label`) | `sh -c "tar -cf /tmp/mcp-test-archive-<label>.tar /dev/null >/dev/null 2>&1"`; always answers `archive queued`, so only an out-of-band effect (DNS/HTTP callback, file write) shows the injection | Label regex `^[A-Za-z0-9_-]{1,64}$`; nothing is run |
+| `sql_table_injection` | `count_rows` (`table`) | `SELECT COUNT(*) FROM <table>` on an in-memory SQLite database (tables `notes`, `secrets`); `notes/*q*/` counts `notes`, `notes/q**/` is a syntax error | Table must exist (bound `sqlite_master` lookup), then double-quoted |
+| `sql_literal_injection` | `find_note` (`title`) | `SELECT body FROM notes WHERE title = '<title>'`; `first' -- q` returns `alpha` like `first` | Bound parameter |
 | `python_eval_injection` | `calculate` (`expression`) | Python `eval()`, run in a separate worker process and bounded by `--command-timeout` so the server never stalls | AST arithmetic only |
 | `javascript_eval_injection` | `render_greeting` (`template`) | `node` evaluates the value as a JS template literal. `${require('child_process').execSync(...)}` runs | Substitutes only `${name}` and `${product}` |
 

@@ -18,7 +18,9 @@ final class Aliases {
         aliases.add(normalised);
         aliases.add(singular(normalised));
         if (ID.equals(normalised) && parentKey != null) {
-            aliases.add(singular(normalise(parentKey)) + ID);
+            String owner = singular(normalise(parentKey));
+            aliases.add(owner + ID);
+            aliases.add(owner);
         }
         return Set.copyOf(aliases);
     }

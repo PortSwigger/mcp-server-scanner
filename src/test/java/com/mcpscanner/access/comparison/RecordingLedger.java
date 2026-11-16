@@ -25,6 +25,7 @@ final class RecordingLedger implements AccessLedger, PrincipalListings {
     private final Map<String, Boolean> listings = new HashMap<>();
     private final Map<String, AccessOutcome> outcomes = new LinkedHashMap<>();
     private final Map<String, List<AccessFinding>> findings = new LinkedHashMap<>();
+    private Optional<String> notCompared = Optional.empty();
 
     RecordingLedger expecting(AccessExpectation value) {
         expectation = value;
@@ -56,6 +57,15 @@ final class RecordingLedger implements AccessLedger, PrincipalListings {
 
     List<AccessFinding> findingsOf(String principalId) {
         return List.copyOf(findings.getOrDefault(principalId, List.of()));
+    }
+
+    Optional<String> notCompared() {
+        return notCompared;
+    }
+
+    @Override
+    public void recordNotCompared(AccessItemKey item, String reason) {
+        notCompared = Optional.of(reason);
     }
 
     @Override

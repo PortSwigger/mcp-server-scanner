@@ -21,6 +21,15 @@ enum FindingKind {
             "The field caused a Burp Collaborator interaction for a hostname that the payload split with an "
                     + "empty shell quote pair. The hostname only exists after shell quote removal, so a shell "
                     + "ran the injected command."),
+    OPTION_INJECTION(FindingKind.ARGUMENT_INJECTION, AuditIssueSeverity.MEDIUM, AuditIssueConfidence.TENTATIVE,
+            "Sent in place of the field value, a standard command-line option made the reply list option names "
+                    + "or a version number that the baseline reply lacked, that the same word without its leading "
+                    + "dashes did not produce, and that a repeat of the option produced again. The reply depends on "
+                    + "the leading dash, which is what a program parsing the value as an option would do, so a "
+                    + "caller may be able to pass other options, such as ones that choose a server to contact or a "
+                    + "file to write. Other dash-sensitive handling can produce the same difference: a language "
+                    + "model answering about the option, or a search syntax where a leading dash excludes a term. "
+                    + "Review how the tool uses this value and whether it means to pass caller-chosen options."),
     INTENDED_COMMAND(FindingKind.COMMAND_EXECUTION_ARGUMENT, AuditIssueSeverity.INFORMATION,
             AuditIssueConfidence.TENTATIVE,
             "The field computed a unique shell arithmetic result both when the command was appended to its value "
@@ -43,6 +52,7 @@ enum FindingKind {
 
     static final String OS_COMMAND_INJECTION = "MCP OS command injection";
     static final String CODE_INJECTION = "MCP code injection";
+    static final String ARGUMENT_INJECTION = "MCP argument injection";
     static final String CODE_EXECUTION_ARGUMENT = "MCP code execution argument";
     static final String COMMAND_EXECUTION_ARGUMENT = "MCP command execution argument";
 

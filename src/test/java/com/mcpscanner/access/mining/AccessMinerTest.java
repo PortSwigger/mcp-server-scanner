@@ -9,14 +9,23 @@ import com.mcpscanner.mcp.McpResourceDefinition;
 import com.mcpscanner.mcp.McpResourceTemplateDefinition;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.scan.ScanInventory;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import com.mcpscanner.checks.api.PrincipalRole;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 import static com.mcpscanner.access.mining.ScriptedServer.identity;
 import static com.mcpscanner.access.mining.ScriptedServer.json;
@@ -38,12 +47,184 @@ class AccessMinerTest {
     private static final McpToolDefinition LIST_CAMPAIGNS = readOnlyTool("campaigns_list", noArguments());
     private static final McpToolDefinition GET_CAMPAIGN = readOnlyTool("campaigns_get", stringArgument("id"));
 
+    private static final McpToolDefinition QUERY_RECORDS = readOnlyTool("query_records", noArguments());
+    private static final McpToolDefinition READ_ATTACHMENT = readOnlyTool("read_attachment",
+            "{\"type\":\"object\",\"properties\":{\"files\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
+                    + "\"properties\":{\"path\":{\"type\":[\"string\",\"null\"]},\"title\":{\"type\":[\"string\",\"null\"]},"
+                    + "\"mimeType\":{\"type\":[\"string\",\"null\"]},\"size\":{\"type\":[\"number\",\"null\"]},"
+                    + "\"signedPath\":{\"type\":[\"string\",\"null\"]}}}}},\"required\":[\"files\"]}");
+
     private static final int PASSES = MiningSettings.DEFAULT_PASSES;
     private static final int VALUES = MiningSettings.DEFAULT_VALUES_PER_ARGUMENT;
-    private static final int REQUESTS = MiningSettings.DEFAULT_REQUESTS_PER_IDENTITY;
+    private static final int REQUESTS = MiningSettings.NO_REQUEST_CEILING;
     private static final int PAGES = MiningSettings.DEFAULT_LIST_PAGES;
 
     private final ScriptedServer server = new ScriptedServer();
+    private final ExecutorService workers = Executors.newFixedThreadPool(WORKERS);
+
+    private static final int WORKERS = 4;
+
+    @AfterEach
+    void stopWorkers() {
+        workers.shutdownNow();
+    }
+
+    @Test
+    void sendsUpToTheWorkerCountOfCallsAtOnce() {
+        InFlight inFlight = new InFlight(WORKERS);
+        server.on(inFlight::held);
+
+        new AccessMiner(server, MiningSettings.defaults().withPasses(1), workers)
+                .mine(tools(listTools(8)), List.of(ALICE), MiningControl.unattended());
+
+        assertThat(inFlight.most()).isEqualTo(WORKERS);
+    }
+
+    @Test
+    void collectsForEveryUserAtOnce() {
+        InFlight inFlight = new InFlight(2);
+        server.on(inFlight::held);
+
+        new AccessMiner(server, MiningSettings.defaults().withPasses(1), workers)
+                .mine(tools(LIST_CAMPAIGNS), List.of(ALICE, BOB), MiningControl.unattended());
+
+        assertThat(inFlight.identities()).contains("alice", "bob");
+    }
+
+    @Test
+    void concurrentCollectingFindsExactlyWhatSequentialCollectingFinds() {
+        scriptCampaignsAndOwners();
+        ScanInventory catalog = tools(LIST_CAMPAIGNS, GET_CAMPAIGN, readOnlyTool("owners_get", stringArgument("owner_id")));
+
+        MiningResult sequential = new AccessMiner(server, MiningSettings.defaults().withPasses(3))
+                .mine(catalog, List.of(ALICE, BOB), MiningControl.unattended());
+        MiningResult concurrent = new AccessMiner(server, MiningSettings.defaults().withPasses(3), workers)
+                .mine(catalog, List.of(ALICE, BOB), MiningControl.unattended());
+
+        assertThat(concurrent).isEqualTo(sequential);
+        assertThat(concurrent.of("alice").orElseThrow().values()).extracting(MinedValue::value)
+                .contains("owner-alice-2");
+    }
+
+    @Test
+    void cancellingLeavesQueuedCallsUnsent() throws Exception {
+        CountDownLatch started = new CountDownLatch(WORKERS);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean cancelled = new AtomicBoolean();
+        server.on((identity, call) -> {
+            started.countDown();
+            awaitQuietly(release);
+            return Optional.empty();
+        });
+
+        java.util.concurrent.CompletableFuture<MiningResult> run = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> new AccessMiner(server, MiningSettings.defaults().withPasses(1), workers)
+                        .mine(tools(listTools(20)), List.of(ALICE), new MiningControl(MiningProgress.NONE, cancelled::get)));
+        assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+        cancelled.set(true);
+        release.countDown();
+
+        assertThat(run.get(5, TimeUnit.SECONDS).stop()).isEqualTo(MiningStop.CANCELLED);
+        assertThat(server.sent()).hasSizeLessThanOrEqualTo(WORKERS * 2);
+    }
+
+    @Test
+    void collectsEveryToolForEveryPassWithoutARequestLimitByDefault() {
+        server.on((identity, call) -> call.params().path("name").asText().endsWith("_list")
+                ? Optional.of(MiningReply.of(200, structured("{\"id\":\"" + uuidFor(call) + "\"}")))
+                : Optional.empty());
+        List<McpToolDefinition> many = new ArrayList<>(List.of(listTools(150)));
+        IntStream.range(0, 150).forEach(index -> many.add(readOnlyTool("t" + index + "_get", stringArgument("id"))));
+
+        MiningResult result = new AccessMiner(server, MiningSettings.defaults(), workers)
+                .mine(ScanInventory.toolsOnly(many), List.of(ALICE), MiningControl.unattended());
+
+        assertThat(result.of("alice").orElseThrow().warnings()).extracting(MiningWarning::kind)
+                .doesNotContain(MiningWarning.Kind.REQUEST_LIMIT);
+        assertThat(server.toolCalls("t149_get")).extracting(sent -> sent.arguments().path("id").asText())
+                .contains("c0a11ce0-0000-4000-8000-000000000000");
+    }
+
+    @Test
+    void aUserRequestCeilingNamesTheSettingThatRaisesIt() {
+        MiningResult result = mine(MiningSettings.defaults().withRequestCeiling(4), tools(listTools(3)), ALICE);
+
+        assertThat(result.of("alice").orElseThrow().warnings())
+                .filteredOn(warning -> warning.kind() == MiningWarning.Kind.REQUEST_LIMIT)
+                .extracting(MiningWarning::detail).singleElement().asString()
+                .contains("Collect IDs requests per user", "4 requests");
+    }
+
+    @Test
+    void theRequestCeilingHoldsWhenCallsRunConcurrently() {
+        MiningResult result = new AccessMiner(server, limits(PASSES, VALUES, 9, PAGES), workers)
+                .mine(tools(listTools(10)), List.of(ALICE), MiningControl.unattended());
+
+        assertThat(aliceSent()).hasSizeLessThanOrEqualTo(9);
+        assertThat(result.of("alice").orElseThrow().requestsSent()).isEqualTo(aliceSent().size());
+    }
+
+    private void scriptCampaignsAndOwners() {
+        server.on((identity, call) -> {
+            String tool = call.params().path("name").asText();
+            String id = call.params().path("arguments").path("id").asText();
+            if (tool.equals("campaigns_list")) {
+                return Optional.of(MiningReply.of(200, structured("{\"campaigns\":[{\"id\":\"camp-" + identity.id()
+                        + "-1\"},{\"id\":\"camp-" + identity.id() + "-2\"}]}")));
+            }
+            if (tool.equals("campaigns_get") && !id.isEmpty()) {
+                return Optional.of(MiningReply.of(200, structured("{\"owner_id\":\"owner-" + identity.id() + "-"
+                        + id.substring(id.length() - 1) + "\"}")));
+            }
+            return Optional.empty();
+        });
+    }
+
+    private static String uuidFor(MiningCall call) {
+        String tool = call.params().path("name").asText();
+        return String.format("c0a11ce0-0000-4000-8000-%012d", Integer.parseInt(tool.substring(1, tool.indexOf('_'))));
+    }
+
+    private static McpToolDefinition[] listTools(int count) {
+        return IntStream.range(0, count).mapToObj(index -> readOnlyTool("t" + index + "_list", noArguments()))
+                .toArray(McpToolDefinition[]::new);
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static final class InFlight {
+        private final CountDownLatch together;
+        private final AtomicInteger current = new AtomicInteger();
+        private final AtomicInteger most = new AtomicInteger();
+        private final java.util.Set<String> identities = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+        InFlight(int expected) {
+            this.together = new CountDownLatch(expected);
+        }
+
+        Optional<MiningReply> held(Principal identity, MiningCall call) {
+            most.accumulateAndGet(current.incrementAndGet(), Math::max);
+            identities.add(identity.id());
+            together.countDown();
+            awaitQuietly(together);
+            current.decrementAndGet();
+            return Optional.empty();
+        }
+
+        int most() {
+            return most.get();
+        }
+
+        java.util.Set<String> identities() {
+            return identities;
+        }
+    }
 
     @Test
     void firstPassCallsEveryReadOnlyToolWithItsSchemaDefaults() {
@@ -180,6 +361,137 @@ class AccessMinerTest {
 
         assertThat(server.toolCalls("stats_read")).extracting(sent -> sent.arguments().path("campaignId").asText())
                 .contains(ALICE_CAMPAIGN, BOB_CAMPAIGN);
+    }
+
+    @Test
+    void feedsAnIdListedUnderAnObjectsPluralNameIntoThatObjectsOwnArgument() {
+        server.tool("alice", "list_vaults", "{\"vaults\":[{\"id\":\"main\",\"name\":\"main\"},"
+                + "{\"id\":\"tenantb\",\"name\":\"tenantb\"}]}");
+        McpToolDefinition listVaults = unannotatedTool("list_vaults", noArguments());
+        McpToolDefinition readNote = unannotatedTool("read_note", stringArgument("vault"));
+
+        mine(MiningSettings.defaults(), tools(listVaults, readNote), ALICE);
+
+        assertThat(server.toolCalls("read_note")).extracting(sent -> sent.arguments().path("vault").asText())
+                .contains("main", "tenantb");
+    }
+
+    @Test
+    void neverMinesValuesFromAnErrorsArrayOfASuccessfulReply() {
+        server.tool("alice", "list_notes", "{\"notes\":[{\"path\":\"normal.md\"}]}");
+        server.tool("alice", "read_notes", "{\"notes\":[],\"errors\":[{\"path\":\"missing.md\",\"message\":\"not found\"}]}");
+        McpToolDefinition listNotes = unannotatedTool("list_notes", noArguments());
+        McpToolDefinition readNotes = unannotatedTool("read_notes", stringArgument("path"));
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(listNotes, readNotes), ALICE);
+
+        assertThat(result.of("alice").orElseThrow().values()).extracting(MinedValue::value)
+                .contains("normal.md").doesNotContain("missing.md");
+    }
+
+    @Test
+    void neverMinesAValueTheScannerSentAsAPlaceholderEvenWhenTheReplyEchoesIt() {
+        server.on((identity, call) -> call.params().path("name").asText().equals("find_notes")
+                ? Optional.of(MiningReply.of(200, structured("{\"query\":{\"path\":\""
+                + call.params().path("arguments").path("path").asText() + "\"},\"notes\":[{\"path\":\"normal.md\"}]}")))
+                : Optional.empty());
+        McpToolDefinition findNotes = unannotatedTool("find_notes", "{\"type\":\"object\",\"properties\":"
+                + "{\"path\":{\"type\":\"string\",\"default\":\"test\"}},\"required\":[\"path\"]}");
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(findNotes), ALICE);
+
+        assertThat(result.of("alice").orElseThrow().values()).extracting(MinedValue::value)
+                .contains("normal.md").doesNotContain("test");
+    }
+
+    @Test
+    void feedsAnAttachmentArrayListedInARecordIntoTheArrayArgumentOfTheSameNameFittedToItsSchema() {
+        listRecordsWithVolatileSignedPaths();
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(QUERY_RECORDS, READ_ATTACHMENT), ALICE);
+
+        assertThat(server.toolCalls("read_attachment")).extracting(sent -> sent.arguments().path("files"))
+                .contains(json("[{\"path\":\"download/a.txt\",\"title\":\"a.txt\",\"mimeType\":\"text/plain\","
+                        + "\"size\":35,\"signedPath\":null}]"));
+        assertThat(result.of("alice").orElseThrow().values()).extracting(MinedValue::argument).contains("files");
+    }
+
+    @Test
+    void neverKeepsASignedLinkOfAnAttachmentInAMinedValue() {
+        listRecordsWithVolatileSignedPaths();
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(QUERY_RECORDS, READ_ATTACHMENT), ALICE);
+
+        assertThat(result.of("alice").orElseThrow().values()).filteredOn(value -> value.argument().equals("files"))
+                .isNotEmpty().allSatisfy(value -> assertThat(value.value()).doesNotContain("dltemp"));
+    }
+
+    @Test
+    void neverKeepsAPreSignedUrlOfAnAttachmentInAMinedValueOrSendsItBack() {
+        server.tool("alice", "query_records", "{\"files\":[{\"path\":\"a.txt\",\"title\":\"a.txt\","
+                + "\"download_url\":\"https://bucket.s3.amazonaws.com/f1?X-Amz-Signature=abc&X-Amz-Credential=AKIA\","
+                + "\"presignedUrl\":\"https://bucket.s3.amazonaws.com/f1?X-Amz-Signature=abc\"}]}");
+        McpToolDefinition readFiles = readOnlyTool("read_attachment", "{\"type\":\"object\",\"properties\":"
+                + "{\"files\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":"
+                + "{\"path\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},"
+                + "\"download_url\":{\"type\":\"string\"},\"presignedUrl\":{\"type\":\"string\"}}}}}}");
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(QUERY_RECORDS, readFiles), ALICE);
+
+        assertThat(result.of("alice").orElseThrow().values()).filteredOn(value -> value.argument().equals("files"))
+                .isNotEmpty().allSatisfy(value -> assertThat(value.value()).doesNotContain("Signature", "Credential"));
+        assertThat(server.toolCalls("read_attachment")).extracting(sent -> sent.arguments().toString())
+                .noneMatch(arguments -> arguments.contains("Signature"));
+    }
+
+    @Test
+    void storesOnlyTheAttachmentPropertiesTheArgumentDeclares() {
+        server.tool("alice", "query_records", "{\"files\":[{\"path\":\"a.txt\",\"owner\":\"alice@example.com\"}]}");
+        McpToolDefinition readFiles = readOnlyTool("read_attachment", "{\"type\":\"object\",\"properties\":"
+                + "{\"files\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":"
+                + "{\"path\":{\"type\":\"string\"}}}}}}");
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(QUERY_RECORDS, readFiles), ALICE);
+
+        assertThat(result.of("alice").orElseThrow().values()).filteredOn(value -> value.argument().equals("files"))
+                .isNotEmpty().allSatisfy(value -> assertThat(value.value()).contains("a.txt")
+                        .doesNotContain("alice@example.com"));
+    }
+
+    @Test
+    void stillMinesAnIdTheScannerFedIntoACallWhenTheReplyEchoesIt() {
+        server.tool("alice", "list_notes", "{\"notes\":[{\"path\":\"normal.md\"}]}");
+        server.on((identity, call) -> call.params().path("name").asText().equals("read_notes")
+                ? Optional.of(MiningReply.of(200, structured("{\"path\":\""
+                + call.params().path("arguments").path("path").asText() + "\",\"related\":[{\"path\":\"normal.md\"}]}")))
+                : Optional.empty());
+        McpToolDefinition listNotes = unannotatedTool("list_notes", noArguments());
+        McpToolDefinition readNotes = unannotatedTool("read_notes", stringArgument("path"));
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(listNotes, readNotes), ALICE);
+
+        assertThat(result.of("alice").orElseThrow().values()).extracting(MinedValue::value).contains("normal.md");
+    }
+
+    @Test
+    void stillMinesValuesFromAnErrorsArrayThatReportsNoError() {
+        server.tool("alice", "list_notes", "{\"errors\":[{\"path\":\"recorded.md\"}]}");
+        McpToolDefinition listNotes = unannotatedTool("list_notes", noArguments());
+        McpToolDefinition readNotes = unannotatedTool("read_notes", stringArgument("path"));
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(listNotes, readNotes), ALICE);
+
+        assertThat(result.of("alice").orElseThrow().values()).extracting(MinedValue::value).contains("recorded.md");
+    }
+
+    @Test
+    void doesNotFeedAnArrayWhoseObjectsShareNoPropertyWithTheArgument() {
+        server.tool("alice", "query_records", "{\"files\":[{\"colour\":\"red\"}]}");
+
+        mine(MiningSettings.defaults(), tools(QUERY_RECORDS, READ_ATTACHMENT), ALICE);
+
+        assertThat(server.toolCalls("read_attachment")).extracting(sent -> sent.arguments().path("files"))
+                .containsOnly(json("[]"));
     }
 
     @Test
@@ -660,12 +972,150 @@ class AccessMinerTest {
                         org.assertj.core.groups.Tuple.tuple("project_key", "PROJ"));
     }
 
+    @Test
+    void aRecordBothUsersSeeIsAttributedToTheUserWhoseMarkerItCarriesAndSharedForTheOther() {
+        String everyCampaign = "{\"campaigns\":[{\"id\":\"" + ALICE_CAMPAIGN + "\",\"name\":\"ALICE_ONLY_MARKER\"},"
+                + "{\"id\":\"" + BOB_CAMPAIGN + "\",\"name\":\"BOB_ONLY_MARKER\"}]}";
+        server.tool("alice", "campaigns_list", everyCampaign);
+        server.tool("bob", "campaigns_list", everyCampaign);
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(LIST_CAMPAIGNS, GET_CAMPAIGN),
+                withMarker("alice", "ALICE_ONLY_MARKER"), withMarker("bob", "BOB_ONLY_MARKER"));
+
+        assertThat(scopesOf(result, "alice", "id")).containsEntry(ALICE_CAMPAIGN, ValueScope.ATTRIBUTED)
+                .containsEntry(BOB_CAMPAIGN, ValueScope.SHARED);
+        assertThat(scopesOf(result, "bob", "id")).containsEntry(BOB_CAMPAIGN, ValueScope.ATTRIBUTED)
+                .containsEntry(ALICE_CAMPAIGN, ValueScope.SHARED);
+    }
+
+    @Test
+    void ownerFieldsOnRecordsEveryUserSeesAreNotEvidenceOfPrivacy() {
+        String everyCampaign = "{\"campaigns\":[{\"id\":\"" + ALICE_CAMPAIGN + "\",\"createdBy\":\"alice\"},"
+                + "{\"id\":\"" + BOB_CAMPAIGN + "\",\"createdBy\":\"bob\"}]}";
+        server.tool("alice", "campaigns_list", everyCampaign);
+        server.tool("bob", "campaigns_list", everyCampaign);
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(LIST_CAMPAIGNS, GET_CAMPAIGN), ALICE, BOB);
+
+        assertThat(scopesOf(result, "alice", "id").values()).containsOnly(ValueScope.SHARED);
+        assertThat(scopesOf(result, "bob", "id").values()).containsOnly(ValueScope.SHARED);
+        assertThat(result.of("alice").orElseThrow().privateValues()).isEmpty();
+        assertThat(result.of("bob").orElseThrow().privateValues()).isEmpty();
+    }
+
+    @Test
+    void aRecordWhoseAssigneeIsTheUserButWhoseOwnerIsAnotherIsNotAttributedToTheAssignee() {
+        String everyCampaign = "{\"campaigns\":[{\"id\":\"" + BOB_CAMPAIGN + "\",\"owner\":\"bob\","
+                + "\"assignee\":\"alice\"}]}";
+        server.tool("alice", "campaigns_list", everyCampaign);
+        server.tool("bob", "campaigns_list", everyCampaign);
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(LIST_CAMPAIGNS, GET_CAMPAIGN), ALICE, BOB);
+
+        assertThat(scopesOf(result, "alice", "id")).containsEntry(BOB_CAMPAIGN, ValueScope.SHARED);
+    }
+
+    @Test
+    void aSharedTeamIdBesideTheUsernameInAWhoamiReplyIsNotAttributedToTheUser() {
+        server.tool("alice", "campaigns_list", "{\"username\":\"alice\",\"id\":\"" + ALICE_CAMPAIGN + "\"}");
+        server.tool("bob", "campaigns_list", "{\"username\":\"bob\",\"id\":\"" + ALICE_CAMPAIGN + "\"}");
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(LIST_CAMPAIGNS, GET_CAMPAIGN), ALICE, BOB);
+
+        assertThat(scopesOf(result, "alice", "id").values()).containsOnly(ValueScope.SHARED);
+    }
+
+    @Test
+    void recordsEveryUserSeesWithNothingNamingAnOwnerAreSharedForEveryone() {
+        String everyProject = "{\"campaigns\":[{\"id\":\"p-1\",\"name\":\"Roadmap\"},{\"id\":\"p-2\",\"name\":\"Plan\"}]}";
+        server.tool("alice", "campaigns_list", everyProject);
+        server.tool("bob", "campaigns_list", everyProject);
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(LIST_CAMPAIGNS, GET_CAMPAIGN),
+                withMarker("alice", "ALICE_ONLY_MARKER"), withMarker("bob", "BOB_ONLY_MARKER"));
+
+        assertThat(scopesOf(result, "alice", "id").values()).containsOnly(ValueScope.SHARED);
+        assertThat(result.of("alice").orElseThrow().privateValues()).isEmpty();
+    }
+
+    @Test
+    void aSharedTemplateReferencedByARecordCarryingAPrivateMarkerIsNotAttributedToTheUser() {
+        String everyCampaign = "{\"campaigns\":[{\"id\":\"c-a\",\"name\":\"ALICE_ONLY_MARKER\","
+                + "\"template_id\":\"t1\"}]}";
+        server.tool("alice", "campaigns_list", everyCampaign);
+        server.tool("bob", "campaigns_list", everyCampaign);
+        McpToolDefinition getTemplate = readOnlyTool("templates_get", stringArgument("template_id"));
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(LIST_CAMPAIGNS, GET_CAMPAIGN, getTemplate),
+                withMarker("alice", "ALICE_ONLY_MARKER"), withMarker("bob", "BOB_ONLY_MARKER"));
+
+        assertThat(scopesOf(result, "alice", "id")).containsEntry("c-a", ValueScope.ATTRIBUTED);
+        assertThat(scopesOf(result, "alice", "template_id")).containsEntry("t1", ValueScope.SHARED);
+        assertThat(result.of("alice").orElseThrow().privateValues())
+                .extracting(MinedValue::argument).doesNotContain("template_id");
+        assertThat(result.of("bob").orElseThrow().privateValues()).isEmpty();
+    }
+
+    @Test
+    void aValueBothUsersMarkersAttributeIsSharedForBoth() {
+        String everyCampaign = "{\"campaigns\":[{\"id\":\"c-a\",\"name\":\"ALICE_ONLY_MARKER BOB_ONLY_MARKER\"}]}";
+        server.tool("alice", "campaigns_list", everyCampaign);
+        server.tool("bob", "campaigns_list", everyCampaign);
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(LIST_CAMPAIGNS, GET_CAMPAIGN),
+                withMarker("alice", "ALICE_ONLY_MARKER"), withMarker("bob", "BOB_ONLY_MARKER"));
+
+        assertThat(scopesOf(result, "alice", "id").values()).containsOnly(ValueScope.SHARED);
+        assertThat(scopesOf(result, "bob", "id").values()).containsOnly(ValueScope.SHARED);
+        assertThat(result.of("alice").orElseThrow().privateValues()).isEmpty();
+        assertThat(result.of("bob").orElseThrow().privateValues()).isEmpty();
+    }
+
+    @Test
+    void aForeignKeyInRecordsCarryingEitherUsersMarkerIsSharedForBothUsers() {
+        String everything = "{\"campaigns\":[{\"id\":\"c-a\",\"name\":\"ALICE_ONLY_MARKER BOB_ONLY_MARKER\","
+                + "\"template_id\":\"t1\"},{\"id\":\"c-b\",\"name\":\"BOB_ONLY_MARKER\",\"template_id\":\"t1\"}]}";
+        server.tool("alice", "campaigns_list", everything);
+        server.tool("bob", "campaigns_list", everything);
+        McpToolDefinition getTemplate = readOnlyTool("templates_get", stringArgument("template_id"));
+
+        MiningResult result = mine(MiningSettings.defaults(), tools(LIST_CAMPAIGNS, GET_CAMPAIGN, getTemplate),
+                withMarker("alice", "ALICE_ONLY_MARKER"), withMarker("bob", "BOB_ONLY_MARKER"));
+
+        assertThat(scopesOf(result, "alice", "template_id").values()).containsOnly(ValueScope.SHARED);
+        assertThat(scopesOf(result, "bob", "template_id").values()).containsOnly(ValueScope.SHARED);
+        assertThat(result.of("alice").orElseThrow().privateValues()).extracting(MinedValue::argument)
+                .doesNotContain("template_id");
+        assertThat(result.of("bob").orElseThrow().privateValues()).extracting(MinedValue::argument)
+                .doesNotContain("template_id");
+    }
+
+    private static Principal withMarker(String id, String marker) {
+        return new Principal(id, id, PrincipalRole.PEER, Map::of, Optional.of(marker), Map.of());
+    }
+
+    private static Map<String, ValueScope> scopesOf(MiningResult result, String identity, String argument) {
+        Map<String, ValueScope> scopes = new java.util.LinkedHashMap<>();
+        result.of(identity).orElseThrow().values().stream().filter(value -> value.argument().equals(argument))
+                .forEach(value -> scopes.put(value.value(), value.scope()));
+        return scopes;
+    }
+
     private static String campaignsIn(String campaign) {
         return "{\"org\":{\"id\":\"" + ORG + "\"},\"campaigns\":[{\"id\":\"" + campaign + "\"}]}";
     }
 
     private static MiningSettings limits(int passes, int valuesPerArgument, int requestsPerIdentity, int listPages) {
         return new MiningSettings(passes, valuesPerArgument, requestsPerIdentity, listPages, Set.of());
+    }
+
+    private void listRecordsWithVolatileSignedPaths() {
+        AtomicInteger signings = new AtomicInteger();
+        server.on((identity, call) -> call.params().path("name").asText().equals("query_records")
+                ? Optional.of(MiningReply.of(200, structured("{\"records\":[{\"id\":1,\"fields\":{\"files\":["
+                + "{\"path\":\"download/a.txt\",\"title\":\"a.txt\",\"mimetype\":\"text/plain\",\"size\":35,"
+                + "\"id\":\"att1\",\"signedPath\":\"dltemp/" + signings.incrementAndGet() + "/a.txt\"}]}}]}")))
+                : Optional.empty());
     }
 
     private MiningResult mine(MiningSettings settings, ScanInventory catalog, Principal... identities) {

@@ -4,6 +4,7 @@ import com.mcpscanner.access.AccessCell;
 import com.mcpscanner.checks.api.AccessFinding;
 
 import com.mcpscanner.access.AccessRow;
+import com.mcpscanner.access.AccessRunSummary;
 import com.mcpscanner.access.AccessSnapshot;
 import com.mcpscanner.checks.api.AccessExpectation;
 import com.mcpscanner.checks.api.AccessItemKey;
@@ -76,6 +77,33 @@ class CheckAccessRunnerIT {
         assertThat(row(snapshot, ALICE_NOTE).cell(CAROL.id()).outcome()).contains(AccessOutcome.REFUSED);
         assertThat(row(snapshot, BOB_NOTE).cell(ALICE.id()).outcome()).contains(AccessOutcome.REFUSED);
         assertThat(snapshot.anomalies()).isZero();
+    }
+
+    @Test
+    void aComparedUserAddedAfterConnectGetsTheSameItemsAndIssuesAutomaticallyAsAfterClickingDiscover()
+            throws Exception {
+        AccessRunSummary neverDiscovered = checkAccessWithLateBob(CheckAccessFixture.LateComparedUser.NEVER_DISCOVERED);
+        AccessRunSummary discoverClicked = checkAccessWithLateBob(CheckAccessFixture.LateComparedUser.DISCOVER_CLICKED);
+        AccessRunSummary automatic = checkAccessWithLateBob(
+                CheckAccessFixture.LateComparedUser.DISCOVERED_AUTOMATICALLY);
+
+        System.out.println("round-1 repro, alice+bob Bearer, HTTP 2025 (session): never discovered = "
+                + neverDiscovered.total() + " items " + neverDiscovered.issues() + " issues, Discover clicked = "
+                + discoverClicked.total() + " items " + discoverClicked.issues() + " issues, discovered "
+                + "automatically = " + automatic.total() + " items " + automatic.issues() + " issues");
+        assertThat(neverDiscovered.issues()).isZero();
+        assertThat(discoverClicked.issues()).isPositive();
+        assertThat(automatic.total()).isEqualTo(discoverClicked.total()).isGreaterThan(neverDiscovered.total());
+        assertThat(automatic.issues()).isEqualTo(discoverClicked.issues());
+    }
+
+    private AccessRunSummary checkAccessWithLateBob(CheckAccessFixture.LateComparedUser lateUser) throws Exception {
+        try (McpCheckItSupport.RunningServer server = McpCheckItSupport.startServer();
+             CheckAccessFixture access = CheckAccessFixture.prepareWithComparedUserAddedAfterConnect(
+                     McpCheckItSupport.mcpEndpoint(server.port()), lateUser)) {
+            access.checkEveryItem();
+            return access.lastSummary();
+        }
     }
 
     private AccessSnapshot checkAccess(String mode) throws Exception {

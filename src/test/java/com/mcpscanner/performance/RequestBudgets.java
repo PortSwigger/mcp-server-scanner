@@ -16,7 +16,7 @@ public final class RequestBudgets {
             Connect, initialize-based HTTP                                  | 2
             Connect, SSE                                                    | 3
             Discovery, 10 tools in pages of 3                               | 7
-            Scan of one tool call, command-injection                        | 146
+            Scan of one tool call, command-injection                        | 156
             Scan of one tool call, cross-client-response-leak               | 4
             Scan of one tool call, crossidentityaccess                      | 0
             Scan of one tool call, downstream-route-escape                  | 184
@@ -27,15 +27,19 @@ public final class RequestBudgets {
             Scan of one tool call, oauth-redirect-policy                    | 5
             Scan of one tool call, oauth-refresh-grant                      | 0
             Scan of one tool call, origin-host-admission                    | 0
-            Scan of one tool call, outbound-request                         | 10
+            Scan of one tool call, outbound-request                         | 25
             Scan of one tool call, session-lifecycle                        | 17
             Scan of one tool call, session-binding                          | 0
+            Scan of one tool call, sql-injection                            | 36
             Scan of one tool call, sibling-route-auth-parity                | 0
+            Scan of one tool call, ssrf-filter-bypass                       | 0
             Scan of one tool call, unauthenticated-request-execution        | 14
+            Generated calls for one tool with two pattern-bound optional arguments | 3
             Check access per item, stateless server, same credentials       | 3
             Check access per item, stateless server, distinct credentials   | 6
             Check access per item, stateful server, same credentials        | 4
-            Check access per item, stateful server, distinct credentials    | 7
+            Check access per item, stateful server, distinct credentials    | 8
+            Check access per item, stateless server, refused at the captured version | 9
             """;
 
     private static final Map<String, Integer> BUDGETS = Arrays.stream(TABLE.split("\n"))

@@ -57,6 +57,32 @@ class McpClientManagerTest {
     }
 
     @Test
+    void connectionLostTellsLossListenersBeforeDisconnectingTheConnection() {
+        when(session.catalog("tools/list", null)).thenReturn(new Reply(2, Map.of("tools", List.of()), Map.of()));
+        optionalCatalogsEmpty();
+        when(session.admissionEnvelope()).thenReturn(Map.of("result", Map.of()));
+        List<String> order = new java.util.ArrayList<>();
+        manager.addConnectionLostListener(() -> order.add("lost:" + manager.isConnected()));
+        manager.addDisconnectListener(() -> order.add("disconnected"));
+        manager.connect(config);
+
+        manager.connectionLost();
+
+        assertThat(order).containsExactly("lost:true", "disconnected");
+        assertThat(manager.isConnected()).isFalse();
+    }
+
+    @Test
+    void connectionLostWhileNotConnectedDoesNothing() {
+        AtomicInteger losses = new AtomicInteger();
+        manager.addConnectionLostListener(losses::incrementAndGet);
+
+        manager.connectionLost();
+
+        assertThat(losses.get()).isZero();
+    }
+
+    @Test
     void failed_required_catalog_rolls_back_connection() {
         when(session.catalog("tools/list", null)).thenThrow(new IllegalStateException("catalog unavailable"));
         assertThatThrownBy(() -> manager.connect(config)).isInstanceOf(IllegalStateException.class);

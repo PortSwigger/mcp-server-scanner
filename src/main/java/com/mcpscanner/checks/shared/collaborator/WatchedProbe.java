@@ -1,6 +1,7 @@
 package com.mcpscanner.checks.shared.collaborator;
 
 import burp.api.montoya.collaborator.CollaboratorPayload;
+import com.mcpscanner.checks.shared.scancontext.CurrentInvocation;
 import com.mcpscanner.checks.shared.scancontext.CurrentScan;
 import com.mcpscanner.checks.shared.scancontext.ScanContext;
 
@@ -16,16 +17,19 @@ final class WatchedProbe {
     private final Optional<ScanContext> sentBy;
     private final Instant settlesAt;
     private final Instant expiresAt;
+    private final CurrentInvocation.Retention retention;
     private int delivered;
     private boolean settled;
 
     WatchedProbe(Collection<CollaboratorPayload> payloads, InteractionListener listener,
-                 Optional<ScanContext> sentBy, Instant settlesAt, Instant expiresAt) {
+                 Optional<ScanContext> sentBy, Instant settlesAt, Instant expiresAt,
+                 CurrentInvocation.Retention retention) {
         this.payloads = List.copyOf(payloads);
         this.listener = listener;
         this.sentBy = sentBy;
         this.settlesAt = settlesAt;
         this.expiresAt = expiresAt;
+        this.retention = retention;
     }
 
     List<CollaboratorPayload> payloads() {
@@ -51,6 +55,10 @@ final class WatchedProbe {
 
     boolean settled() {
         return settled;
+    }
+
+    void release() {
+        retention.release();
     }
 
     boolean expiredAt(Instant now) {

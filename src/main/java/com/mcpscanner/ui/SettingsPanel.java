@@ -51,10 +51,11 @@ public final class SettingsPanel extends JPanel {
                     + "always go directly. Changes apply from the next request.";
     private static final Set<String> KEYWORDS = Set.of("MCP", "Redirect", "Proxy", "POST body", "Repeater",
             "Send to", "Authentication", "Limits", "Discovery", "SSE", "Traversal", "Ping", "TLS", "Network",
-            "Streaming", "Workers", "Concurrency", "Extension scan");
+            "Streaming", "Workers", "Concurrency", "Extension scan", "Collect IDs");
     private static final String RESOURCE_LIMITS_EXPLANATION =
             "Safety limits against hostile servers. Raise one if the Logger reports it truncated a scan or "
-                    + "discovery. Leave blank to restore the default.";
+                    + "discovery. Leave blank to restore the default. Collect IDs requests per user is 0 by "
+                    + "default: Collect IDs sends whatever its passes need; set a number to stop each user sooner.";
     private static final String EXTENSION_SCAN_WORKERS_EXPLANATION =
             "How many checks extension scans run at once; each sends its requests one after another. Raise it to "
                     + "scan faster, lower it to go easier on the server. Running scans share these workers: a change "

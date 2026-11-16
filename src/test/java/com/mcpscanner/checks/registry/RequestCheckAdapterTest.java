@@ -10,6 +10,9 @@ import com.mcpscanner.checks.api.CheckKind;
 import com.mcpscanner.checks.api.ConnectionScoped;
 import com.mcpscanner.checks.api.RecordingChecks;
 import com.mcpscanner.checks.api.RequestCheck;
+import com.mcpscanner.checks.shared.scancontext.ScanNotices;
+import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +54,25 @@ class RequestCheckAdapterTest {
             assertThat(call.base()).isSameAs(base);
             assertThat(call.insertionPoint()).isNull();
         });
+    }
+
+    @Test
+    void aProbeCallIsLeftToItsBaseCall() {
+        RecordingChecks.Request check = new RecordingChecks.Request("r", List.of(issue));
+
+        List<AuditIssue> issues = adapterRunningOnProbes(check, true).doCheck(base, null, http).auditIssues();
+
+        assertThat(issues).isEmpty();
+        assertThat(check.calls).isEmpty();
+    }
+
+    @Test
+    void aBaseCallIsStillAuditedWhenProbeCallsAreSkipped() {
+        RecordingChecks.Request check = new RecordingChecks.Request("r", List.of(issue));
+
+        adapterRunningOnProbes(check, false).doCheck(base, null, http);
+
+        assertThat(check.calls).hasSize(1);
     }
 
     @Test
@@ -123,6 +145,12 @@ class RequestCheckAdapterTest {
         public void clearConnectionState() {
             cleared++;
         }
+    }
+
+    private static RequestCheckAdapter adapterRunningOnProbes(RecordingChecks.Request check, boolean probe) {
+        return new RequestCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(), check,
+                CheckInstrumentation.NONE, UpstreamExchanges.NONE, ConnectionReuse.withoutLocalAnswers(),
+                IssueDestination.NONE, new ScanNotices(), base -> probe);
     }
 
     private static RequestCheckAdapter adapterFor(RecordingChecks.Request check, boolean enabled) {

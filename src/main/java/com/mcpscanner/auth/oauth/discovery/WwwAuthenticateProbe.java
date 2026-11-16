@@ -35,7 +35,7 @@ public class WwwAuthenticateProbe implements MetadataProbe {
                          McpEventLog eventLog,
                          DiscoveryTrail trail) {
         this.trail = trail;
-        this.challengeRequest = new AuthChallengeRequest(http);
+        this.challengeRequest = new AuthChallengeRequest(http, eventLog);
         this.resolver = resolver;
         this.gate = gate;
         this.eventLog = eventLog != null ? eventLog : McpEventLog.noop();
@@ -62,8 +62,11 @@ public class WwwAuthenticateProbe implements MetadataProbe {
     }
 
     private Optional<HttpResponse> sendChallengeRequest(URI mcpResource) {
-        Optional<HttpResponse> response = challengeRequest.send(mcpResource);
-        if (response.isEmpty()) {
+        ChallengeReply reply = challengeRequest.send(mcpResource);
+        Optional<HttpResponse> response = reply.answer();
+        if (reply instanceof ChallengeReply.Streamed) {
+            trail.challengeFailed("the server streamed its reply, so it sent no WWW-Authenticate challenge");
+        } else if (response.isEmpty()) {
             warn("WWW-Authenticate challenge probe failed for " + mcpResource + ": no response");
             trail.challengeFailed("no response");
         }

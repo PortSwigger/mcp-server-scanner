@@ -10,6 +10,7 @@ import com.mcpscanner.mcp.JsonValueKind;
 import com.mcpscanner.mcp.McpHeaders;
 import com.mcpscanner.mcp.McpMethods;
 import com.mcpscanner.mcp.McpObjectMapper;
+import com.mcpscanner.scan.ArgumentPath;
 import com.mcpscanner.scan.UriTemplateExpansion;
 
 import java.io.IOException;
@@ -38,6 +39,7 @@ public final class McpFieldGenerator {
     private final BooleanSupplier headerFieldsEnabled;
     private final TemplateExpansionRegistry templateExpansions;
     private final BurpNativeJsonRpcFields burpNativeFields;
+    private final AddedArgumentRegistry addedArguments;
 
     public McpFieldGenerator(BooleanSupplier headerFieldsEnabled) {
         this(headerFieldsEnabled, new TemplateExpansionRegistry(), BurpNativeJsonRpcFields.ABSENT);
@@ -45,17 +47,36 @@ public final class McpFieldGenerator {
 
     public McpFieldGenerator(BooleanSupplier headerFieldsEnabled, TemplateExpansionRegistry templateExpansions,
                              BurpNativeJsonRpcFields burpNativeFields) {
+        this(headerFieldsEnabled, templateExpansions, burpNativeFields, new AddedArgumentRegistry());
+    }
+
+    public McpFieldGenerator(BooleanSupplier headerFieldsEnabled, TemplateExpansionRegistry templateExpansions,
+                             BurpNativeJsonRpcFields burpNativeFields, AddedArgumentRegistry addedArguments) {
         this.headerFieldsEnabled = headerFieldsEnabled;
         this.templateExpansions = templateExpansions;
         this.burpNativeFields = burpNativeFields;
+        this.addedArguments = addedArguments;
     }
 
     public List<AuditInsertionPoint> fieldsOf(HttpRequest request) {
+        Optional<ArgumentPath> added = addedArguments.addedTo(request.bodyToString());
+        if (added.isPresent()) {
+            return addedArgumentField(request, added.get());
+        }
         List<AuditInsertionPoint> fields = bodyFields(request);
         if (headerFieldsEnabled.getAsBoolean()) {
             fields.addAll(headerFields(request));
         }
         return fields;
+    }
+
+    private List<AuditInsertionPoint> addedArgumentField(HttpRequest request, ArgumentPath added) {
+        byte[] body = request.body().getBytes();
+        Optional<BurpJsonRpcArguments> burpArguments = burpNativeFields.argumentsIn(body);
+        return JsonLeafLocator.paramsLeaves(body).stream()
+                .filter(leaf -> leaf.steps().equals(added.stepsInRequest()))
+                .filter(leaf -> !fuzzedByBurp(burpArguments, leaf))
+                .<AuditInsertionPoint>map(leaf -> new JsonFieldInsertionPoint(request, leaf)).toList();
     }
 
     private List<AuditInsertionPoint> bodyFields(HttpRequest request) {

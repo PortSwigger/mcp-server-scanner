@@ -8,6 +8,9 @@ import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.scancheck.ScanCheckType;
 import com.mcpscanner.checks.api.CheckKind;
 import com.mcpscanner.checks.api.RecordingChecks;
+import com.mcpscanner.checks.shared.scancontext.ScanNotices;
+import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -88,6 +91,52 @@ class InsertionPointCheckAdapterTest {
         assertThatThrownBy(() -> adapterFor(mislabelled, true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ip");
+    }
+
+    @Test
+    void anInsertionPointOutsideTheAddedLeafIsSkippedOnAProbeCall() {
+        RecordingChecks.InsertionPoint check = new RecordingChecks.InsertionPoint("ip", List.of(issue));
+
+        adapterOnProbeCalls(check, false).doCheck(base, insertionPoint, http);
+
+        assertThat(check.calls).isEmpty();
+    }
+
+    @Test
+    void theInsertionPointAtTheAddedLeafIsFuzzedOnAProbeCall() {
+        RecordingChecks.InsertionPoint check = new RecordingChecks.InsertionPoint("ip", List.of(issue));
+
+        adapterOnProbeCalls(check, true).doCheck(base, insertionPoint, http);
+
+        assertThat(check.calls).hasSize(1);
+    }
+
+    @Test
+    void everyInsertionPointIsFuzzedOnACallThatIsNotAProbeCall() {
+        RecordingChecks.InsertionPoint check = new RecordingChecks.InsertionPoint("ip", List.of(issue));
+
+        new InsertionPointCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(), check,
+                CheckInstrumentation.NONE, UpstreamExchanges.NONE, ConnectionReuse.withoutLocalAnswers(),
+                IssueDestination.NONE, new ScanNotices(), new ProbeCalls() {
+                    @Override public boolean include(HttpRequestResponse call) { return false; }
+                    @Override public boolean fuzzesAddedLeaf(HttpRequestResponse call, AuditInsertionPoint point) {
+                        return false;
+                    }
+                }).doCheck(base, insertionPoint, http);
+
+        assertThat(check.calls).hasSize(1);
+    }
+
+    private static InsertionPointCheckAdapter adapterOnProbeCalls(RecordingChecks.InsertionPoint check,
+                                                                  boolean atAddedLeaf) {
+        return new InsertionPointCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(), check,
+                CheckInstrumentation.NONE, UpstreamExchanges.NONE, ConnectionReuse.withoutLocalAnswers(),
+                IssueDestination.NONE, new ScanNotices(), new ProbeCalls() {
+                    @Override public boolean include(HttpRequestResponse call) { return true; }
+                    @Override public boolean fuzzesAddedLeaf(HttpRequestResponse call, AuditInsertionPoint point) {
+                        return atAddedLeaf;
+                    }
+                });
     }
 
     private static InsertionPointCheckAdapter adapterFor(RecordingChecks.InsertionPoint check, boolean enabled) {

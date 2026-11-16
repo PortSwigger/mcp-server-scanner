@@ -188,6 +188,28 @@ class StreamingFallbackTest {
     }
 
     @Test
+    void reportsEachRefusalAndEachLaterSendStraightOutsideBurpAsRefusedByBurp() {
+        when(burp.sendRequest(any(HttpRequest.class))).thenThrow(new IllegalStateException(STREAMED));
+        OutsideBurpRecorder observed = new OutsideBurpRecorder(burp);
+        Http wrapped = fallback.around(observed);
+
+        wrapped.sendRequest(routedProbe());
+        wrapped.sendRequest(routedProbe());
+
+        assertThat(observed.refusals()).isEqualTo(2);
+    }
+
+    @Test
+    void reportsNoRefusalWhenBurpServesTheProbe() {
+        when(burp.sendRequest(any(HttpRequest.class))).thenReturn(unstreamedExchange);
+        OutsideBurpRecorder observed = new OutsideBurpRecorder(burp);
+
+        fallback.around(observed).sendRequest(routedProbe());
+
+        assertThat(observed.refusals()).isZero();
+    }
+
+    @Test
     void reportsEveryProbeSentStraightOutsideBurpToTheHttpItWraps() {
         when(burp.sendRequest(any(HttpRequest.class))).thenThrow(new IllegalStateException(STREAMED));
         OutsideBurpRecorder observed = new OutsideBurpRecorder(burp);

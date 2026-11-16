@@ -109,7 +109,8 @@ class AccessPanelMiningTest {
     }
 
     @Test
-    void mineIdsAsksOncePerConnectionBeforeCallingTheServer() throws Exception {
+    void mineIdsAsksOncePerConnectionBeforeCallingAWriteTool() throws Exception {
+        optInArchive();
         mining.dialogs.confirmAnswers.add(false);
         run(() -> control().mineButton().doClick());
         assertThat(mining.mining.running()).isFalse();
@@ -129,15 +130,26 @@ class AccessPanelMiningTest {
 
     @Test
     void theMineIdsConfirmationListsTheToolsMiningWillCall() throws Exception {
+        optInArchive();
         mining.dialogs.confirmAnswers.add(false);
 
         run(() -> control().mineButton().doClick());
 
-        assertThat(mining.dialogs.confirmedTools).containsExactly(List.of("list_documents", "get_document"));
+        assertThat(mining.dialogs.confirmedTools).extracting(ToolsToCall::names)
+                .containsExactly(List.of("list_documents", "get_document", "archive_document"));
+    }
+
+    @Test
+    void mineIdsWithOnlyReadOnlyToolsStartsWithoutAsking() throws Exception {
+        run(() -> control().mineButton().doClick());
+
+        awaitFinished();
+        assertThat(mining.dialogs.asked).isEmpty();
     }
 
     @Test
     void choosingMineAtTheMineFirstPromptCountsAsTheConfirmation() throws Exception {
+        optInArchive();
         mining.dialogs.mineFirstAnswers.add(MineFirstChoice.MINE);
         run(() -> checkButton().doClick());
         await().atMost(10, TimeUnit.SECONDS).until(() -> !access.check.compared().isEmpty());
@@ -176,6 +188,7 @@ class AccessPanelMiningTest {
         run(() -> control().mineButton().doClick());
 
         assertThat(awaitFinished().warnings()).anyMatch(line -> line.startsWith("bob: collecting found no IDs"));
+        assertThat(onEdt(() -> control().usersWithoutIds())).containsExactly(mining.bob.id());
     }
 
     @Test
@@ -349,7 +362,7 @@ class AccessPanelMiningTest {
 
         assertThat(access.check.compared()).isEmpty();
         assertThat(launched).isEmpty();
-        assertThat(mining.dialogs.asked).containsExactly("confirm-mining");
+        assertThat(mining.dialogs.asked).isEmpty();
         release.countDown();
         await().atMost(10, TimeUnit.SECONDS).until(() -> !access.check.compared().isEmpty());
         assertThat(launched).containsExactly("scan");
@@ -394,6 +407,10 @@ class AccessPanelMiningTest {
 
         assertThat(launched).containsExactly("scan");
         assertThat(mining.dialogs.asked).isEmpty();
+    }
+
+    private void optInArchive() {
+        mining.mining.preferences().setWriteTools(WriteToolOptIn.selected(Set.of("archive_document")));
     }
 
     private MiningReport awaitFinished() throws Exception {

@@ -35,6 +35,8 @@ final class TestSseSessions {
         private LongSupplier pendingResponseBudget = ResourceCap.SSE_PENDING_RESPONSE_BYTES::defaultValue;
         private Duration responseTimeout = SseSessionContext.DEFAULT_RESPONSE_TIMEOUT;
         private Duration handshakeTimeout = SseSessionContext.DEFAULT_HANDSHAKE_TIMEOUT;
+        private MalformedRequestWaits malformedRequestWaits =
+                new MalformedRequestWaits(MalformedRequestWaits.DEFAULT_SHORT_WAIT);
 
         private Builder(String sseUrl, HttpClient httpClient) {
             this.sseUrl = sseUrl;
@@ -77,11 +79,16 @@ final class TestSseSessions {
             return this;
         }
 
+        Builder malformedRequestWaits(MalformedRequestWaits malformedRequestWaits) {
+            this.malformedRequestWaits = malformedRequestWaits;
+            return this;
+        }
+
         SseScanSession build() {
             SseSessionContext context = new SseSessionContext(httpClient, requestIds, clientProfile, eventLog,
                     new RedirectLoggingInterceptor(eventLog, redirectMode), pendingResponseBudget,
                     responseTimeout, handshakeTimeout, new ServerPings(() -> true), new UpstreamCaptures(),
-                    new LegacySseRoutes());
+                    new LegacySseRoutes(), malformedRequestWaits);
             return new SseScanSession(sseUrl, headers, context);
         }
     }

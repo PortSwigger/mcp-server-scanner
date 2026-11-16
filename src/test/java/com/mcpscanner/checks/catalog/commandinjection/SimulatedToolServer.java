@@ -43,6 +43,7 @@ final class SimulatedToolServer {
     private final Function<String, ToolReply> behaviour;
     private final List<String> receivedValues = new ArrayList<>();
     private boolean sseReplies;
+    private String endpoint = ENDPOINT;
 
     SimulatedToolServer(String tool, String argument, Function<String, ToolReply> behaviour) {
         this.tool = tool;
@@ -53,6 +54,15 @@ final class SimulatedToolServer {
     SimulatedToolServer alongside(String siblingArgument) {
         siblingArguments.add(siblingArgument);
         return this;
+    }
+
+    SimulatedToolServer atEndpoint(String url) {
+        endpoint = url;
+        return this;
+    }
+
+    HttpResponse replyTo(HttpRequest request) {
+        return exchange(request).response();
     }
 
     SimulatedToolServer replyingWithSse() {
@@ -155,8 +165,8 @@ final class SimulatedToolServer {
         return node;
     }
 
-    private static HttpRequest request(String body) {
-        return HttpRequest.httpRequestFromUrl(ENDPOINT).withMethod("POST")
+    private HttpRequest request(String body) {
+        return HttpRequest.httpRequestFromUrl(endpoint).withMethod("POST")
                 .withAddedHeader("Content-Type", "application/json").withBody(body);
     }
 

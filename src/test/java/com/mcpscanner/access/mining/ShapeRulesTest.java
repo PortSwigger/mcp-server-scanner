@@ -32,7 +32,7 @@ class ShapeRulesTest {
 
     @Test
     void anIdLeafUnderAnObjectAliasesThatObjectsIdArgument() {
-        assertThat(Aliases.ofLeaf("id", "campaigns")).contains("id", "campaignid");
+        assertThat(Aliases.ofLeaf("id", "campaigns")).contains("id", "campaignid", "campaign");
         assertThat(Aliases.ofLeaf("campaign_id", null)).contains("campaignid");
         assertThat(Aliases.ofArgument("campaignId", "stats")).containsExactly("campaignid");
         assertThat(Aliases.ofArgument("id", "campaigns_get")).contains("id", "campaignid");

@@ -20,7 +20,10 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class OwnerRequestsTest {
 
@@ -62,6 +65,31 @@ class OwnerRequestsTest {
         assertThat(invoiceDefault()).isEqualTo("inv-alice-1");
         assertThat(requests.minedArguments(List.of(row(DELETE_INVOICE))).of(DELETE_INVOICE))
                 .containsExactly("invoice_id");
+    }
+
+    @Test
+    void aPairRequestBindsTheOtherUserOnceToTheItemsRenderedRequestWithoutBindingTheOwner() {
+        IdentityRequests identities = mock(IdentityRequests.class);
+        HttpRequest rendered = mock(HttpRequest.class);
+        Principal bob = new Principal("bob", "bob", PrincipalRole.PEER, Map::of, Optional.empty(), Map.of());
+
+        new OwnerRequests(target -> rendered, identities, new MinedValueRule(() -> false)).as(row(DELETE_INVOICE), bob);
+
+        verify(identities).as(bob, rendered);
+        verify(identities, never()).routed(any(), any());
+    }
+
+    @Test
+    void anOwnersCallCarriesOnlyRequiredArgumentsAndTheOwnedOnes() throws Exception {
+        String schema = "{\"type\":\"object\",\"properties\":{\"invoice_id\":{\"type\":\"string\"},"
+                + "\"where\":{\"type\":\"string\"}},\"required\":[]}";
+
+        requests.forOwner(row(new McpToolDefinition("get_invoice", "", schema, List.of(),
+                new ToolAnnotations(null, true, null, null, null))));
+
+        ScanTarget.Tool target = (ScanTarget.Tool) rendered.get(0);
+        assertThat(McpObjectMapper.INSTANCE.readTree(target.tool().inputSchema()).path("properties").fieldNames())
+                .toIterable().containsExactly("invoice_id");
     }
 
     private String invoiceDefault() throws Exception {

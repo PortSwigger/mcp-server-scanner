@@ -53,11 +53,17 @@ final class IsolatedHttpForwarder {
         } catch (IllegalArgumentException | ConnectionAuthException failure) {
             return exchange.refusal().map(IsolatedHttpForwarder::proxyResponse).orElseThrow(() -> failure);
         } finally {
-            exchange.sessions.forEach((session, selectedVersion) -> {
-                if (!scannerSession.isIssuedSessionId(session)) {
-                    deleteSession(connection.endpoint(), credentials, session, selectedVersion);
-                }
-            });
+            deleteSessions(connection, credentials, exchange);
+        }
+    }
+
+    ProxyResponse forwardInitialize(ProxyConnection connection, String body, Map<String, String> incoming) {
+        Map<String, String> credentials = isolatedCredentials(incoming);
+        var exchange = new IsolatedExchange(connection, protocolVersion(connection));
+        try {
+            return proxyResponse(exchange.send(new McpRequests.Request(body, credentials)));
+        } finally {
+            deleteSessions(connection, credentials, exchange);
         }
     }
 
@@ -134,6 +140,15 @@ final class IsolatedHttpForwarder {
             headers.put("Content-Type", converted.contentType());
             return new McpFlow.HttpResponse(converted.statusCode(), Map.copyOf(headers), converted.body(), true);
         }
+    }
+
+    private void deleteSessions(ProxyConnection connection, Map<String, String> credentials,
+                                IsolatedExchange exchange) {
+        exchange.sessions.forEach((session, selectedVersion) -> {
+            if (!scannerSession.isIssuedSessionId(session)) {
+                deleteSession(connection.endpoint(), credentials, session, selectedVersion);
+            }
+        });
     }
 
     private void deleteSession(String endpoint, Map<String, String> credentials, String session, String version) {

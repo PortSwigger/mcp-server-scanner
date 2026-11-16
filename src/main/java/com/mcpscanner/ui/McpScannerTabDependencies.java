@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.ui.widgets.DialogOwner;
 import burp.api.montoya.logging.Logging;
 import com.mcpscanner.scan.OwnerArgumentSource;
 import com.mcpscanner.auth.AuthStrategy;
@@ -41,7 +42,8 @@ public record McpScannerTabDependencies(McpClientManager clientManager,
                                         BurpNetworkingPrompt burpNetworkingPrompt,
                                         IdentityDependencies identities,
                                         OwnerArgumentSource scanOwnerArguments,
-                                        UiReads uiReads) {
+                                        UiReads uiReads,
+                                        DialogOwner dialogOwner) {
 
     public McpScannerTabDependencies {
         Objects.requireNonNull(authHolder, "authHolder must not be null");
@@ -55,5 +57,6 @@ public record McpScannerTabDependencies(McpClientManager clientManager,
         Objects.requireNonNull(identities, "identities must not be null");
         Objects.requireNonNull(scanOwnerArguments, "scanOwnerArguments must not be null");
         Objects.requireNonNull(uiReads, "uiReads must not be null");
+        Objects.requireNonNull(dialogOwner, "dialogOwner must not be null");
     }
 }

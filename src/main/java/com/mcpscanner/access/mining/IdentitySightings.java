@@ -54,7 +54,14 @@ final class IdentitySightings {
 
     private boolean kept(String argument, Sighting sighting) {
         Map<String, Sighting> values = byArgument.computeIfAbsent(argument, name -> new LinkedHashMap<>());
-        if (values.size() >= valuesPerArgument || values.containsKey(sighting.value())) {
+        Sighting existing = values.get(sighting.value());
+        if (existing != null) {
+            if (sighting.ownerAttributed() && !existing.ownerAttributed()) {
+                values.put(sighting.value(), existing.attributedTo(true));
+            }
+            return false;
+        }
+        if (values.size() >= valuesPerArgument) {
             return false;
         }
         values.put(sighting.value(), sighting);

@@ -57,6 +57,22 @@ class CheckAccessRequestBudgetTest {
         }
     }
 
+    @org.junit.jupiter.api.Test
+    void oneCheckAccessItemRefusedAtTheCapturedVersionStaysWithinBudget() throws Exception {
+        try (IdentityFixtureServer target = IdentityFixtureServer.statelessVersionScoped();
+             ScannerProxyFixture proxy = ScannerProxyFixture.connect(target.endpoint(), TransportType.STREAMABLE_HTTP)) {
+            Http http = proxy.routed(new VerbatimHeaderHttp());
+            target.requests.clear();
+
+            try (AccessComparisonRun run = comparison(signedIn("bob", "bob", PrincipalRole.PEER)).begin(http)) {
+                run.compare(ownerRequest(http, proxy, "admin_report"));
+            }
+
+            RequestBudgets.assertWithin("Check access per item, stateless server, refused at the captured version",
+                    target.requests);
+        }
+    }
+
     private static Principal compared(String credentials) {
         return credentials.equals("same")
                 ? new Principal("user", "user", PrincipalRole.PEER, ALICE.credentialHeaders(), Optional.empty(), Map.of())
@@ -75,6 +91,10 @@ class CheckAccessRequestBudgetTest {
     }
 
     private static HttpRequestResponse ownerRequest(Http http, ScannerProxyFixture proxy) {
+        return ownerRequest(http, proxy, "read_session_record");
+    }
+
+    private static HttpRequestResponse ownerRequest(Http http, ScannerProxyFixture proxy, String tool) {
         HttpRequest request = HttpRequest.httpRequestFromUrl(proxy.session().resolvedEndpoint()).withMethod("POST")
                 .withHeader("Content-Type", "application/json")
                 .withHeader("Accept", "application/json, text/event-stream");
@@ -82,7 +102,7 @@ class CheckAccessRequestBudgetTest {
             request = request.withHeader(header.getKey(), header.getValue());
         }
         return http.sendRequest(request.withBody("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\","
-                + "\"params\":{\"name\":\"read_session_record\",\"arguments\":{}}}"));
+                + "\"params\":{\"name\":\"" + tool + "\",\"arguments\":{}}}"));
     }
 
     private static final class AnySignedInLedger implements AccessLedger {

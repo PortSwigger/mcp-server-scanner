@@ -85,6 +85,12 @@ class RecorderCollaboratorClientTest {
     }
 
     @Test
+    void namesTheRecordersLiteralAddressAsTheServerSoChecksCanSpellIt() {
+        assertThat(client.server().address()).isEqualTo("10.250.77.250");
+        assertThat(client.server().isLiteralAddress()).isTrue();
+    }
+
+    @Test
     void declaresAShortWindowBecauseTheRecorderIsLocal() {
         assertThat(client.interactionWindow().settle()).isLessThanOrEqualTo(java.time.Duration.ofSeconds(1));
     }

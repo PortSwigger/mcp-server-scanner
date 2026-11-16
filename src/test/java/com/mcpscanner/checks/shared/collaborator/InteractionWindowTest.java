@@ -10,9 +10,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class InteractionWindowTest {
 
     @Test
-    void theStandardWindowSettlesAfterThreeSecondsPollingEverySecond() {
+    void theStandardWindowSettlesAfterThreeSecondsPollingOncePerMinute() {
         assertThat(InteractionWindow.standard())
-                .isEqualTo(new InteractionWindow(Duration.ofSeconds(3), Duration.ofSeconds(1)));
+                .isEqualTo(new InteractionWindow(Duration.ofSeconds(3), Duration.ofSeconds(60)));
     }
 
     @Test

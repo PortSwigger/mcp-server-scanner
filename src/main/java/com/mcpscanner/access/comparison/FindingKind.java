@@ -2,6 +2,7 @@ package com.mcpscanner.access.comparison;
 
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
+import com.mcpscanner.checks.api.PrincipalRole;
 import com.mcpscanner.checks.api.crossidentity.ResultAvailable;
 
 enum FindingKind {
@@ -9,6 +10,12 @@ enum FindingKind {
             "An MCP operation that the configured access expectation reserves for other identities returned the "
                     + "owner's exact result to a lower-privilege or otherwise disallowed identity, while an "
                     + "anonymous request was refused.") {
+        @Override
+        String issueNameFor(PrincipalRole identityRole) {
+            return identityRole == PrincipalRole.PEER || identityRole == PrincipalRole.HIGHER
+                    ? "MCP operation available to a disallowed identity" : issueName();
+        }
+
         @Override
         AuditIssueSeverity severity(AuditIssueConfidence confidence) {
             return AuditIssueSeverity.HIGH;
@@ -44,6 +51,10 @@ enum FindingKind {
     abstract String strength(AuditIssueConfidence confidence);
 
     String issueName() {
+        return issueName;
+    }
+
+    String issueNameFor(PrincipalRole identityRole) {
         return issueName;
     }
 

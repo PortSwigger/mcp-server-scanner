@@ -22,8 +22,7 @@ final class CrossClientResponseLeakDescriptor {
             AuditIssueConfidence.FIRM,
             true,
             List.of(
-                    "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http",
-                    "https://github.com/modelcontextprotocol/typescript-sdk/security/advisories/GHSA-345p-7cg4-v4c7"),
+                    "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http"),
             "Every MCP client numbers its own JSON-RPC requests, usually from zero, so independent clients send "
                     + "the same ids. A server that routes replies by request id across clients, for example by "
                     + "sharing one transport or protocol instance between connections, can deliver one client's "

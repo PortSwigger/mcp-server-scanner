@@ -30,10 +30,7 @@ final class OAuthRedirectPolicyDescriptor {
             List.of(
                     "https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization",
                     "https://datatracker.ietf.org/doc/html/rfc9700#section-2.1",
-                    "https://datatracker.ietf.org/doc/html/rfc7591#section-2",
-                    "https://github.com/advisories/GHSA-4pc9-x2fx-p7vj",
-                    "https://github.com/advisories/GHSA-86j7-9j95-vpqj",
-                    "https://github.com/advisories/GHSA-w8p2-r796-3vmq"),
+                    "https://datatracker.ietf.org/doc/html/rfc7591#section-2"),
             "An OAuth authorization server must send authorization responses only to a redirect URI registered "
                     + "for the requesting client, compared by exact string match. When it does not, an attacker "
                     + "can steer a victim's authorization code or error to a URI the client never registered.",

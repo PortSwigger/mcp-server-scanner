@@ -41,6 +41,11 @@ public abstract class ForwardingHttp implements Http, OutsideBurpSends {
     }
 
     @Override
+    public void streamRefused() {
+        OutsideBurpSends.reportRefusal(delegate);
+    }
+
+    @Override
     public HttpRequestResponse sendRequest(HttpRequest request) {
         return incoming(delegate.sendRequest(outgoing(request)));
     }

@@ -7,8 +7,8 @@ enum AdmissionCategory {
 
     ORIGIN("MCP Origin header admission", AuditIssueConfidence.FIRM, Wording.REPLAYED_RESULT,
             "Each probe changed only the Origin header; the captured Host was kept. A cross-site page can only "
-                    + "send this JSON request if the server also approves a CORS preflight, which the scanner did "
-                    + "not test.",
+                    + "send this JSON request if the server also approves a CORS preflight; the scanner reports "
+                    + "that separately as a cross-origin read allowed by CORS.",
             Wording.REPLAY_EVIDENCE),
     HOST("MCP Host header admission", AuditIssueConfidence.TENTATIVE, Wording.REPLAYED_RESULT,
             "The probe changed only the Host header; any captured Origin was kept. Browsers do not send this "

@@ -18,7 +18,15 @@ final class WriteLikeName {
             "lock", "ban", "block", "close", "accept", "confirm", "share", "transition", "process", "checkout",
             "deactivate", "activate");
 
+    private static final Set<String> DESTRUCTIVE_VERBS = Set.of(
+            "delete", "del", "remove", "rm", "drop", "destroy", "purge", "erase", "clear", "reset", "revoke", "kill",
+            "terminate", "cancel", "unshare", "unsubscribe", "deactivate", "disable", "ban", "block", "logout");
+
     private WriteLikeName() {
+    }
+
+    static boolean destructive(String name) {
+        return NameTokens.of(name).stream().anyMatch(DESTRUCTIVE_VERBS::contains);
     }
 
     static boolean matches(String name) {

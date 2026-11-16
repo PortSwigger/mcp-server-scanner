@@ -3,9 +3,8 @@ package com.mcpscanner.access.comparison;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.mcpscanner.checks.api.crossidentity.OpenedSessions;
-import com.mcpscanner.checks.api.crossidentity.ProtocolVariant;
 import com.mcpscanner.checks.api.crossidentity.SessionAdmission;
-import com.mcpscanner.checks.shared.session.McpSessionHandshake;
+import com.mcpscanner.checks.api.crossidentity.SessionHandshake;
 import com.mcpscanner.checks.shared.session.SessionHeaders;
 import com.mcpscanner.mcp.McpHeaders;
 
@@ -15,16 +14,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 final class RunSessions {
 
-    private static final String INITIALIZE_ID = "mcp-scanner-identity-initialize";
-
-    private final McpSessionHandshake handshake =
-            McpSessionHandshake.defaultingTo(INITIALIZE_ID, ProtocolVariant.ABSENT_HEADER_HANDSHAKE_VERSION);
     private final ComparisonTransport transport;
+    private final SessionHandshake handshake;
     private final OpenedSessions opened = new OpenedSessions();
     private final Map<String, Slot> slots = new ConcurrentHashMap<>();
 
     RunSessions(ComparisonTransport transport) {
         this.transport = transport;
+        this.handshake = new SessionHandshake(transport::send);
     }
 
     SessionAdmission admit(String routingId, HttpRequest request, boolean stateful) {
@@ -44,7 +41,7 @@ final class RunSessions {
     }
 
     private Optional<IssuedSession> handshake(HttpRequest sessionless) {
-        HttpRequestResponse initialize = transport.send(handshake.initialize(sessionless));
+        HttpRequestResponse initialize = handshake.initialize(sessionless);
         if (initialize == null) {
             return Optional.empty();
         }
@@ -57,8 +54,7 @@ final class RunSessions {
     }
 
     private IssuedSession joined(HttpRequest sessionless, String sessionId) {
-        opened.record(SessionHeaders.inSession(sessionless, sessionId));
-        transport.send(handshake.initialized(sessionless, sessionId));
+        handshake.join(sessionless, sessionId, opened::record);
         return IssuedSession.joined(sessionId);
     }
 

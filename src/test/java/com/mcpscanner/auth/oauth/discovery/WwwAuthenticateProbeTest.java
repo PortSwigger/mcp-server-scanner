@@ -47,6 +47,49 @@ class WwwAuthenticateProbeTest {
     }
 
     @Test
+    void aStreamedReplyBurpWithholdsMeansNoChallengeAndDoesNotThrow() {
+        when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
+                .thenThrow(new IllegalStateException("Streaming response received"));
+
+        assertThat(probe.probe(MCP_RESOURCE)).isEmpty();
+    }
+
+    @Test
+    void aFailureThatIsNotAStreamedReplyStillPropagates() {
+        when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
+                .thenThrow(new IllegalStateException("Connection refused"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> probe.probe(MCP_RESOURCE))
+                .hasMessage("Connection refused");
+    }
+
+    @Test
+    void closesTheMcpSessionTheProbeOpened() {
+        HttpResponse response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn((short) 200);
+        when(response.headerValue("Mcp-Session-Id")).thenReturn("probe-session");
+        HttpRequestResponse exchange = responseWith(response);
+        when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class))).thenReturn(exchange);
+
+        probe.probe(MCP_RESOURCE);
+
+        ArgumentCaptor<HttpRequest> sent = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http, org.mockito.Mockito.times(2)).sendRequest(sent.capture(), any(RequestOptions.class));
+        HttpRequest close = sent.getAllValues().get(1);
+        assertThat(close.method()).isEqualTo("DELETE");
+        assertThat(close.headerValue("Mcp-Session-Id")).isEqualTo("probe-session");
+    }
+
+    @Test
+    void sendsNoDeleteWhenTheServerIssuedNoSession() {
+        stubResponse(401, "Bearer realm=\"x\"");
+
+        probe.probe(MCP_RESOURCE);
+
+        verify(http, org.mockito.Mockito.times(1)).sendRequest(any(HttpRequest.class), any(RequestOptions.class));
+    }
+
+    @Test
     void retainsChallengeScopesWhenResourceMetadataUrlRequiresWellKnownFallback() {
         stubResponse(401, "Bearer scope=\"files:read\"");
         URI wellKnown = URI.create("https://mcp.example.com/.well-known/oauth-protected-resource");
@@ -97,8 +140,9 @@ class WwwAuthenticateProbeTest {
         verify(http).sendRequest(captor.capture(), any(RequestOptions.class));
         assertThat(captor.getValue().url()).isEqualTo(MCP_RESOURCE.toString());
         assertThat(captor.getValue().method()).isEqualTo("POST");
-        assertThat(captor.getValue().bodyToString()).isEqualTo("{}");
+        assertThat(captor.getValue().bodyToString()).contains("\"method\":\"initialize\"");
         assertThat(captor.getValue().headerValue("Content-Type")).isEqualTo("application/json");
+        assertThat(captor.getValue().headerValue("Accept")).isEqualTo("application/json, text/event-stream");
     }
 
     @Test

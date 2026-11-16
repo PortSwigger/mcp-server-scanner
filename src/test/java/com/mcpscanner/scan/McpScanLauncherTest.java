@@ -17,12 +17,19 @@ import com.mcpscanner.engine.ScanLabel;
 import com.mcpscanner.engine.ScanProgress;
 import com.mcpscanner.engine.ScanSnapshot;
 import com.mcpscanner.engine.ScanStatus;
+import com.mcpscanner.identity.discovery.PreComparisonDiscovery;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.McpRequestNames;
+import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
+import com.mcpscanner.mcp.BurpNativeJsonRpcFields;
+import com.mcpscanner.mcp.McpToolDefinition;
+import com.mcpscanner.scan.field.AddedArgumentRegistry;
+import com.mcpscanner.scan.field.McpFieldGenerator;
 import com.mcpscanner.scan.field.TemplateExpansionRegistry;
 import com.mcpscanner.scan.request.ClientRegistrationRequestFactory;
 import com.mcpscanner.scan.request.GeneratedScan;
 import com.mcpscanner.scan.request.McpHttpRequestFactory;
+import com.mcpscanner.scan.request.McpMessage;
 import com.mcpscanner.scan.request.McpRequestRenderer;
 import com.mcpscanner.scan.request.RequestFamily;
 import com.mcpscanner.scan.request.RequestGenerator;
@@ -49,6 +56,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,6 +72,9 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class McpScanLauncherTest {
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     private static final ScanLabel LABEL = new ScanLabel("Scan 1 request", "", "", "", "");
 
@@ -283,6 +294,20 @@ class McpScanLauncherTest {
     }
 
     @Test
+    void capturedScanDiscoversComparedUsersJustBeforeLaunchingNotWhenCaptured() {
+        List<String> events = new ArrayList<>();
+        launcher = launcherDiscovering(new AtomicLong()::incrementAndGet, () -> events.add("discover"));
+
+        Supplier<RunningScan> captured = launcher.captureScan(ScanMode.MCP_AND_BURP, ENDPOINT, pingScan(1), Map::of,
+                ScanConnection.unbound(baseline -> Map.of()));
+        assertThat(events).isEmpty();
+        captured.get();
+
+        assertThat(events).containsExactly("discover");
+        assertThat(renderedRaw).hasSize(1);
+    }
+
+    @Test
     void capturedScanCarriesTheConnectionHeadersOfTheSessionItWasCapturedFor() {
         List<Boolean> validated = new ArrayList<>();
         ScanConnection connection = new ScanConnection(
@@ -390,6 +415,285 @@ class McpScanLauncherTest {
     }
 
     @Test
+    void aProbeCallsRenderedBodyIsRegisteredWithTheArgumentItAdded() {
+        engineReturns(new EngineScan(1, LABEL, Clock.systemUTC(), () -> { }, () -> 0));
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher probing = new McpScanLauncher(logging,
+                new ScanRequestRenderer((endpoint, message, sessionHeaders) -> RawHttpRequestStub.fromRaw(
+                        new McpHttpRequestFactory(() -> 1L, PlainFraming.framer())
+                                .raw(endpoint, message, sessionHeaders)), new ClientRegistrationRequestFactory()),
+                () -> ScanConnection.unbound(baseline -> Map.of()), templateExpansions, addedArguments,
+                ScanDestinations.of(scanner, burpSuite, eventLog,
+                        new EngineScans(engine, new ScanLabels(FixedConnectionFacts.NONE, new McpRequestNames())), () -> { }),
+                new RunningScans(eventLog, burpSuite), PreComparisonDiscovery.NONE);
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+
+        probing.launchScan(ScanMode.MCP_ONLY, ENDPOINT, new GeneratedScan(List.of(probe), List.of()), NO_HEADERS);
+
+        assertThat(engineBases()).hasSize(1).allSatisfy(base -> assertThat(
+                addedArguments.addedTo(base.request().bodyToString())).contains(ArgumentPath.of("a", "b")));
+    }
+
+    @Test
+    void aNestedLeafOfAScannedToolBecomesTheOnlyInsertionPointOfItsProbeCall() {
+        engineReturns(new EngineScan(1, LABEL, Clock.systemUTC(), () -> { }, () -> 0));
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpToolDefinition tool = new McpToolDefinition("list_rows", "d", "{\"type\":\"object\",\"properties\":"
+                + "{\"filter\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},"
+                + "\"ref\":{\"type\":\"string\",\"pattern\":\"^[a-z]+$\"}}}}}");
+
+        launcher.launchScan(ScanMode.MCP_ONLY, ENDPOINT, RequestGenerator.standard().scanThisRequest(
+                RequestFamily.TOOLS_CALL, ScanInventory.toolsOnly(List.of(tool))), NO_HEADERS);
+
+        McpFieldGenerator fields = new McpFieldGenerator(() -> true, templateExpansions,
+                BurpNativeJsonRpcFields.ABSENT, addedArguments);
+        assertThat(engineBases()).extracting(base -> fields.fieldsOf(base.request()).stream()
+                .map(AuditInsertionPoint::name).filter(name -> name.endsWith("filter.ref")).toList())
+                .containsExactly(List.of(), List.of("MCP field: params.arguments.filter.ref"));
+        assertThat(engineBases()).extracting(base -> addedArguments.isProbe(base.request().bodyToString()))
+                .containsExactly(false, true);
+    }
+
+    @Test
+    void aScansProbeCallsAreForgottenOnceItEnds() {
+        EngineScan engineScan = new EngineScan(1, LABEL, Clock.systemUTC(), () -> { }, () -> 0);
+        engineReturns(engineScan);
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+        launcher.launchScan(ScanMode.MCP_ONLY, ENDPOINT, new GeneratedScan(List.of(probe), List.of()), NO_HEADERS);
+        String probeBody = engineBases().get(0).request().bodyToString();
+        assertThat(addedArguments.isProbe(probeBody)).isTrue();
+
+        engineScan.completion().complete(engineScan.snapshot().progress());
+
+        assertThat(addedArguments.isProbe(probeBody)).isFalse();
+    }
+
+    @Test
+    void aBurpAuditsProbeCallsAreForgottenOnceItHasFinished() {
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+        launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT, new GeneratedScan(List.of(probe), List.of()), NO_HEADERS);
+        String probeBody = auditedRequests(1).get(0).bodyToString();
+        assertThat(addedArguments.isProbe(probeBody)).isTrue();
+
+        when(audit.statusMessage()).thenReturn("Finished");
+        launcher.activity();
+
+        assertThat(addedArguments.isProbe(probeBody)).isFalse();
+    }
+
+    @Test
+    void anAuditStillRunningKeepsTheProbeCallsItSharesWithAnAuditThatFinished() {
+        Audit finishing = org.mockito.Mockito.mock(Audit.class);
+        Audit running = org.mockito.Mockito.mock(Audit.class);
+        when(scanner.startAudit(any(AuditConfiguration.class))).thenReturn(finishing, running);
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+        GeneratedScan scan = new GeneratedScan(List.of(probe), List.of());
+        launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT, scan, NO_HEADERS);
+        launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT, scan, NO_HEADERS);
+        ArgumentCaptor<HttpRequest> audited = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(finishing).addRequest(audited.capture());
+        String probeBody = audited.getValue().bodyToString();
+
+        when(finishing.statusMessage()).thenReturn("Finished");
+        launcher.activity();
+
+        assertThat(addedArguments.isProbe(probeBody)).isTrue();
+    }
+
+    @Test
+    void probeCallsAlreadyRecordedAreReleasedWhenRecordingAnotherOneFails() {
+        AddedArgumentRegistry addedArguments = org.mockito.Mockito.spy(new AddedArgumentRegistry());
+        org.mockito.Mockito.doCallRealMethod().doThrow(new IllegalStateException("recording failed"))
+                .when(addedArguments).record(any(), any());
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage first = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "first")).withAddedArgument(ArgumentPath.of("a", "b"));
+        McpMessage second = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "second")).withAddedArgument(ArgumentPath.of("a", "b"));
+
+        assertThatThrownBy(() -> launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT,
+                new GeneratedScan(List.of(first, second), List.of()), NO_HEADERS))
+                .isInstanceOf(IllegalStateException.class);
+
+        ArgumentCaptor<String> recorded = ArgumentCaptor.forClass(String.class);
+        verify(addedArguments, times(2)).record(recorded.capture(), any());
+        assertThat(addedArguments.isProbe(recorded.getAllValues().get(0))).isFalse();
+    }
+
+    @Test
+    void aProbeCallWhoseRecordingFailedIsNeverReleasedBecauseItHoldsNothingOfThisScan() {
+        AddedArgumentRegistry addedArguments = org.mockito.Mockito.spy(new AddedArgumentRegistry());
+        org.mockito.Mockito.doCallRealMethod().doThrow(new IllegalStateException("recording failed"))
+                .when(addedArguments).record(any(), any());
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage first = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "first")).withAddedArgument(ArgumentPath.of("a", "b"));
+        McpMessage second = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "second")).withAddedArgument(ArgumentPath.of("a", "b"));
+
+        assertThatThrownBy(() -> launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT,
+                new GeneratedScan(List.of(first, second), List.of()), NO_HEADERS))
+                .isInstanceOf(IllegalStateException.class);
+
+        ArgumentCaptor<String> recorded = ArgumentCaptor.forClass(String.class);
+        verify(addedArguments, times(2)).record(recorded.capture(), any());
+        verify(addedArguments, never()).release(recorded.getAllValues().get(1));
+    }
+
+    @Test
+    void aCancelledBurpAuditsProbeCallsAreForgotten() {
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+        launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT, new GeneratedScan(List.of(probe), List.of()), NO_HEADERS);
+        String probeBody = auditedRequests(1).get(0).bodyToString();
+
+        launcher.cancelRunningScans();
+
+        assertThat(addedArguments.isProbe(probeBody)).isFalse();
+    }
+
+    @Test
+    void aBurpAuditOutlivingADisconnectReleasesItsProbeCallsOnceBurpFinishesIt() {
+        Audit first = org.mockito.Mockito.mock(Audit.class);
+        Audit second = org.mockito.Mockito.mock(Audit.class);
+        when(scanner.startAudit(any(AuditConfiguration.class))).thenReturn(first, second);
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        ManualEndPoller polls = new ManualEndPoller();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments, new RunningScans(eventLog, polls, () -> false));
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+        GeneratedScan scan = new GeneratedScan(List.of(probe), List.of());
+        launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT, scan, NO_HEADERS);
+        launcher.clearRunningScans();
+        launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT, scan, NO_HEADERS);
+        ArgumentCaptor<HttpRequest> audited = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(first).addRequest(audited.capture());
+        String probeBody = audited.getValue().bodyToString();
+
+        when(first.statusMessage()).thenReturn("Finished");
+        polls.runPending();
+        assertThat(addedArguments.isProbe(probeBody)).isTrue();
+        when(second.statusMessage()).thenReturn("Finished");
+        launcher.activity();
+
+        assertThat(addedArguments.isProbe(probeBody)).isFalse();
+    }
+
+    @Test
+    void aScanThatFailsToStartReleasesTheProbeCallsItRecorded() {
+        Audit healthy = org.mockito.Mockito.mock(Audit.class);
+        when(scanner.startAudit(any(AuditConfiguration.class)))
+                .thenReturn(healthy).thenThrow(new IllegalStateException("no audit"));
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+        GeneratedScan scan = new GeneratedScan(List.of(probe), List.of());
+        launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT, scan, NO_HEADERS);
+        ArgumentCaptor<HttpRequest> audited = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(healthy).addRequest(audited.capture());
+        String probeBody = audited.getValue().bodyToString();
+
+        assertThatThrownBy(() -> launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT, scan, NO_HEADERS))
+                .isInstanceOf(IllegalStateException.class);
+        launcher.cancelRunningScans();
+
+        assertThat(addedArguments.isProbe(probeBody)).isFalse();
+    }
+
+    @Test
+    void aScanThatFailsWithAnErrorReleasesTheProbeCallsItRecorded() {
+        when(scanner.startAudit(any(AuditConfiguration.class))).thenThrow(new AssertionError("fatal"));
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+
+        assertThatThrownBy(() -> launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT,
+                new GeneratedScan(List.of(probe), List.of()), NO_HEADERS)).isInstanceOf(AssertionError.class);
+
+        assertThat(addedArguments.addedTo(probeBodyOf(probe))).isEmpty();
+    }
+
+    @Test
+    void aRenderFailureOnALaterMessageLeavesNoProbeCallRecorded() {
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+        McpMessage broken = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "broken"));
+        McpHttpRequestFactory factory = new McpHttpRequestFactory(() -> 1L, PlainFraming.framer());
+        McpScanLauncher launcher = new McpScanLauncher(logging,
+                new ScanRequestRenderer((endpoint, message, sessionHeaders) -> {
+                    if (message == broken) {
+                        throw new IllegalStateException("cannot render");
+                    }
+                    return RawHttpRequestStub.fromRaw(factory.raw(endpoint, message, sessionHeaders));
+                }, new ClientRegistrationRequestFactory()),
+                () -> ScanConnection.unbound(baseline -> Map.of()), templateExpansions, addedArguments,
+                ScanDestinations.of(scanner, burpSuite, eventLog,
+                        new EngineScans(engine, new ScanLabels(FixedConnectionFacts.NONE, new McpRequestNames())), () -> { }),
+                new RunningScans(eventLog, burpSuite), PreComparisonDiscovery.NONE);
+
+        assertThatThrownBy(() -> launcher.launchScan(ScanMode.MCP_AND_BURP, ENDPOINT,
+                new GeneratedScan(List.of(probe, broken), List.of()), NO_HEADERS))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(addedArguments.addedTo(probeBodyOf(probe))).isEmpty();
+    }
+
+    private static String probeBodyOf(McpMessage message) {
+        return new McpHttpRequestFactory(() -> 1L, PlainFraming.framer()).build(ENDPOINT, message, NO_HEADERS)
+                .bodyToString();
+    }
+
+    @Test
+    void aNewScanLeavesTheProbeCallsOfAScanStillAuditingAlone() {
+        engineReturns(new EngineScan(1, LABEL, Clock.systemUTC(), () -> { }, () -> 0));
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        addedArguments.record("an earlier scan's probe call", ArgumentPath.of("a"));
+
+        launcherRecordingIn(addedArguments).launchScan(ScanMode.MCP_ONLY, ENDPOINT,
+                new GeneratedScan(List.of(), List.of()), NO_HEADERS);
+
+        assertThat(addedArguments.isProbe("an earlier scan's probe call")).isTrue();
+    }
+
+    @Test
+    void aBodyANewScanSendsAsABaseCallStaysTheProbeCallOfTheAuditHoldingItUntilThatAuditEnds() {
+        EngineScan holder = new EngineScan(1, LABEL, Clock.systemUTC(), () -> { }, () -> 0);
+        when(engine.scan(anyList(), any())).thenReturn(holder,
+                new EngineScan(2, LABEL, Clock.systemUTC(), () -> { }, () -> 0));
+        AddedArgumentRegistry addedArguments = new AddedArgumentRegistry();
+        McpScanLauncher launcher = launcherRecordingIn(addedArguments);
+        McpMessage probe = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t")).withAddedArgument(ArgumentPath.of("a", "b"));
+        McpMessage base = McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call",
+                MAPPER.createObjectNode().put("name", "t"));
+        launcher.launchScan(ScanMode.MCP_ONLY, ENDPOINT, new GeneratedScan(List.of(probe), List.of()), NO_HEADERS);
+        String probeBody = engineBases().get(0).request().bodyToString();
+
+        launcher.launchScan(ScanMode.MCP_ONLY, ENDPOINT, new GeneratedScan(List.of(base), List.of()), NO_HEADERS);
+        assertThat(addedArguments.isProbe(probeBody)).isTrue();
+
+        holder.completion().complete(holder.snapshot().progress());
+        assertThat(addedArguments.isProbe(probeBody)).isFalse();
+    }
+
+    @Test
     void engineRunsRecordTemplateExpansionsAndStartNoBurpAudit() {
         engineReturns(new EngineScan(1, LABEL, Clock.systemUTC(), () -> { }, () -> 0));
 
@@ -400,7 +704,26 @@ class McpScanLauncherTest {
         verify(scanner, never()).startAudit(any(AuditConfiguration.class));
     }
 
+    private McpScanLauncher launcherRecordingIn(AddedArgumentRegistry addedArguments) {
+        return launcherRecordingIn(addedArguments, new RunningScans(eventLog, burpSuite));
+    }
+
+    private McpScanLauncher launcherRecordingIn(AddedArgumentRegistry addedArguments, RunningScans runningScans) {
+        return new McpScanLauncher(logging,
+                new ScanRequestRenderer((endpoint, message, sessionHeaders) -> RawHttpRequestStub.fromRaw(
+                        new McpHttpRequestFactory(() -> 1L, PlainFraming.framer())
+                                .raw(endpoint, message, sessionHeaders)), new ClientRegistrationRequestFactory()),
+                () -> ScanConnection.unbound(baseline -> Map.of()), templateExpansions, addedArguments,
+                ScanDestinations.of(scanner, burpSuite, eventLog,
+                        new EngineScans(engine, new ScanLabels(FixedConnectionFacts.NONE, new McpRequestNames())), () -> { }),
+                runningScans, PreComparisonDiscovery.NONE);
+    }
+
     private McpScanLauncher launcherWithRequestIds(LongSupplier requestIds) {
+        return launcherDiscovering(requestIds, PreComparisonDiscovery.NONE);
+    }
+
+    private McpScanLauncher launcherDiscovering(LongSupplier requestIds, PreComparisonDiscovery discovery) {
         McpHttpRequestFactory factory = new McpHttpRequestFactory(requestIds::getAsLong, PlainFraming.framer());
         McpRequestRenderer renderer = (endpoint, message, sessionHeaders) -> {
             String raw = factory.raw(endpoint, message, sessionHeaders);
@@ -411,7 +734,7 @@ class McpScanLauncherTest {
                 () -> ScanConnection.unbound(baseline -> Map.of()), templateExpansions,
                 ScanDestinations.of(scanner, burpSuite, eventLog,
                         new EngineScans(engine, new ScanLabels(FixedConnectionFacts.NONE, new McpRequestNames())), () -> { }),
-                new RunningScans(eventLog));
+                new RunningScans(eventLog, burpSuite), discovery);
     }
 
     private RunningScan launchBurpAudit(GeneratedScan scan) {

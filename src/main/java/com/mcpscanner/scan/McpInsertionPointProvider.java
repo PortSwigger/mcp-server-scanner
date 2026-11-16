@@ -6,6 +6,7 @@ import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPointProvider
 import com.mcpscanner.mcp.BurpNativeJsonRpcFields;
 import com.mcpscanner.mcp.McpRequestDetector;
 import com.mcpscanner.scan.field.ClientMetadataFieldGenerator;
+import com.mcpscanner.scan.field.AddedArgumentRegistry;
 import com.mcpscanner.scan.field.McpFieldGenerator;
 import com.mcpscanner.scan.field.TemplateExpansionRegistry;
 
@@ -27,7 +28,13 @@ public class McpInsertionPointProvider implements AuditInsertionPointProvider {
 
     public McpInsertionPointProvider(BooleanSupplier headerFieldsEnabled, TemplateExpansionRegistry templateExpansions,
                                      BurpNativeJsonRpcFields burpNativeFields) {
-        this.fieldGenerator = new McpFieldGenerator(headerFieldsEnabled, templateExpansions, burpNativeFields);
+        this(headerFieldsEnabled, templateExpansions, burpNativeFields, new AddedArgumentRegistry());
+    }
+
+    public McpInsertionPointProvider(BooleanSupplier headerFieldsEnabled, TemplateExpansionRegistry templateExpansions,
+                                     BurpNativeJsonRpcFields burpNativeFields, AddedArgumentRegistry addedArguments) {
+        this.fieldGenerator = new McpFieldGenerator(headerFieldsEnabled, templateExpansions, burpNativeFields,
+                addedArguments);
     }
 
     @Override

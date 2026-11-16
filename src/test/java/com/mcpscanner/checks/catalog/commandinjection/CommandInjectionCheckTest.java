@@ -99,6 +99,64 @@ class CommandInjectionCheckTest {
         assertThat(server.receivedValues()).contains(SimulatedToolServer.BASE_VALUE + "$(" + CANARY.quotedCommand() + ")");
     }
 
+    private static final String USAGE = "Display resources.\n\nOptions:\n  -A, --all-namespaces=false: list across "
+            + "namespaces\n  -o, --output='': output format\n  -l, --selector='': label query\n\nUsage:\n  "
+            + "program get [flags]";
+
+    @Test
+    void reportsAFieldParsedAsAnOptionWhenHelpPrintsOptionsTheBaselineAndControlLack() {
+        SimulatedToolServer server = new SimulatedToolServer("get_resource", "name",
+                ToolBehaviours.optionParsingProgram(USAGE, "error: unknown flag: --version"));
+
+        List<AuditIssue> issues = audit(server);
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.name()).isEqualTo("MCP argument injection");
+            assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.MEDIUM);
+            assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
+            assertThat(issue.detail()).contains("command-line option injection").contains("--help")
+                    .contains("--all-namespaces").contains("language model");
+            assertThat(issue.requestResponses()).hasSize(4);
+        });
+        assertThat(server.receivedValues()).contains("--help", "help");
+    }
+
+    @Test
+    void reportsAFieldParsedAsAnOptionWhenVersionPrintsAVersionNumberTheBaselineAndControlLack() {
+        List<AuditIssue> issues = audit(new SimulatedToolServer("get_resource", "name",
+                ToolBehaviours.optionParsingProgram("error: unknown flag: --help", "Client Version: v1.35.6")));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.name()).isEqualTo("MCP argument injection");
+            assertThat(issue.detail()).contains("--version").contains("1.35.6");
+        });
+    }
+
+    @Test
+    void reportsAProgramThatPrintsUsageForAnyUnknownOption() {
+        assertThat(audit(new SimulatedToolServer("get_resource", "name",
+                ToolBehaviours.optionParsingProgramPrintingUsageOnAnyUnknownFlag(USAGE))))
+                .extracting(AuditIssue::name).containsExactly("MCP argument injection");
+    }
+
+    @Test
+    void staysSilentWhenEveryUnmatchedValuePrintsTheSameUsage() {
+        assertThat(audit(new SimulatedToolServer("get_resource", "name",
+                ToolBehaviours.printingUsageForAnyUnknownValue(USAGE)))).isEmpty();
+    }
+
+    @Test
+    void staysSilentWhenTheDashedValueReturnsADifferentVersionEachTime() {
+        assertThat(audit(new SimulatedToolServer("get_resource", "name",
+                ToolBehaviours.answeringADashedValueWithAFreshVersion()))).isEmpty();
+    }
+
+    @Test
+    void staysSilentWhenEveryReplyNamesTheSameVersion() {
+        assertThat(audit(new SimulatedToolServer("get_resource", "name",
+                ToolBehaviours.namingItsVersionInEveryReply("1.4.2")))).isEmpty();
+    }
+
     @Test
     void staysSilentWhenTheValueIsPassedAsAnArgumentVectorEntry() {
         SimulatedToolServer server = new SimulatedToolServer("ping_host", "host", ToolBehaviours.argumentVector());

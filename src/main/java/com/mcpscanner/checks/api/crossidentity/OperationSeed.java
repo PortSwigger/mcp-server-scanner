@@ -43,6 +43,10 @@ public final class OperationSeed {
                 .flatMap(item -> root.map(envelope -> new OperationSeed(request, item, envelope)));
     }
 
+    public OperationSeed inSession(String sessionId) {
+        return new OperationSeed(SessionHeaders.inSession(request, sessionId), item, envelope);
+    }
+
     public HttpRequest request() {
         return request;
     }

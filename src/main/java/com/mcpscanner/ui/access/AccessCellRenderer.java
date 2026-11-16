@@ -3,6 +3,7 @@ package com.mcpscanner.ui.access;
 import com.mcpscanner.access.AccessCell;
 import com.mcpscanner.access.AccessRow;
 import com.mcpscanner.checks.api.AccessOutcome;
+import com.mcpscanner.ui.widgets.SwingHtmlGuard;
 import com.mcpscanner.ui.widgets.ThemeColors;
 
 import javax.swing.JTable;
@@ -20,6 +21,7 @@ final class AccessCellRenderer extends DefaultTableCellRenderer {
 
     AccessCellRenderer(AccessTableModel model) {
         this.model = model;
+        SwingHtmlGuard.disableHtml(this);
     }
 
     @Override
@@ -29,7 +31,7 @@ final class AccessCellRenderer extends DefaultTableCellRenderer {
         AccessColumn accessColumn = model.columnAt(table.convertColumnIndexToModel(column));
         String text = text(accessRow, accessColumn);
         super.getTableCellRendererComponent(table, text, selected, focused, row, column);
-        setToolTipText(text);
+        setToolTipText(SwingHtmlGuard.escapeHtml(tooltip(text, cell(accessRow, accessColumn))));
         if (!selected) {
             paintUnselected(table, cell(accessRow, accessColumn));
         }
@@ -49,12 +51,16 @@ final class AccessCellRenderer extends DefaultTableCellRenderer {
 
     static String text(AccessRow row, AccessColumn column) {
         if (column instanceof AccessColumn.Identity identity) {
-            return AccessCellText.identity(row.cell(identity.principal().id()), row.ownedBy(identity.principal()));
+            return AccessCellText.identity(row, identity.principal());
         }
         if (column instanceof AccessColumn.Anonymous) {
             return AccessCellText.anonymous(row.anonymous());
         }
         return column instanceof AccessColumn.Item ? AccessCellText.item(row.item()) : AccessCellText.expectation(row);
+    }
+
+    static String tooltip(String text, Optional<AccessCell> cell) {
+        return cell.flatMap(AccessCell::notComparedReason).map(reason -> text + ": " + reason).orElse(text);
     }
 
     private static Optional<AccessCell> cell(AccessRow row, AccessColumn column) {

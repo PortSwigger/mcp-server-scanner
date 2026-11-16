@@ -92,6 +92,10 @@ final class AdmissionServers {
             });
         }
 
+        List<HttpRequest> replays() {
+            return received.stream().filter(request -> !request.method().equals("OPTIONS")).toList();
+        }
+
         static Server sequenced(List<HttpResponse> responses) {
             List<HttpResponse> queue = new ArrayList<>(responses);
             return new Server(request -> queue.size() > 1 ? queue.remove(0) : queue.get(0));

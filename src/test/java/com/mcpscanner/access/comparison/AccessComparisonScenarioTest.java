@@ -85,6 +85,32 @@ class AccessComparisonScenarioTest {
     }
 
     @Test
+    void resourceListedToTheIdentityStillFiresWhenItReturnsTheOwnersMarker() {
+        var run = withPeerB().ownerMarker("ALICE-NOTE").ledger(new RecordingLedger().listing("b", true))
+                .run(FakeServers.notes(), resourceRead("notes://alice/private.md", "A"));
+
+        assertThat(run.issues()).hasSize(1);
+    }
+
+    @Test
+    void sharedResourceListedToTheIdentityStaysSilentWhenItLacksTheOwnersMarker() {
+        var run = withPeerB().ownerMarker("ALICE-NOTE").ledger(new RecordingLedger().listing("b", true))
+                .run(FakeServers.notes(), resourceRead("notes://team/handbook.md", "A"));
+
+        assertThat(run.issues()).isEmpty();
+        assertThat(run.ledger().findingsOf("b")).isEmpty();
+    }
+
+    @Test
+    void leakingResourceListedToTheIdentityWithoutAMarkerStaysSilent() {
+        var run = withPeerB().ledger(new RecordingLedger().listing("b", true))
+                .run(FakeServers.notes(), resourceRead("notes://alice/private.md", "A"));
+
+        assertThat(run.issues()).isEmpty();
+        assertThat(run.ledger().findingsOf("b")).isEmpty();
+    }
+
+    @Test
     void resourceHiddenFromTheIdentityStillFires() {
         var hidden = withPeerB().ownerMarker("ALICE-NOTE").ledger(new RecordingLedger().listing("b", false))
                 .run(FakeServers.notes(), resourceRead("notes://alice/private.md", "A"));

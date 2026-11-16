@@ -15,6 +15,11 @@ final class OriginConnections {
         return learned.getOrDefault(Origin.of(service), OriginConnection.UNKNOWN);
     }
 
+    static String originOf(HttpService service) {
+        Origin origin = Origin.of(service);
+        return (origin.secure() ? "https://" : "http://") + origin.host() + ":" + origin.port();
+    }
+
     void learn(HttpService service, HttpResponse response) {
         OriginConnection.answeredWith(response.httpVersion())
                 .ifPresent(connection -> learned.putIfAbsent(Origin.of(service), connection));

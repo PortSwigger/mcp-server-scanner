@@ -35,6 +35,15 @@ class IdentityRegistryTest {
     }
 
     @Test
+    void otherUserCountExcludesThePrimaryUser() {
+        assertThat(registry.otherUserCount()).isZero();
+
+        registry.add(peer("bob"));
+
+        assertThat(registry.otherUserCount()).isEqualTo(1);
+    }
+
+    @Test
     void aPrimaryUserSetToAuthNoneAfterTheMigrationStaysAuthNone() {
         registry.update(userOne.withAuthKind(IdentityAuthKind.NONE));
 
