@@ -28,6 +28,7 @@ import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 final class InventoryView extends JPanel {
 
@@ -46,7 +47,8 @@ final class InventoryView extends JPanel {
     private final TableRowSorter<TableModel> sorter;
     private final JTextField filterField = new JTextField(FILTER_COLUMNS);
     private final List<JComponent> extraActions;
-    private final SelectAllHeader selectAllHeader;
+    private final InventoryTicks ticks;
+    private final Optional<SelectAllHeader> selectAllHeader;
     private final CardLayout tableCards = new CardLayout();
     private final JPanel tableArea = new JPanel(tableCards);
     private final JLabel emptyLabel = messageLabel();
@@ -57,7 +59,7 @@ final class InventoryView extends JPanel {
     private boolean listFailed;
 
     InventoryView(JTable table, SelectableInventoryTableModel<?> model, JComponent detail,
-                  String plural, String filterSubject, List<JComponent> extraActions) {
+                  String plural, String filterSubject, List<JComponent> extraActions, InventoryTicks ticks) {
         super(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(0, GAP, GAP, GAP));
         this.table = table;
@@ -65,10 +67,12 @@ final class InventoryView extends JPanel {
         this.plural = plural;
         this.filterSubject = filterSubject;
         this.extraActions = List.copyOf(extraActions);
+        this.ticks = ticks;
         this.sorter = new TableRowSorter<>(model);
         table.setRowSorter(sorter);
-        this.selectAllHeader = new SelectAllHeader(table, model, SelectableInventoryTableModel.SELECT_COLUMN_INDEX, plural);
-        selectAllHeader.install();
+        this.selectAllHeader = ticks.shown() ? Optional.of(new SelectAllHeader(table, model,
+                SelectableInventoryTableModel.SELECT_COLUMN_INDEX, plural)) : Optional.empty();
+        selectAllHeader.ifPresent(SelectAllHeader::install);
         tableArea.add(selectionFollowingScrollPane(), TABLE_CARD);
         tableArea.add(emptyLabel, MESSAGE_CARD);
         this.detail = detail;
@@ -99,7 +103,7 @@ final class InventoryView extends JPanel {
     }
 
     SelectAllHeader selectAllHeader() {
-        return selectAllHeader;
+        return selectAllHeader.orElseThrow();
     }
 
     String emptyMessage() {
@@ -117,7 +121,9 @@ final class InventoryView extends JPanel {
     private void wire() {
         filterField.getDocument().addDocumentListener(DocumentChanges.onChange(this::applyFilter));
         model.addTableModelListener(event -> refresh());
-        bindKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTick", this::toggleSelectedRows);
+        if (ticks.shown()) {
+            bindKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTick", this::toggleSelectedRows);
+        }
         table.getSelectionModel().addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) {
                 refreshDetail();
@@ -215,7 +221,7 @@ final class InventoryView extends JPanel {
         boolean hasRows = model.getRowCount() > 0;
         boolean usable = availability == Availability.CONNECTED && hasRows;
         filterField.setEnabled(usable);
-        selectAllHeader.setEnabled(usable);
+        selectAllHeader.ifPresent(header -> header.setEnabled(usable));
         extraActions.forEach(action -> action.setVisible(usable));
         boolean empty = table.getRowCount() == 0;
         emptyLabel.setText(emptyText(hasRows));
@@ -225,8 +231,7 @@ final class InventoryView extends JPanel {
 
     private String emptyText(boolean hasRows) {
         if (hasRows) {
-            return "No " + plural + " match “" + filterField.getText().trim() + "”. Ticked " + plural
-                    + " outside the filter are still scanned.";
+            return "No " + plural + " match “" + filterField.getText().trim() + "”." + tickedOutsideFilterNote();
         }
         return switch (availability) {
             case CONNECTED -> listFailed
@@ -236,6 +241,10 @@ final class InventoryView extends JPanel {
             case CONNECTION_FAILED -> "The last connection attempt failed. The status line and the Log panel on the right say why.";
             case DISCONNECTED -> "Connect to list the server's " + plural + ".";
         };
+    }
+
+    private String tickedOutsideFilterNote() {
+        return ticks.shown() ? " Ticked " + plural + " outside the filter are still scanned." : "";
     }
 
     private void refreshDetail() {

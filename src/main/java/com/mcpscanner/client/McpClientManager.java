@@ -25,6 +25,7 @@ public class McpClientManager {
 
     private final McpEventLog eventLog;
     private final McpScannerSession scannerSession;
+    private final ConnectToolsListRecording toolsListRecording;
 
     private McpDiscoveryClient discoveryClient;
     private volatile ServerMetadata serverMetadata = ServerMetadata.empty();
@@ -32,6 +33,7 @@ public class McpClientManager {
     private final CopyOnWriteArrayList<Runnable> disconnectListeners = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Runnable> connectionLostListeners = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Consumer<PrimaryConnection>> connectListeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Runnable> connectAttemptListeners = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Consumer<List<McpToolDefinition>>> knownToolsListeners =
             new CopyOnWriteArrayList<>();
     private final AtomicBoolean sseProxyAvailable = new AtomicBoolean(true);
@@ -51,6 +53,7 @@ public class McpClientManager {
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog");
         this.operations = new OperationRequests(eventLog);
         this.scannerSession = Objects.requireNonNull(scannerSession, "scannerSession");
+        this.toolsListRecording = ConnectToolsListRecording.sseOnly();
     }
 
     private McpClientManager(McpEventLog eventLog, ClientIdentityProvider identityProvider,
@@ -58,7 +61,9 @@ public class McpClientManager {
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog");
         this.operations = new OperationRequests(eventLog);
         HttpClient httpClient = McpHttpClients.upstream();
-        this.scannerSession = new McpScannerSession(httpClient, operations.counting(transportFactory.apply(httpClient)), eventLog,
+        this.toolsListRecording = new ConnectToolsListRecording(
+                operations.counting(transportFactory.apply(httpClient)));
+        this.scannerSession = new McpScannerSession(httpClient, toolsListRecording, eventLog,
                 sseProxyAvailable::get, identityProvider);
     }
 
@@ -79,6 +84,14 @@ public class McpClientManager {
         this.resourceCaps = Objects.requireNonNull(resourceCaps);
     }
 
+    public void beginConnectAttempt() {
+        connectAttemptListeners.forEach(Runnable::run);
+    }
+
+    public void addConnectAttemptListener(Runnable listener) {
+        connectAttemptListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
     public ConnectResult connect(McpServerConfig config) {
         disconnect();
         try {
@@ -90,6 +103,17 @@ public class McpClientManager {
     }
 
     private synchronized ConnectResult connectAndDiscover(McpServerConfig config) {
+        RecordedCatalog recorded = toolsListRecording.record(scannerSession, () -> connectThenDiscover(config));
+        ConnectResult catalog = recorded.catalog();
+        serverMetadata = catalog.serverMetadata();
+        connected = true;
+        notifyConnect(new PrimaryConnection(config.endpoint(),
+                Objects.requireNonNullElse(scannerSession.transportType(), config.transport()), catalog,
+                recorded.toolsList()));
+        return catalog;
+    }
+
+    private ConnectResult connectThenDiscover(McpServerConfig config) {
         operations.measure("Connect", () -> scannerSession.connect(config));
         discoveryClient = new McpDiscoveryClient(scannerSession, eventLog, resourceCaps);
         eventLog.info("Connected to MCP server: " + LogRedaction.redactQuery(config.endpoint()));
@@ -100,10 +124,6 @@ public class McpClientManager {
                 () -> discoveryClient.discoverCatalog(this::notifyKnownTools));
         eventLog.info(formatDiscoverySummary(catalog.tools().size(), catalog.resources().size(),
                 catalog.resourceTemplates().size(), catalog.prompts().size()));
-        serverMetadata = catalog.serverMetadata();
-        connected = true;
-        notifyConnect(new PrimaryConnection(config.endpoint(),
-                Objects.requireNonNullElse(scannerSession.transportType(), config.transport()), catalog));
         return catalog;
     }
 

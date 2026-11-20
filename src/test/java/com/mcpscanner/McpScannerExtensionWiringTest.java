@@ -1,7 +1,9 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import com.mcpscanner.proxy.McpHttpHandler;
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.BurpSuiteEdition;
 import burp.api.montoya.extension.Extension;
 import burp.api.montoya.extension.ExtensionUnloadingHandler;
 import burp.api.montoya.http.Http;
@@ -66,8 +68,10 @@ class McpScannerExtensionWiringTest {
     void stubMontoya() {
         MontoyaTestFactory.install();
         when(api.extension()).thenReturn(extension);
+        when(api.burpSuite().version().edition()).thenReturn(BurpSuiteEdition.PROFESSIONAL);
         when(api.http()).thenReturn(http);
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
                 .thenAnswer(invocation -> fakeServer.sendRequest(invocation.getArgument(0, HttpRequest.class),
                         invocation.getArgument(1, RequestOptions.class)));

@@ -57,6 +57,16 @@ class TargetRepositoryTest {
     }
 
     @Test
+    void readsWhetherATargetsArmsStartFirstAndDefaultsToNot() {
+        ManifestFixtures.writeValidTarget(root, "check-a", "plain");
+        ManifestFixtures.writeTarget(root, "check-a", "held", ManifestFixtures.VALID_MANIFEST
+                .formatted("held", "check-a").replace("\"schemaVersion\": 1,", "\"schemaVersion\": 1, \"startFirst\": true,"));
+
+        assertThat(ManifestFixtures.loadOnly(root, "check-a", "plain").manifest().startFirst()).isFalse();
+        assertThat(ManifestFixtures.loadOnly(root, "check-a", "held").manifest().startFirst()).isTrue();
+    }
+
+    @Test
     void selectsOneCheckOrOneTarget() {
         ManifestFixtures.writeValidTarget(root, "check-a", "target-one");
         ManifestFixtures.writeValidTarget(root, "check-a", "target-two");

@@ -5,6 +5,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.mcpscanner.checks.shared.oauth.ScriptedHttp.html;
@@ -109,5 +111,44 @@ class SameOriginRedirectsTest {
 
         assertThat(follow(SameOriginRedirects.carryingCookies(server.oauth(), 3)).orElseThrow().sessionCreatedBy())
                 .isEmpty();
+    }
+
+    @Test
+    void seedsTheInitialCookiesAndAddsTheOnesSetAlongTheWay() {
+        server.on("GET", ORIGIN + "/authorize", "HTTP/1.1 302 Found\r\nSet-Cookie: csrf=t1; Path=/\r\n"
+                        + "Location: /consent\r\n\r\n")
+                .on("GET", ORIGIN + "/consent", html("<form></form>"));
+
+        follow(SameOriginRedirects.carryingCookies(server.oauth(), 3, List.of(new SessionCookie("sid", "alice", "/"))));
+
+        assertThat(server.sentTo(ORIGIN + "/authorize")).singleElement()
+                .satisfies(request -> assertThat(request.headerValue("Cookie")).isEqualTo("sid=alice"));
+        assertThat(server.sentTo(ORIGIN + "/consent")).singleElement()
+                .satisfies(request -> assertThat(request.headerValue("Cookie")).isEqualTo("sid=alice; csrf=t1"));
+    }
+
+    @Test
+    void aJarCookieGoesOnlyToTheHopsWithinItsPath() {
+        server.on("GET", ORIGIN + "/authorize", redirect("/login"))
+                .on("GET", ORIGIN + "/login", html("<form></form>"));
+
+        follow(SameOriginRedirects.carryingCookies(server.oauth(), 3, List.of(
+                new SessionCookie("scoped", "1", "/authorize"), new SessionCookie("site", "2", "/"))));
+
+        assertThat(server.sentTo(ORIGIN + "/authorize")).singleElement()
+                .satisfies(request -> assertThat(request.headerValue("Cookie")).isEqualTo("scoped=1; site=2"));
+        assertThat(server.sentTo(ORIGIN + "/login")).singleElement()
+                .satisfies(request -> assertThat(request.headerValue("Cookie")).isEqualTo("site=2"));
+    }
+
+    @Test
+    void theMostSpecificPathWinsWhenTwoJarCookiesShareAName() {
+        server.on("GET", ORIGIN + "/authorize", html("<form></form>"));
+
+        follow(SameOriginRedirects.carryingCookies(server.oauth(), 3, List.of(
+                new SessionCookie("sid", "root", "/"), new SessionCookie("sid", "scoped", "/authorize"))));
+
+        assertThat(server.sentTo(ORIGIN + "/authorize")).singleElement()
+                .satisfies(request -> assertThat(request.headerValue("Cookie")).isEqualTo("sid=scoped"));
     }
 }

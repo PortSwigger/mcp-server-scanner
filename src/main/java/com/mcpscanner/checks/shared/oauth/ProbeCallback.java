@@ -5,13 +5,24 @@ import java.util.Optional;
 
 public final class ProbeCallback {
 
-    private static final String LOOPBACK = "http://127.0.0.1:49151/";
+    private static final String LOOPBACK_HOST = "127.0.0.1";
+    private static final String IPV6_LOOPBACK_HOST = "[::1]";
+    private static final int LOOPBACK_PORT = 49151;
 
     private ProbeCallback() {
     }
 
     public static URI loopback(String path) {
-        return URI.create(LOOPBACK + path);
+        return loopback(LOOPBACK_HOST, path);
+    }
+
+    public static URI loopback(String host, String path) {
+        return URI.create("http://" + host + ":" + LOOPBACK_PORT + "/" + path);
+    }
+
+    public static String hostUnrelatedTo(Optional<URI> scannerRedirect) {
+        return scannerRedirect.map(URI::getHost).filter(host -> !LOOPBACK_HOST.equals(host)).isPresent()
+                ? LOOPBACK_HOST : IPV6_LOOPBACK_HOST;
     }
 
     public static boolean matches(URI callback, URI location) {

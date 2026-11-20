@@ -41,7 +41,8 @@ public final class ProbeClientRegistrar {
         Registration registration = JsonDocument.fromSuccessfulResponse(response)
                 .flatMap(document -> document.text("client_id")
                         .map(clientId -> new RegisteredClient(clientId, document.texts("redirect_uris"), response,
-                                ClientManagement.from(document, registrationEndpoint))))
+                                ClientManagement.from(document, registrationEndpoint),
+                                ClientSecret.issuedIn(document))))
                 .map(Registration::accepted)
                 .orElseGet(() -> Registration.inconclusive(exchange));
         registration.client().ifPresent(registered::add);

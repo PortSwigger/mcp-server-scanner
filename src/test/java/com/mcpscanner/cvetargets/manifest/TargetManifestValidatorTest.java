@@ -58,6 +58,31 @@ class TargetManifestValidatorTest {
     }
 
     @Test
+    void acceptsABenignArmThatDeclaresAnIssueItAlsoReports() {
+        TargetManifest manifest = valid();
+        TargetArm declared = benignArm(ExpectedOutcome.of(Outcome.SILENT).alsoReporting(List.of("Open registration")));
+
+        assertThat(validator.violations(target(copy(manifest, List.of(), true, manifest.auth(), List.of(declared)))))
+                .isEmpty();
+    }
+
+    @Test
+    void refusesADeclaredIssueThatIsBlankOrTheArmsOwnIssueName() {
+        TargetManifest manifest = valid();
+        TargetArm blank = arm(ManifestTransport.STREAMABLE_HTTP, "/mcp",
+                ExpectedOutcome.of(Outcome.FIRE).alsoReporting(List.of(" ")));
+        TargetArm ownName = arm(ManifestTransport.STREAMABLE_HTTP, "/mcp",
+                new ExpectedOutcome(Outcome.FIRE, "Open registration", null, null, null, null)
+                        .alsoReporting(List.of("Open registration")));
+
+        assertThat(validator.violations(target(copy(manifest, manifest.advisories(), false, manifest.auth(),
+                List.of(blank))))).containsExactly("arm vulnerable: alsoReports names must not be blank");
+        assertThat(validator.violations(target(copy(manifest, manifest.advisories(), false, manifest.auth(),
+                List.of(ownName))))).containsExactly(
+                "arm vulnerable: alsoReports must not repeat expected.issueName Open registration");
+    }
+
+    @Test
     void refusesABenignArmScopedToOneIssueNameOrExactSeverity() {
         TargetManifest manifest = valid();
         TargetArm exactSeverity = benignArm(new ExpectedOutcome(Outcome.SILENT, null, AuditIssueSeverity.MEDIUM, null, null, null));

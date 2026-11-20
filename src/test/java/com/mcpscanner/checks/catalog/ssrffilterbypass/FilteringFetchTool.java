@@ -8,11 +8,11 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mcpscanner.testutil.SpentRateLimitQuota;
 import com.mcpscanner.checks.shared.collaborator.FakeCollaborator;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -56,8 +56,9 @@ final class FilteringFetchTool {
     private Predicate<String> refusedHost = host -> true;
     private Predicate<String> parsedHost = host -> true;
     private Function<String, String> connectFailure = url -> "fetch failed";
-    private Optional<String> loopbackPage = Optional.empty();
+    private Predicate<String> servesHomePage = host -> false;
     private int answeredBeforeRateLimit = Integer.MAX_VALUE;
+    private int quotaSpentFrom = Integer.MAX_VALUE;
     private IntFunction<String> refusal = received -> REFUSAL;
 
     FakeCollaborator collaborator() {
@@ -80,7 +81,11 @@ final class FilteringFetchTool {
     }
 
     FilteringFetchTool servingTheHomePageOnLoopback() {
-        this.loopbackPage = Optional.of(HOME_PAGE);
+        return servingTheHomePageOnLoopbackTo(host -> true);
+    }
+
+    FilteringFetchTool servingTheHomePageOnLoopbackTo(Predicate<String> hosts) {
+        this.servesHomePage = hosts;
         return this;
     }
 
@@ -91,6 +96,11 @@ final class FilteringFetchTool {
 
     FilteringFetchTool rateLimitingAfter(int answered) {
         this.answeredBeforeRateLimit = answered;
+        return this;
+    }
+
+    FilteringFetchTool spendingQuotaFrom(int request) {
+        this.quotaSpentFrom = request;
         return this;
     }
 
@@ -110,17 +120,25 @@ final class FilteringFetchTool {
 
     private HttpRequestResponse respond(HttpRequest request) {
         received.add(request);
+        return HttpRequestResponse.httpRequestResponse(request, HttpResponse.httpResponse(withQuota(answer(request))));
+    }
+
+    private String withQuota(String response) {
+        if (received.size() < quotaSpentFrom) {
+            return response;
+        }
+        return SpentRateLimitQuota.addedTo(response);
+    }
+
+    private String answer(HttpRequest request) {
         if (received.size() > answeredBeforeRateLimit) {
-            return HttpRequestResponse.httpRequestResponse(request,
-                    HttpResponse.httpResponse("HTTP/1.1 429 Too Many Requests\r\n\r\nslow down"));
+            return "HTTP/1.1 429 Too Many Requests\r\n\r\nslow down";
         }
         if (request.method().equals("GET")) {
-            return HttpRequestResponse.httpRequestResponse(request, HttpResponse.httpResponse(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n" + HOME_PAGE));
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n" + HOME_PAGE;
         }
         Matcher url = URL_ARGUMENT.matcher(request.bodyToString());
-        String text = url.find() ? fetch(url.group(1), url.group(2)) : "no url";
-        return HttpRequestResponse.httpRequestResponse(request, toolResult(text));
+        return toolResult(url.find() ? fetch(url.group(1), url.group(2)) : "no url");
     }
 
     private String fetch(String url, String host) {
@@ -136,16 +154,15 @@ final class FilteringFetchTool {
             collaborator.interact(FakeCollaborator.payload(payload.group(1)), InteractionType.HTTP);
             return "ok";
         }
-        return loopbackPage.orElseGet(() -> connectFailure.apply(url));
+        return servesHomePage.test(host) ? HOME_PAGE : connectFailure.apply(url);
     }
 
-    private static HttpResponse toolResult(String text) {
+    private static String toolResult(String text) {
         ObjectNode content = JsonNodeFactory.instance.objectNode().put("type", "text").put("text", text);
         ObjectNode result = JsonNodeFactory.instance.objectNode().put("isError", !text.equals("ok"));
         result.putArray("content").add(content);
         ObjectNode reply = JsonNodeFactory.instance.objectNode().put("jsonrpc", "2.0").put("id", 6);
         reply.set("result", result);
-        return HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
-                + reply);
+        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + reply;
     }
 }

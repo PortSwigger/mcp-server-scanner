@@ -1,10 +1,8 @@
 package com.mcpscanner.checks.catalog.downstreamrouteescape;
 
-import burp.api.montoya.http.message.HttpRequestResponse;
-
 import java.util.List;
 
-record RouteDifference(RouteProbe probe, List<HttpRequestResponse> evidence) {
+record RouteDifference(RouteProbe probe, List<SentValue> evidence, String controlSignature) {
 
     RouteDifference {
         evidence = List.copyOf(evidence);

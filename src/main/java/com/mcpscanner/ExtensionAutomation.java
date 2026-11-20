@@ -28,6 +28,6 @@ interface ExtensionAutomation {
 
     default void startIfSwitchedOn(MontoyaApi api, ExtensionFoundation foundation, ConnectionWiring connection,
                                    ScanningWiring scanning, AccessWiring access, MiningWiring mining,
-                                   ShutdownHooks shutdown) {
+                                   SignedInConsentWiring signedInConsent, ShutdownHooks shutdown) {
     }
 }

@@ -14,11 +14,11 @@ final class StatementControl {
     boolean runsWholeStatements(ProbeField field) {
         StatementCanary canary = canaries.statement();
         ValueSlot whole = ValueSlot.whole(field.original());
-        Probe statement = field.send(whole, canary.statement());
+        Probe statement = field.confirm(whole, canary.statement());
         if (computes(statement, canary)) {
             return true;
         }
-        Probe broken = field.send(whole, canary.brokenStatement());
+        Probe broken = field.confirm(whole, canary.brokenStatement());
         return statement.shape().differsFrom(broken.shape());
     }
 

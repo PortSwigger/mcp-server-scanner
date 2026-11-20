@@ -205,7 +205,7 @@ class StreamingRefusalDeliveryTest {
         AuditIssue issue = AuditIssue.auditIssue("Name", "Detail", "Fix", URL,
                 AuditIssueSeverity.HIGH, AuditIssueConfidence.FIRM, "Background", "Fix background",
                 AuditIssueSeverity.HIGH, List.of(proxied));
-        UpstreamExchanges exchanges = candidate -> candidate == proxied ? Optional.of(upstream) : Optional.empty();
+        UpstreamExchanges exchanges = candidate -> candidate == proxied ? List.of(upstream) : List.of();
         McpCheckAdapter<?> adapter = new RequestCheckAdapter(AdapterFixtures.settingsAllowing(true), eventLog,
                 new ProbingRequestCheck(Probe.ON_CHECK_THREAD, List.of(issue)), CheckInstrumentation.NONE,
                 exchanges, ConnectionReuse.withoutLocalAnswers(), destination, new ScanNotices());

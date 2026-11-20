@@ -2,14 +2,12 @@ package com.mcpscanner.client;
 
 import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.logging.McpEventLog;
+import com.mcpscanner.mcp.LoopbackHosts;
 
 import java.net.URI;
-import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 final class ConnectionPreconditions {
-
-    private static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "::1", "[::1]");
 
     private final BooleanSupplier sseProxyAvailable;
     private final McpEventLog eventLog;
@@ -44,15 +42,11 @@ final class ConnectionPreconditions {
         } catch (IllegalArgumentException e) {
             return;
         }
-        if (!"http".equalsIgnoreCase(uri.getScheme()) || isLoopback(uri.getHost())) {
+        if (!"http".equalsIgnoreCase(uri.getScheme()) || LoopbackHosts.isNamedLoopback(uri.getHost())) {
             return;
         }
         throw new IllegalStateException(
                 "Refusing to send authentication credentials over cleartext http:// to " + uri.getHost()
                         + " — use https:// or connect to a loopback host");
-    }
-
-    private static boolean isLoopback(String host) {
-        return host != null && LOOPBACK_HOSTS.contains(host.toLowerCase());
     }
 }

@@ -17,10 +17,12 @@ final class LeadFinder {
     private static final int CLOSED_PORT = 1;
 
     private final FieldSender sender;
+    private final FieldSender confirmer;
     private final int targetPort;
 
-    LeadFinder(FieldSender sender, int targetPort) {
+    LeadFinder(FieldSender sender, FieldSender confirmer, int targetPort) {
         this.sender = sender;
+        this.confirmer = confirmer;
         this.targetPort = targetPort;
     }
 
@@ -36,7 +38,7 @@ final class LeadFinder {
 
     private LeadSearch leadsPast(Refusal refusal) {
         List<Lead> leads = Lead.find(sender, targetPort, refusal);
-        if (!leads.isEmpty() && !refusal.repeatedBy(sender.send(refusal.evidence().probe()))) {
+        if (!leads.isEmpty() && !refusal.repeatedBy(confirmer.send(refusal.evidence().probe()))) {
             return LeadSearch.stopped(REFUSAL_CHANGED);
         }
         return LeadSearch.found(refusal, leads);

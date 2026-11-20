@@ -16,7 +16,7 @@ class InteractionRecorderTest {
     private static final RecorderIdentity SHARED = RecorderIdentity.SHARED;
     private static final String RUN_BUILT_IMAGE = "docker run --detach --rm --name " + SHARED.container()
             + " --network " + SharedTargetNetwork.NAME + " --ip " + SHARED.address() + " --env RECORDER_ADDRESS="
-            + SHARED.address() + " --publish 127.0.0.1::8080 sha256:built";
+            + SHARED.address() + " --volume " + SHARED.trustVolume() + ":/trust --publish 127.0.0.1::8080 sha256:built";
 
     private final List<String> log = new ArrayList<>();
 

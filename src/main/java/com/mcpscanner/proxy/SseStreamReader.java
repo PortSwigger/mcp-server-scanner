@@ -1,15 +1,19 @@
 package com.mcpscanner.proxy;
 
 import com.mcpscanner.logging.McpEventLog;
+import com.mcpscanner.mcp.RawSseFrame;
+import com.mcpscanner.mcp.SseFrame;
+import com.mcpscanner.mcp.SseFrameReader;
 import com.mcpscanner.mcp.SseResponseParser;
 
-import java.io.BufferedReader;
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.function.Predicate;
 
 final class SseStreamReader {
+
+    private static final String MESSAGE_EVENT = "message";
 
     private final String threadName;
     private final SseReplyDispatcher replies;
@@ -17,7 +21,8 @@ final class SseStreamReader {
     private final SessionLifecycle lifecycle;
     private final Predicate<String> serverRequests;
     private InputStream stream;
-    private BufferedReader reader;
+    private InputStream buffered;
+    private SseFrameReader endpointFrames;
     private Thread thread;
     private volatile boolean running;
 
@@ -30,23 +35,24 @@ final class SseStreamReader {
         this.serverRequests = serverRequests;
     }
 
-    synchronized BufferedReader adopt(InputStream body) throws IOException {
+    synchronized SseFrameReader adopt(InputStream body) throws IOException {
         if (!lifecycle.isOpen()) {
             body.close();
             throw new IOException("Session closed");
         }
         stream = body;
-        reader = new BufferedReader(new InputStreamReader(body));
-        return reader;
+        buffered = new BufferedInputStream(body);
+        endpointFrames = SseResponseParser.endpointFrames(buffered);
+        return endpointFrames;
     }
 
     synchronized void start() throws IOException {
-        if (!lifecycle.isOpen()) {
+        if (!lifecycle.isOpen() || endpointFrames == null) {
             throw new IOException("Session closed");
         }
         replies.reopen();
         running = true;
-        BufferedReader source = reader;
+        SseFrameReader source = SseResponseParser.eventFrames(endpointFrames.remainder(buffered));
         thread = new Thread(() -> readLoop(source), threadName);
         thread.setDaemon(true);
         thread.start();
@@ -72,24 +78,30 @@ final class SseStreamReader {
             stopped.interrupt();
         }
         thread = null;
-        reader = null;
+        buffered = null;
+        endpointFrames = null;
         return stopped;
     }
 
-    private void readLoop(BufferedReader source) {
+    private void readLoop(SseFrameReader source) {
         try {
             while (running) {
-                SseResponseParser.SseEvent event = SseResponseParser.readNextEvent(source);
-                if (event == null) {
+                RawSseFrame frame = SseResponseParser.nextDataFrame(source);
+                if (frame == null) {
                     exit(new IOException("SSE stream closed"));
                     return;
                 }
-                if ("message".equals(event.eventType()) && !serverRequests.test(event.data())) {
-                    replies.dispatch(event.data());
-                }
+                dispatch(frame);
             }
         } catch (Throwable e) {
             exit(e);
+        }
+    }
+
+    private void dispatch(RawSseFrame frame) {
+        SseFrame event = SseFrame.parse(frame.text());
+        if (MESSAGE_EVENT.equals(event.eventType()) && !serverRequests.test(event.data())) {
+            replies.dispatch(new StreamedReply(event.data(), frame.bytes()));
         }
     }
 

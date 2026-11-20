@@ -3,6 +3,7 @@ package com.mcpscanner.client;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
+import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +43,7 @@ class JdkProtocolHttpTransportTest {
 
     @BeforeEach
     void startServer() throws IOException {
+        MontoyaTestFactory.install();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.setExecutor(executor);
         server.createContext("/mcp", this::echo);
@@ -110,6 +112,31 @@ class JdkProtocolHttpTransportTest {
         assertThatThrownBy(() -> transport().send(
                 new ProtocolHttpRequest(uri("/stalled"), "POST", Map.of(), "{}"), Duration.ofMillis(200)))
                 .isInstanceOf(HttpTimeoutException.class);
+    }
+
+    @Test
+    void attachesTheRequestAsTheClientWroteItAndTheResponseCompletedByTheBodyAsRead() throws Exception {
+        ProtocolHttpResponse response = transport().send(new ProtocolHttpRequest(uri("/mcp"), "POST",
+                Map.of("Authorization", "Bearer real-token", "Content-Type", "application/json"), "{}"), TIMEOUT);
+        byte[] body;
+        try (InputStream read = response.body()) {
+            body = read.readAllBytes();
+        }
+
+        String request = text(response.wire().orElseThrow().evidence().request().toByteArray().getBytes());
+        String reply = text(response.wire().orElseThrow().withBodyAsRead(body, false).evidence().response()
+                .toByteArray().getBytes());
+
+        assertThat(request).startsWith("POST /mcp HTTP/1.1\r\nContent-Length: 2\r\nHost: 127.0.0.1:")
+                .contains("\r\nUser-Agent: Java-http-client/", "\r\nAuthorization: Bearer real-token\r\n")
+                .endsWith("\r\n\r\n{}");
+        assertThat(reply).startsWith("HTTP/1.1 201 Created\r\n")
+                .contains("\r\nx-multi: one\r\nx-multi: two\r\n", "content-length: 7\r\n")
+                .endsWith("\r\n\r\necho:{}");
+    }
+
+    private static String text(byte[] bytes) {
+        return new String(bytes, StandardCharsets.ISO_8859_1);
     }
 
     private JdkProtocolHttpTransport transport() {

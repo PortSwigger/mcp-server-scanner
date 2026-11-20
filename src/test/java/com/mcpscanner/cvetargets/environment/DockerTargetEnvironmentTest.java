@@ -1,5 +1,7 @@
 package com.mcpscanner.cvetargets.environment;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mcpscanner.cvetargets.manifest.LoadedTarget;
 import com.mcpscanner.cvetargets.manifest.ManifestFixtures;
 import org.junit.jupiter.api.Test;
@@ -10,10 +12,13 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static com.mcpscanner.cvetargets.environment.ScriptedCommandRunner.result;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 class DockerTargetEnvironmentTest {
 
@@ -23,9 +28,14 @@ class DockerTargetEnvironmentTest {
             + "\"vulnerable\":{\"depends_on\":{\"vulnerable-db\":{\"condition\":\"service_healthy\"}}},"
             + "\"vulnerable-db\":{},\"fixed\":{\"depends_on\":{\"fixed-db\":{}}},\"fixed-db\":{}},"
             + "\"networks\":{\"default\":{\"name\":\"mcp-cve-targets\",\"external\":true}}}";
+    private static final String SHARED_HELPER_CONFIG = "{\"services\":{"
+            + "\"vulnerable\":{\"depends_on\":{\"target-db\":{}}},\"fixed\":{\"depends_on\":{\"target-db\":{}}},"
+            + "\"target-db\":{}},\"networks\":{\"default\":{\"name\":\"mcp-cve-targets\",\"external\":true}}}";
 
     @TempDir
     Path root;
+
+    private final List<String> waiting = new CopyOnWriteArrayList<>();
 
     @Test
     void startsTheArmServiceOnTheSharedNetworkAndPublishesItsEndpoint() {
@@ -60,6 +70,62 @@ class DockerTargetEnvironmentTest {
         assertThat(environment).matches("CVET_HOST_PORT=\\d+\\nCVET_DOWNLOADS=.+/\\.cache/downloads\\n");
         int port = Integer.parseInt(environment.lines().findFirst().orElseThrow().substring("CVET_HOST_PORT=".length()));
         assertThat(port).isBetween(1, 65535);
+    }
+
+    private static final String RECORDER_RESOLVED_CONFIG = "{\"services\":{"
+            + "\"vulnerable\":{\"dns\":[\"10.250.77.250\"]},\"helper\":{}},"
+            + "\"networks\":{\"default\":{\"name\":\"mcp-cve-targets\",\"external\":true}}}";
+
+    @Test
+    void makesServicesThatResolveThroughTheRecorderTrustItsHttpsCertificate() throws Exception {
+        ScriptedCommandRunner runner = new ScriptedCommandRunner()
+                .on("config --format json", 0, RECORDER_RESOLVED_CONFIG)
+                .on("port vulnerable 8000", 0, "127.0.0.1:1\n");
+
+        new DockerTargetEnvironment(runner).start(target(), target().manifest().arms().get(0)).close();
+
+        List<String> up = runner.commands.stream().filter(command -> String.join(" ", command).contains(" up "))
+                .findFirst().orElseThrow();
+        assertThat(up).containsSubsequence("--file", target().composeFile().toString(), "--file");
+        JsonNode override = new ObjectMapper().readTree(
+                Path.of(up.get(up.lastIndexOf("--file") + 1)).toFile());
+        assertThat(override.path("services").fieldNames()).toIterable().containsExactly("vulnerable");
+        JsonNode vulnerable = override.path("services").path("vulnerable");
+        assertThat(vulnerable.path("environment").path("SSL_CERT_FILE").asText())
+                .isEqualTo("/etc/cvet-recorder-trust/bundle.pem");
+        assertThat(vulnerable.path("environment").fieldNames()).toIterable()
+                .contains("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+                .doesNotContain("NODE_EXTRA_CA_CERTS");
+        assertThat(vulnerable.path("environment").path("NODE_OPTIONS").asText()).isEqualTo("--use-openssl-ca");
+        String trustVolume = RecorderIdentity.SHARED.trustVolume();
+        assertThat(vulnerable.path("volumes").get(0).path("source").asText()).isEqualTo(trustVolume);
+        assertThat(vulnerable.path("volumes").get(0).path("read_only").asBoolean()).isTrue();
+        assertThat(override.path("volumes").path(trustVolume).path("external").asBoolean()).isTrue();
+    }
+
+    @Test
+    void leavesTargetsUnchangedWhenTheRecorderPublishedNoTrustBundle() {
+        ScriptedCommandRunner runner = new ScriptedCommandRunner()
+                .on("config --format json", 0, RECORDER_RESOLVED_CONFIG)
+                .on("volume inspect " + RecorderIdentity.SHARED.trustVolume(), 1, "no such volume")
+                .on("port vulnerable 8000", 0, "127.0.0.1:1\n");
+
+        new DockerTargetEnvironment(runner).start(target(), target().manifest().arms().get(0)).close();
+
+        assertThat(runner.commands).filteredOn(command -> command.contains("compose"))
+                .allSatisfy(command -> assertThat(command).containsOnlyOnce("--file"));
+    }
+
+    @Test
+    void leavesTargetsThatDoNotResolveThroughTheRecorderUnchanged() {
+        ScriptedCommandRunner runner = new ScriptedCommandRunner()
+                .on("config --format json", 0, SHARED_NETWORK_CONFIG)
+                .on("port vulnerable 8000", 0, "127.0.0.1:1\n");
+
+        new DockerTargetEnvironment(runner).start(target(), target().manifest().arms().get(0)).close();
+
+        assertThat(runner.commands).filteredOn(command -> command.contains("compose"))
+                .allSatisfy(command -> assertThat(command).containsOnlyOnce("--file"));
     }
 
     @Test
@@ -181,6 +247,65 @@ class DockerTargetEnvironmentTest {
                 .hasMessageContaining("service name vulnerable-db is already on the shared network mcp-cve-targets,"
                         + " held by container acc-copy-vulnerable-db-1 (project acc-copy)");
         assertThat(runner.subcommands()).noneMatch(command -> command.contains(" up "));
+    }
+
+    @Test
+    void anArmSharingAHelperWithARunningArmOfThisRunWaitsForItsTeardownBeforeStarting() {
+        ScriptedCommandRunner runner = new ScriptedCommandRunner()
+                .on("config --format json", 0, SHARED_HELPER_CONFIG)
+                .on("port vulnerable 8000", 0, "127.0.0.1:1\n")
+                .on("port fixed 8000", 0, "127.0.0.1:2\n");
+        DockerTargetEnvironment environment = new DockerTargetEnvironment(runner, new HelperNameLeases(waiting::add));
+        LoadedTarget target = target();
+        RunningArm vulnerable = environment.start(target, target.manifest().arms().get(0));
+
+        CompletableFuture<RunningArm> fixed =
+                CompletableFuture.supplyAsync(() -> environment.start(target, target.manifest().arms().get(1)));
+        await().atMost(Duration.ofSeconds(5)).until(() -> !waiting.isEmpty());
+        assertThat(fixed).isNotDone();
+        assertThat(runner.subcommands()).noneMatch(command -> command.contains("up --detach --build fixed"));
+
+        vulnerable.close();
+
+        await().atMost(Duration.ofSeconds(5)).until(fixed::isDone);
+        fixed.join().close();
+        assertThat(runner.subcommands()).anyMatch(command -> command.contains("up --detach --build fixed"));
+    }
+
+    @Test
+    void reservingAnArmHoldsItsHelperNamesUntilTheReservationCloses() {
+        ScriptedCommandRunner runner = new ScriptedCommandRunner()
+                .on("config --format json", 0, SHARED_HELPER_CONFIG)
+                .on("port fixed 8000", 0, "127.0.0.1:2\n");
+        DockerTargetEnvironment environment = new DockerTargetEnvironment(runner, new HelperNameLeases(waiting::add));
+        LoadedTarget target = target();
+        ReservedArm vulnerable = environment.reserve(target, target.manifest().arms().get(0));
+
+        CompletableFuture<RunningArm> fixed =
+                CompletableFuture.supplyAsync(() -> environment.start(target, target.manifest().arms().get(1)));
+        await().atMost(Duration.ofSeconds(5)).until(() -> !waiting.isEmpty());
+        assertThat(fixed).isNotDone();
+
+        vulnerable.close();
+
+        await().atMost(Duration.ofSeconds(5)).until(fixed::isDone);
+        fixed.join().close();
+    }
+
+    @Test
+    void releasesTheHelperNamesWhenStartingFails() {
+        ScriptedCommandRunner runner = new ScriptedCommandRunner()
+                .on("config --format json", 0, SHARED_HELPER_CONFIG)
+                .on("up --detach --build vulnerable", 1, "build failed")
+                .on("port fixed 8000", 0, "127.0.0.1:2\n");
+        DockerTargetEnvironment environment = new DockerTargetEnvironment(runner);
+        LoadedTarget target = target();
+        assertThatThrownBy(() -> environment.start(target, target.manifest().arms().get(0)))
+                .hasMessageContaining("build failed");
+
+        assertThat(CompletableFuture.supplyAsync(() -> environment.start(target, target.manifest().arms().get(1))))
+                .succeedsWithin(Duration.ofSeconds(5))
+                .satisfies(RunningArm::close);
     }
 
     @Test

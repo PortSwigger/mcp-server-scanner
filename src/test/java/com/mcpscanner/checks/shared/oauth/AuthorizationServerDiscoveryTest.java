@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 import static com.mcpscanner.checks.shared.oauth.ScriptedHttp.json;
@@ -42,7 +43,7 @@ class AuthorizationServerDiscoveryTest {
 
         assertThat(discover(base(null))).contains(new AuthorizationServer(URI.create("https://as.example/t1"),
                 AUTHORIZE, Optional.of(REGISTER), Optional.of(TOKEN), Optional.of(REVOKE), URI.create(MCP),
-                Optional.of("read write")));
+                Optional.of("read write"), List.of()));
     }
 
     @Test
@@ -66,7 +67,7 @@ class AuthorizationServerDiscoveryTest {
                 + "\"registration_endpoint\":\"" + REGISTER + "\"}"));
 
         assertThat(discover(base(null))).contains(new AuthorizationServer(URI.create("https://mcp.example"),
-                AUTHORIZE, Optional.of(REGISTER), Optional.empty(), Optional.empty(), URI.create(MCP), Optional.empty()));
+                AUTHORIZE, Optional.of(REGISTER), Optional.empty(), Optional.empty(), URI.create(MCP), Optional.empty(), List.of()));
     }
 
     @Test
@@ -112,6 +113,15 @@ class AuthorizationServerDiscoveryTest {
 
         assertThat(discover(base(null))).hasValueSatisfying(found ->
                 assertThat(found.registrationEndpoint()).isEmpty());
+    }
+
+    @Test
+    void readsTheScopesTheAuthorizationServerSupports() {
+        server.on("GET", ORIGIN_METADATA, json(200, "{\"authorization_endpoint\":\"" + AUTHORIZE + "\","
+                + "\"scopes_supported\":[\"read\",\"write\",\"admin\"]}"));
+
+        assertThat(discover(base(null))).map(AuthorizationServer::scopesSupported)
+                .contains(List.of("read", "write", "admin"));
     }
 
     @Test

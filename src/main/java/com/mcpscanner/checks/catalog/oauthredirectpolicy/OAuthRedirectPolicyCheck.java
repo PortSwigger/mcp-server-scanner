@@ -31,6 +31,7 @@ public final class OAuthRedirectPolicyCheck implements HostCheck {
             new OAuthRedirectPolicyIssues(OAuthRedirectPolicyDescriptor.DESCRIPTOR);
     private final List<RedirectProbe> probes = List.of(
             new LoopbackCallbackProbe(),
+            new AnyHostRegistrationProbe(),
             new HttpsCallbackProbe(),
             new ScriptSchemeRegistrationProbe(),
             new WildcardHostProbe());
@@ -102,7 +103,8 @@ public final class OAuthRedirectPolicyCheck implements HostCheck {
                     "dynamic client registration did not register a loopback callback"));
         }
         if (clients.https().isEmpty()) {
-            skips.notRun("the https-callback, script-scheme and wildcard redirect tests for " + mcpEndpoint,
+            skips.notRun("the any-host registration, https-callback, script-scheme and wildcard redirect tests for "
+                    + mcpEndpoint,
                     SkipReason.prerequisiteMissing("dynamic client registration did not register an https callback"));
         }
     }

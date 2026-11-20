@@ -120,6 +120,14 @@ class BaselineEquivalenceOracleTest {
         }
 
         @Test
+        void aChunkFramedPlainTextRefusalCountsAsRefused() {
+            refusedControls = List.of(Exchanges.exchange(Exchanges.TOOL_CALL, 200,
+                    "text/plain\r\nTransfer-Encoding: chunked", "5\r\nUnaut\r\n7\r\nhorized\r\n0\r\n\r\n"));
+
+            assertThat(judge(toolCall(200, SECRET_RESULT))).isEqualTo(OracleVerdict.HIT);
+        }
+
+        @Test
         void authStatusesAndAuthRefusalBodiesCountAsRefused() {
             refusedControls = List.of(
                     toolCall(404, "Not Found"),

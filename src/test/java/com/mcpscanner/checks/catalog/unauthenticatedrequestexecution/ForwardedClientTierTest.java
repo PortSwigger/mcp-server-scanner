@@ -58,9 +58,19 @@ class ForwardedClientTierTest {
         assertThat(finding.variantName()).isEqualTo("forwarded-for");
         assertThat(finding.variantValue()).isEqualTo("127.0.0.1");
         assertThat(finding.evidence()).extracting(exchange -> exchange.request().headerValue("X-Forwarded-For"))
-                .containsExactly(null, "203.0.113.7", "127.0.0.1", "203.0.113.7");
+                .containsExactly(null, "203.0.113.7", "127.0.0.1");
         assertThat(server.received()).allMatch(request ->
                 SimulatedMcpServer.VALID_TOKEN.equals(request.headerValue("Authorization")));
+    }
+
+    @Test
+    void theRepeatedExternalAddressRefusalIsStillSentAfterTheAdmittedRequest() {
+        SimulatedMcpServer server = SimulatedMcpServer.enforcing().restrictingSourceAddressesTrusting("X-Forwarded-For");
+
+        assertThat(judge(server, toolCall())).isPresent();
+
+        assertThat(server.received()).extracting(request -> request.headerValue("X-Forwarded-For"))
+                .containsExactly(null, "203.0.113.7", "127.0.0.1", "203.0.113.7");
     }
 
     @Test

@@ -33,6 +33,7 @@ final class ConsentServer {
     static final String AUTHORIZE = ORIGIN + "/authorize";
     static final String REGISTER = ORIGIN + "/register";
     static final String TOKEN = ORIGIN + "/token";
+    static final String CLIENT_SECRET = "probe-secret";
     static final String REVOKE = ORIGIN + "/revoke";
     static final String CLIENT_URI = ORIGIN + "/register/probe-client";
     static final String CLIENT_ID = "probe-client";
@@ -56,6 +57,7 @@ final class ConsentServer {
     private boolean sessionsRequired;
     private boolean cachedTokenResponses;
     private final AtomicInteger issuedSessions = new AtomicInteger();
+    private Predicate<HttpRequest> clientAuthenticated = request -> true;
 
     ConsentServer() {
         http.on("GET", ORIGIN + "/.well-known/oauth-authorization-server", json(200, "{\"issuer\":\"" + ORIGIN + "\","
@@ -99,6 +101,15 @@ final class ConsentServer {
         http.on("POST", REGISTER, request -> request.bodyToString().contains("refresh_token")
                 ? accepting.apply(request)
                 : json(400, "{\"error\":\"invalid_client_metadata\"}"));
+        return this;
+    }
+
+    ConsentServer issueConfidentialClients(String tokenEndpointAuthMethod, Predicate<HttpRequest> authenticated) {
+        http.on("POST", REGISTER, request -> json(201, "{\"client_id\":\"" + CLIENT_ID + "\","
+                + "\"client_secret\":\"" + CLIENT_SECRET + "\",\"token_endpoint_auth_method\":\""
+                + tokenEndpointAuthMethod + "\",\"redirect_uris\":"
+                + request.bodyToString().replaceAll(".*\"redirect_uris\":(\\[[^]]*]).*", "$1") + "}"));
+        clientAuthenticated = authenticated;
         return this;
     }
 
@@ -168,6 +179,9 @@ final class ConsentServer {
     }
 
     private String redeem(HttpRequest request) {
+        if (!clientAuthenticated.test(request)) {
+            return json(401, "{\"error\":\"invalid_client\",\"error_description\":\"client_secret is required\"}");
+        }
         Map<String, String> form = form(request.bodyToString());
         String code = form.getOrDefault("code", "");
         int redemption = redemptions.computeIfAbsent(code, ignored -> new AtomicInteger()).incrementAndGet();

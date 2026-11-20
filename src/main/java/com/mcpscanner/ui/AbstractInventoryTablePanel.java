@@ -31,20 +31,20 @@ public abstract class AbstractInventoryTablePanel<T, D extends InventoryDetailPa
     private final ListStatusBanner listStatus;
 
     protected AbstractInventoryTablePanel() {
-        this(List.of());
+        this(InventoryTicks.SCAN_SELECTION, List.of());
     }
 
-    protected AbstractInventoryTablePanel(List<JComponent> toolbarActions) {
+    protected AbstractInventoryTablePanel(InventoryTicks ticks, List<JComponent> toolbarActions) {
         super(new BorderLayout());
         this.model = createTableModel();
         this.table = SteadySelectionColours.install(new JTable(model));
-        this.detail = createDetailPanel();
+        this.detail = createDetailPanel(ticks);
         this.rowPopup = new InventoryRowPopup<>(table, model);
         this.listStatus = new ListStatusBanner(listMethod());
         this.view = new InventoryView(table, model, detail.component(), itemNoun() + "s",
-                filterSubject(), toolbarActions);
+                filterSubject(), toolbarActions, ticks);
 
-        configureSelectColumn();
+        configureSelectColumn(ticks);
         SwingHtmlGuard.guardStringColumns(table);
         table.getSelectionModel().addListSelectionListener(this::onSelectionChanged);
 
@@ -54,7 +54,7 @@ public abstract class AbstractInventoryTablePanel<T, D extends InventoryDetailPa
 
     protected abstract SelectableInventoryTableModel<T> createTableModel();
 
-    protected abstract D createDetailPanel();
+    protected abstract D createDetailPanel(InventoryTicks ticks);
 
     protected abstract String itemNoun();
 
@@ -126,10 +126,14 @@ public abstract class AbstractInventoryTablePanel<T, D extends InventoryDetailPa
         return rowPopup.menuForViewRow(viewRow);
     }
 
-    private void configureSelectColumn() {
+    private void configureSelectColumn(InventoryTicks ticks) {
         TableColumn selectColumn = table.getColumnModel().getColumn(SelectableInventoryTableModel.SELECT_COLUMN_INDEX);
-        selectColumn.setMaxWidth(SELECT_COLUMN_WIDTH);
-        selectColumn.setCellRenderer(new TickableCellRenderer(table.getDefaultRenderer(Boolean.class)));
+        if (ticks.shown()) {
+            selectColumn.setMaxWidth(SELECT_COLUMN_WIDTH);
+            selectColumn.setCellRenderer(new TickableCellRenderer(table.getDefaultRenderer(Boolean.class)));
+        } else {
+            table.removeColumn(selectColumn);
+        }
     }
 
     private void onSelectionChanged(ListSelectionEvent event) {

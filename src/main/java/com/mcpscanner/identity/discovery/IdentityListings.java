@@ -1,5 +1,6 @@
 package com.mcpscanner.identity.discovery;
 
+import burp.api.montoya.http.message.HttpRequestResponse;
 import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.checks.api.PrincipalListings;
 
@@ -20,6 +21,13 @@ public final class IdentityListings implements PrincipalListings {
         return outcome(principalId)
                 .filter(DiscoveryOutcome.Listed.class::isInstance)
                 .map(listed -> ((DiscoveryOutcome.Listed) listed).listing().lists(item));
+    }
+
+    public List<HttpRequestResponse> toolsListExchanges(String principalId) {
+        return outcome(principalId)
+                .filter(DiscoveryOutcome.Listed.class::isInstance)
+                .map(listed -> ((DiscoveryOutcome.Listed) listed).toolsList())
+                .orElse(List.of());
     }
 
     public synchronized Optional<DiscoveryOutcome> outcome(String principalId) {

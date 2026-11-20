@@ -41,17 +41,17 @@ final class OAuthRedirectPolicyIssues {
     }
 
     private static String detail(FindingKind kind, List<RedirectFinding> findings) {
-        return new IssueBodyBuilder()
+        IssueBodyBuilder body = new IssueBodyBuilder()
                 .paragraph(kind.observation())
-                .findings(findings.stream().map(RedirectFinding::summary).toList())
-                .paragraph(kind.limits())
-                .build();
+                .findings(findings.stream().map(RedirectFinding::summary).toList());
+        if (findings.size() > 1) {
+            body.paragraph("The attached exchanges show only the first case listed: " + findings.get(0).summary()
+                    + ".");
+        }
+        return body.paragraph(kind.limits()).build();
     }
 
     private static List<HttpRequestResponse> evidence(List<RedirectFinding> findings) {
-        return findings.stream()
-                .flatMap(finding -> finding.evidence().stream())
-                .distinct()
-                .toList();
+        return findings.get(0).evidence();
     }
 }

@@ -78,6 +78,8 @@ class FindingClassifierTest {
         read(payload("parent", PayloadTier.TRAVERSAL, TargetFile.GIT_CONFIG), String.format(FILE_TEXT, GIT_JSON));
 
         assertThat(types()).containsExactly(FindingKind.RESTRICTED_PATH_BYPASS, FindingKind.REPOSITORY_METADATA_READ);
+        assertThat(classifier.classify(new ContentTrial(attempts, reads)))
+                .extracting(finding -> finding.evidence().size()).containsExactly(3, 2);
     }
 
     @Test
@@ -103,8 +105,51 @@ class FindingClassifierTest {
         }
 
         Finding finding = classifier.classify(new ContentTrial(attempts, reads)).get(0);
+        assertThat(finding.observations()).hasSize(4);
+        assertThat(finding.evidence()).hasSize(2);
+    }
+
+    @Test
+    void attachesTheCandidateAndItsMissingFileTwinButNotTheMissingDirectoryTwin() {
+        ConfirmedRead read = read(payload("a", PayloadTier.ABSOLUTE, TargetFile.PASSWD),
+                String.format(FILE_TEXT, PASSWD_JSON));
+
+        Finding finding = classifier.classify(new ContentTrial(attempts, reads)).get(0);
+
+        assertThat(finding.evidence()).containsExactly(read.candidate().exchange(), read.controls().get(0).exchange());
+        assertThat(finding.observations()).containsExactly(
+                "a/ABSOLUTE/passwd returned the Unix password file; the matched missing paths "
+                        + read.controls().get(0).sentValue() + " and " + read.controls().get(1).sentValue()
+                        + " did not.",
+                "Attached requests, in order: a/ABSOLUTE/passwd, " + read.controls().get(0).sentValue() + ".");
+    }
+
+    @Test
+    void attachesTheRejectedLiteralBeforeTheCandidateOfABypass() {
+        TraversalAttempt literal = result(payload("p", PayloadTier.TRAVERSAL, TargetFile.PASSWD), DENIED);
+        ConfirmedRead read = read(payload("p", PayloadTier.EVASION, TargetFile.PASSWD),
+                String.format(FILE_TEXT, PASSWD_JSON));
+
+        Finding finding = classifier.classify(new ContentTrial(attempts, reads)).get(0);
+
+        assertThat(finding.evidence()).containsExactly(literal.exchange(), read.candidate().exchange(),
+                read.controls().get(0).exchange());
+        assertThat(finding.observations()).last().isEqualTo("Attached requests, in order: p/TRAVERSAL/passwd, "
+                + "p/EVASION/passwd, " + read.controls().get(0).sentValue() + ".");
+    }
+
+    @Test
+    void attachesOnlyTheFirstPartialReadAndNamesTheOthersInText() {
+        String partial = String.format(FILE_TEXT, "\\\"root:x:0:0\\\" bad");
+        ConfirmedRead first = read(payload("a", PayloadTier.TRAVERSAL, TargetFile.PASSWD), partial);
+        read(payload("b", PayloadTier.TRAVERSAL, TargetFile.PASSWD), partial);
+
+        Finding finding = classifier.classify(new ContentTrial(attempts, reads)).get(0);
+
+        assertThat(finding.kind()).isEqualTo(FindingKind.PARTIAL_FILE_DISCLOSURE);
+        assertThat(finding.evidence()).containsExactly(first.candidate().exchange(), first.controls().get(0).exchange());
         assertThat(finding.observations()).hasSize(3);
-        assertThat(finding.evidence()).hasSize(6);
+        assertThat(finding.observations().get(1)).startsWith("b/TRAVERSAL/passwd returned the opening bytes");
     }
 
     @Test
@@ -133,10 +178,15 @@ class FindingClassifierTest {
         return result;
     }
 
-    private void read(TraversalPayload payload, String body) {
+    private ConfirmedRead read(TraversalPayload payload, String body) {
         TraversalAttempt candidate = result(payload, body);
-        TraversalAttempt control = new TraversalAttempt(payload, payload.missingFileTwin("m"), mock(HttpRequestResponse.class),
-                TraversalReplyTest.reply(MISSING));
-        reads.add(new ConfirmedRead(candidate, List.of(control)));
+        ConfirmedRead read = new ConfirmedRead(candidate, List.of(missing(payload, payload.missingFileTwin("m")),
+                missing(payload, payload.missingDirectoryTwin("m"))));
+        reads.add(read);
+        return read;
+    }
+
+    private static TraversalAttempt missing(TraversalPayload payload, String value) {
+        return new TraversalAttempt(payload, value, mock(HttpRequestResponse.class), TraversalReplyTest.reply(MISSING));
     }
 }

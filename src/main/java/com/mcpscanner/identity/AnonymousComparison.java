@@ -1,17 +1,13 @@
 package com.mcpscanner.identity;
 
-public final class AnonymousComparison {
+import com.mcpscanner.checks.api.crossidentity.SyntheticLabel;
 
-    public static final String NAME = "Anonymous";
+public final class AnonymousComparison {
 
     private AnonymousComparison() {
     }
 
     public static String alongside(String comparedUsers) {
-        return comparedUsers + " + " + NAME;
-    }
-
-    public static int comparedIdentities(int comparedUsers) {
-        return comparedUsers == 0 ? 0 : comparedUsers + 1;
+        return SyntheticLabel.alongside(comparedUsers);
     }
 }

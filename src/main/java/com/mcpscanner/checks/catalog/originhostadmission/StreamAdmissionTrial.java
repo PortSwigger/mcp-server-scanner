@@ -47,8 +47,7 @@ final class StreamAdmissionTrial {
         Optional<StreamOpening> finalControl = open.apply(sameOrigin);
         TrialOutcome.TrialStatus status = finalControl.filter(StreamOpening::opened).isPresent()
                 ? TrialOutcome.TrialStatus.CONCLUSIVE : TrialOutcome.TrialStatus.CONTROL_DIVERGED;
-        return new TrialOutcome(status, control.exchange(), observations,
-                finalControl.map(StreamOpening::exchange));
+        return new TrialOutcome(status, control.exchange(), observations);
     }
 
     private UnaryOperator<HttpRequest> shapedBy(AdmissionProbe probe) {

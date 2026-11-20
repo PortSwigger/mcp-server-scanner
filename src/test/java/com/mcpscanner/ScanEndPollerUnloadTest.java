@@ -1,6 +1,8 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.BurpSuiteEdition;
 import burp.api.montoya.extension.Extension;
 import burp.api.montoya.extension.ExtensionUnloadingHandler;
 import burp.api.montoya.http.Http;
@@ -55,8 +57,10 @@ class ScanEndPollerUnloadTest {
         MontoyaTestFactory.install();
         RenderedRequests.capture();
         when(api.extension()).thenReturn(extension);
+        when(api.burpSuite().version().edition()).thenReturn(BurpSuiteEdition.PROFESSIONAL);
         when(api.http()).thenReturn(http);
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         when(api.scanner().startAudit(any())).thenReturn(audit);
         when(api.siteMap().issues()).thenReturn(List.of());
         when(audit.statusMessage()).thenReturn("scanning");

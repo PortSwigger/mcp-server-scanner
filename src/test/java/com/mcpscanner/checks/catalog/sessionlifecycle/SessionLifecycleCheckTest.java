@@ -79,6 +79,62 @@ class SessionLifecycleCheckTest {
     }
 
     @Test
+    void guessableIdEvidenceIsTwoConsecutiveHandshakesWithTheIssuedIdsHighlighted() {
+        AtomicInteger counter = new AtomicInteger();
+        server.ids = () -> String.format("session-%06d", counter.incrementAndGet());
+
+        assertThat(audit()).singleElement().satisfies(issue -> {
+            assertThat(issue.requestResponses()).hasSize(2);
+            assertThat(issue.requestResponses()).extracting(SessionLifecycleCheckTest::highlightedResponseText)
+                    .containsExactly("session-000001", "session-000002");
+        });
+    }
+
+    @Test
+    void bareUseEvidenceIsTheHandshakesThenTheAnonymousInitializeTheUnissuedIdAndTheSessionOnlyPing() {
+        AtomicInteger counter = new AtomicInteger();
+        server.ids = () -> String.format("session-%06d", counter.incrementAndGet());
+        server.requiresToken = true;
+        server.sessionIsCredential = true;
+
+        assertThat(audit()).singleElement().satisfies(issue -> {
+            List<HttpRequestResponse> evidence = issue.requestResponses();
+            assertThat(evidence).hasSize(5);
+            assertThat(evidence.get(2).request().bodyToString()).contains("\"initialize\"");
+            assertThat(evidence.get(2).request().hasHeader("Authorization")).isFalse();
+            assertThat(server.neverIssued(sessionIdOf(evidence.get(3)))).isTrue();
+            assertThat(server.issued).contains(sessionIdOf(evidence.get(4)));
+            assertThat(evidence.get(4).request().hasHeader("Authorization")).isFalse();
+            assertThat(evidence.get(4).response().statusCode()).isEqualTo((short) 200);
+            assertThat(issue.detail()).contains("same ping without a session ID was refused");
+        });
+    }
+
+    @Test
+    void deletedReuseEvidenceIsTheUnissuedIdRefusalTheDeleteThePingAfterAndTheStreamPair() {
+        server.deleteIgnored = true;
+
+        assertThat(audit()).singleElement().satisfies(issue -> {
+            List<HttpRequestResponse> evidence = issue.requestResponses();
+            assertThat(evidence).extracting(exchange -> exchange.request().method())
+                    .containsExactly("POST", "DELETE", "POST", "GET", "GET");
+            assertThat(server.neverIssued(sessionIdOf(evidence.get(0)))).isTrue();
+            assertThat(server.neverIssued(sessionIdOf(evidence.get(4)))).isTrue();
+            assertThat(issue.detail()).doesNotContain("confirmed it answered ping");
+        });
+    }
+
+    private static String sessionIdOf(HttpRequestResponse exchange) {
+        return exchange.request().headers().stream().filter(header -> header.name().equalsIgnoreCase("Mcp-Session-Id"))
+                .map(header -> header.value()).findFirst().orElse(null);
+    }
+
+    private static String highlightedResponseText(HttpRequestResponse exchange) {
+        var range = exchange.responseMarkers().get(0).range();
+        return exchange.response().toByteArray().toString().substring(range.startIndexInclusive(), range.endIndexExclusive());
+    }
+
+    @Test
     void guessableIdsThatAuthenticateWithoutCredentialsAreHighSeverity() {
         AtomicInteger counter = new AtomicInteger();
         server.ids = () -> String.format("session-%06d", counter.incrementAndGet());

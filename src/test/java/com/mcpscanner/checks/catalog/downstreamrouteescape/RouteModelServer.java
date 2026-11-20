@@ -12,6 +12,8 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 final class RouteModelServer implements AutoCloseable {
@@ -20,6 +22,8 @@ final class RouteModelServer implements AutoCloseable {
 
     private static final String NOT_FOUND = "{\"error\":\"not found\"}";
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String WORKING_DIRECTORY = "/srv/app";
+    private static final Set<String> LOCAL_DIRECTORIES = Set.of("/", "/etc", "/usr", "/srv", "/srv/app");
 
     private final PathBuilding pathBuilding;
     private final boolean unknownValueIsToolError;
@@ -69,10 +73,17 @@ final class RouteModelServer implements AutoCloseable {
         return switch (request.path("params").path("name").asText()) {
             case "get_item" -> item(api(downstreamPath(arguments.path("id").asText())));
             case "echo" -> text("you said " + arguments.path("text").asText());
+            case "commit_in" -> commitIn(arguments.path("directory").asText());
             case "normalize" -> text(URI.create(arguments.path("path").asText().replace("?", "")).normalize()
                     .getPath());
             default -> JSON.createObjectNode().put("isError", true);
         };
+    }
+
+    private static JsonNode commitIn(String directory) {
+        String resolved = Path.of(WORKING_DIRECTORY).resolve(directory).normalize().toString();
+        return text(LOCAL_DIRECTORIES.contains(resolved) ? "git add . && git commit -m update"
+                : "Error: Failed to get git changes: spawn git ENOENT");
     }
 
     private String downstreamPath(String id) {

@@ -5,7 +5,7 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 
 import java.util.Optional;
 
-record WholeCheckTrial(HostCheck check) implements HostTrial {
+public record WholeCheckTrial(HostCheck check) implements HostTrial {
 
     @Override
     public Optional<SkipReason> whyNotApplicable(HttpRequestResponse hostBaseRequestResponse) {

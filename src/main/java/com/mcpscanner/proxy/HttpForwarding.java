@@ -154,18 +154,11 @@ final class HttpForwarding implements ForwardingStrategy {
         McpRequests.Request framed = requests.framed(body);
         Map<String, String> headers = new HashMap<>(requests.sessionHttpHeaders());
         incoming.forEach((name, value) -> {
-            if (isForwardableOverSession(name)) headers.put(name, value);
+            if (ReservedHeaderPolicy.isForwardableOverSession(name)) headers.put(name, value);
         });
         var outgoing = new McpRequests.Request(framed.body(),
-                HttpForwardRequests.withOperationHeaders(headers, framed.headers()));
+                requests.operationHeaders(headers, framed.headers(), incoming));
         return scannerSession.prepareHttpOperation(outgoing);
-    }
-
-    private static boolean isForwardableOverSession(String name) {
-        return ReservedHeaderPolicy.isForwardable(name)
-                && !name.equalsIgnoreCase("Authorization")
-                && !name.equalsIgnoreCase(McpHeaders.PROTOCOL_VERSION)
-                && !name.equalsIgnoreCase(McpHeaders.SESSION_ID);
     }
 
     private ProxyResponse forwardUnmanaged(ProxyConnection connection, String body, Map<String, String> headers)

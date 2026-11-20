@@ -53,16 +53,16 @@ class HangingIndentLogTest {
     }
 
     @Test
-    void removingTheFirstLineKeepsTheRest() throws Exception {
+    void removingLinesKeepsTheRest() throws Exception {
         AtomicReference<String> text = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> {
             HangingIndentLog log = new HangingIndentLog(PREFIX.length());
             log.replaceAll("first\nsecond\n");
-            log.appendLine("third\n");
-            log.removeFirstLine();
+            log.appendLine("third\nfourth\n");
+            log.removeLines(1, 2);
             text.set(log.getText());
         });
-        assertThat(text.get().lines()).containsExactly("second", "third");
+        assertThat(text.get().lines()).containsExactly("first", "fourth");
     }
 
     private static void layOut(JScrollPane scroll, int width) {

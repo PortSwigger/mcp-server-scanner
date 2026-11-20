@@ -55,7 +55,7 @@ Settings are read from four layers. Later layers override earlier ones, and
 | List page size (forces cursors) | `--page-size N` | `MCP_TEST_PAGE_SIZE` | `3` |
 | `Mcp-Session-Id` policy | `--sessions required\|optional\|off` | `MCP_TEST_SESSIONS` | `required` |
 | Streamable HTTP reply format | `--response-mode json\|sse` | `MCP_TEST_RESPONSE_MODE` | `json` |
-| Consent at `/authorize` | `--consent prompt\|auto` | `MCP_TEST_CONSENT` | `prompt` |
+| Consent at `/authorize` (see **Signed-in consent modes**) | `--consent prompt\|auto\|signed-in-auto\|remember-by-name\|remember-by-redirect-host\|remember-by-client-id-prefix\|remember-ignores-scope\|remember-by-client` | `MCP_TEST_CONSENT` | `prompt` |
 | Issuer, audience and metadata base URL | `--public-url URL` | `MCP_TEST_PUBLIC_URL` | `http://HOST:PORT` |
 | Hosts that safe Origin/Host admission accepts | `--allowed-host H` (repeatable) | `MCP_TEST_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1` |
 | Sandbox base directory | `--files-dir DIR` | `MCP_TEST_FILES_DIR` | a new temp dir |
@@ -102,6 +102,7 @@ Each module lives at `src/mcp_test_server/vulns/<family>/<name>.py`.
 | `auth_session_credential` | Every guarded path and method | An `Mcp-Session-Id` that was once sent with a valid bearer token authenticates later requests without credentials | 401 challenge |
 | `auth_presence_only_credential` | Every guarded path and method | Any non-empty bearer token is accepted; only its presence is checked (the LiteLLM CVE-2026-59822 and meta-ads 1.0.109 shape) | 401 `invalid_token` challenge |
 | `auth_sibling_route` | `/message`, which serves the same Streamable HTTP handler as `/mcp` | Requests without credentials execute on `/message` while `/mcp` still challenges | 401 challenge on both |
+| `auth_unknown_token_service_account` | Bearer token lookup on every guarded path, and tools `list_users` and `delete_user` (`username`) | Any unrecognised bearer token resolves to a privileged `service-account` (admin) user: it is admitted, `tools/list` adds `list_users` and `delete_user`, and both succeed (the PraisonAI CVE-2026-34953 shape) | 401 `invalid_token` challenge for an unrecognised token |
 
 The bypass and presence-only modules only matter when `unauthenticated_execution=safe`; with it vulnerable every anonymous request executes anyway.
 
@@ -273,6 +274,28 @@ uv run mcp-test-server --default-mode safe --vuln cross_identity_object=vulnerab
   --vuln cross_identity_resource=vulnerable --vuln cross_identity_role=vulnerable \
   --vuln cross_identity_session=vulnerable
 ```
+
+#### Fabricated token as a service account
+
+`auth_unknown_token_service_account` is the PraisonAI CVE-2026-34953 shape: the token lookup
+falls back to a built-in admin `service-account` when a bearer token matches no user, instead of
+refusing it. The fallback is the last resort: a token that is a static user's, or that the JWT
+verifier accepts (including through an active `jwt_*` module), keeps its own identity, so a minted
+JWT never becomes the service account even with every module vulnerable. A missing token still
+gets 401. `delete_user` is listed only to admins (alice, and
+the fallback account). It never changes state: it answers `user <name> deleted` for a known user
+and `Error: user <name> not found` otherwise; a non-admin gets `Error: forbidden`.
+
+Configure the known user key `bob-token` (a member, whose listing never holds `list_users` or
+`delete_user`) in Check access, then:
+
+```bash
+uv run mcp-test-server --default-mode safe --vuln auth_unknown_token_service_account=vulnerable  # fires
+uv run mcp-test-server --default-mode safe --vuln auth_unknown_token_service_account=safe        # control
+```
+
+`--default-mode safe` keeps `unauthenticated_execution` and `auth_presence_only_credential` safe,
+so the only way a fabricated token gets in is the fallback.
 ### OAuth authorization server
 
 The discovery and key endpoints are:
@@ -289,12 +312,37 @@ The flow endpoints are:
 |---|---|
 | `POST /register` | Anonymous DCR. Gives a confidential client when `token_endpoint_auth_method` is not `none` |
 | `GET /authorize` | PKCE S256 required. Supports `response_mode=fragment`, `prompt=none` (→ `error=consent_required`) and RFC 9207 `iss` |
-| `POST /authorize/consent` | Approve or deny |
+| `POST /authorize/consent` | Approve or deny (signed-in modes: needs the session cookie, else 401) |
+| `GET /login`, `POST /login` | Sign-in form for the fixture user (signed-in modes) |
 | `POST /token` | `authorization_code` and `refresh_token`, with client auth by Basic or form |
 
 With `--consent auto`, `/authorize` redirects with a code straight away. Use it for
 redirect-policy code-delivery tests. With `prompt` (the default), it renders the
 consent page. Use that for reflection tests.
+
+### Signed-in consent modes
+
+The other consent modes put a signed-in user in front of `/authorize`, for the
+`oauth-authorization-consent` signed-in trial. `POST /login` with `username=test-user` and
+`password=test-user-password` sets the HttpOnly `mcp_test_session` cookie (and returns `303`
+to a local `next` path when one is given). `/authorize` without that cookie renders the
+sign-in page (`prompt=none` → `error=login_required`); with it, the user either gets a
+code straight away or the consent page, and an approval is remembered for that user.
+Codes and tokens carry the signed-in user as subject. In these modes DCR issues
+`<software_id>_<16 alphanumerics>` as `client_id` when the client sends `software_id`,
+and 32 hex characters otherwise.
+
+Each vulnerable mode replays one real keying bug; `remember-by-client` is the fixed twin
+of all of them.
+
+| Mode | Consent is skipped when | Models |
+|---|---|---|
+| `signed-in-auto` | always, for any client | Obot CVE-2026-101062 |
+| `remember-by-name` | the user approved a client with the same `client_name` and the requested scopes | PortSwigger lab "MCP OAuth account takeover via DCR" |
+| `remember-by-redirect-host` | the user approved a client whose redirect URI has the same host, and the requested scopes | |
+| `remember-by-client-id-prefix` | the user approved a client whose `client_id` has the same prefix (text before the last `_`), and the requested scopes | |
+| `remember-ignores-scope` | the user approved this `client_id`, for any scope | traQ CVE-2026-63198 |
+| `remember-by-client` (fixed) | the user approved this `client_id` for every requested scope | |
 
 Two clients are preconfigured:
 

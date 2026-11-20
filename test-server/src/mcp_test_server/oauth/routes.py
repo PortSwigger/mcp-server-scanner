@@ -11,12 +11,14 @@ from mcp_test_server.oauth.metadata import (
 )
 from mcp_test_server.oauth.registration import RegistrationEndpoint
 from mcp_test_server.oauth.server_context import AuthorizationServerContext
+from mcp_test_server.oauth.sign_in import LoginEndpoint
 from mcp_test_server.oauth.token_endpoint import TokenEndpoint
 
 
 def authorization_server_routes(context: AuthorizationServerContext) -> list[BaseRoute]:
     as_metadata = AuthorizationServerMetadata(context).handle
     pr_metadata = ProtectedResourceMetadata(context).handle
+    login = LoginEndpoint(context.sessions)
     return [
         Route("/.well-known/oauth-authorization-server", as_metadata),
         Route("/.well-known/openid-configuration", as_metadata),
@@ -28,4 +30,6 @@ def authorization_server_routes(context: AuthorizationServerContext) -> list[Bas
         Route("/authorize", AuthorizeEndpoint(context).handle, methods=["GET"]),
         Route("/authorize/consent", ConsentDecisionEndpoint(context).handle, methods=["POST"]),
         Route("/token", TokenEndpoint(context).handle, methods=["POST"]),
+        Route("/login", login.show, methods=["GET"]),
+        Route("/login", login.sign_in, methods=["POST"]),
     ]

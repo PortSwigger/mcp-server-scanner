@@ -78,9 +78,9 @@ class McpCheckAdapterTest {
     void logsStartedAndFinishMessagesOnSuccessfulRun() {
         adapterFor(DESCRIPTOR, List.of(mock(AuditIssue.class)), true).doCheck(base, null, http);
 
-        assertThat(infos()).hasSize(2);
-        assertThat(infos().get(0)).isEqualTo("Scan check: demo-active — started");
-        assertThat(infos().get(1)).startsWith("Scan check: demo-active — finished in ").endsWith("ms, 0 requests, 1 issue");
+        assertThat(messages()).hasSize(2);
+        assertThat(messages().get(0)).isEqualTo("Scan check: demo-active — started");
+        assertThat(messages().get(1)).startsWith("Scan check: demo-active — finished in ").endsWith("ms, 0 requests, 1 issue");
     }
 
     @Test
@@ -101,7 +101,7 @@ class McpCheckAdapterTest {
 
         new RequestCheckAdapter(AdapterFixtures.settingsAllowing(true), eventLog, sendingTwice).doCheck(base, null, http);
 
-        assertThat(infos().get(1)).matches("Scan check: demo-active — finished in \\d+ms, 2 requests, 0 issues");
+        assertThat(messages().get(1)).matches("Scan check: demo-active — finished in \\d+ms, 2 requests, 0 issues");
     }
 
     @Test
@@ -111,7 +111,7 @@ class McpCheckAdapterTest {
         new RequestCheckAdapter(AdapterFixtures.settingsAllowing(true), eventLog, reportingFromAWorker)
                 .doCheck(base, null, http);
 
-        assertThat(infos().get(1)).matches("Scan check: demo-active — finished in \\d+ms, 3 requests, 0 issues");
+        assertThat(messages().get(1)).matches("Scan check: demo-active — finished in \\d+ms, 3 requests, 0 issues");
     }
 
     @Test
@@ -120,8 +120,8 @@ class McpCheckAdapterTest {
         adapterFor(DESCRIPTOR, List.of(mock(AuditIssue.class), mock(AuditIssue.class)), true)
                 .doCheck(base, null, http);
 
-        assertThat(infos().get(1)).endsWith("ms, 0 requests, 0 issues");
-        assertThat(infos().get(3)).endsWith("ms, 0 requests, 2 issues");
+        assertThat(messages().get(1)).endsWith("ms, 0 requests, 0 issues");
+        assertThat(messages().get(3)).endsWith("ms, 0 requests, 2 issues");
     }
 
     @Test
@@ -213,7 +213,7 @@ class McpCheckAdapterTest {
                 reported.addAll(issues);
             }
         };
-        UpstreamExchanges exchanges = candidate -> candidate == proxied ? Optional.of(upstream) : Optional.empty();
+        UpstreamExchanges exchanges = candidate -> candidate == proxied ? List.of(upstream) : List.of();
 
         var result = new RequestCheckAdapter(AdapterFixtures.settingsAllowing(true), eventLog,
                 new RecordingChecks.Request(DESCRIPTOR, List.of(issue)), instrumentation, exchanges)
@@ -262,9 +262,9 @@ class McpCheckAdapterTest {
         boolean[] closed = {false};
         UpstreamExchanges exchanges = new UpstreamExchanges() {
             @Override
-            public Optional<HttpRequestResponse> upstreamOf(HttpRequestResponse proxied) {
+            public List<HttpRequestResponse> upstreamOf(HttpRequestResponse proxied) {
                 heldWhileRunning.add(!closed[0] && held.containsAll(List.of(base, probeReply)));
-                return Optional.empty();
+                return List.of();
             }
 
             @Override
@@ -334,6 +334,10 @@ class McpCheckAdapterTest {
     private RequestCheckAdapter adapterFor(CheckDescriptor descriptor, List<AuditIssue> issues, boolean enabled) {
         return new RequestCheckAdapter(AdapterFixtures.settingsAllowing(enabled), eventLog,
                 new RecordingChecks.Request(descriptor, issues));
+    }
+
+    private List<String> messages() {
+        return eventLog.snapshot().stream().map(McpEventLog.LogEntry::message).toList();
     }
 
     private List<String> infos() {

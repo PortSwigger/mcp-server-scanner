@@ -8,6 +8,7 @@ public final class OAuthAuthorizationConsentCheckFactory implements CheckFactory
 
     @Override
     public McpCheck create(CheckServices services) {
-        return new OAuthAuthorizationConsentCheck(services.eventLog(), services.authStrategy());
+        return new OAuthAuthorizationConsentCheck(services.eventLog(), services.authStrategy(),
+                services.signedInConsent());
     }
 }

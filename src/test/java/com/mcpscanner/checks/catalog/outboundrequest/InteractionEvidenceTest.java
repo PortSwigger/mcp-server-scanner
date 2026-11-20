@@ -16,6 +16,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class InteractionEvidenceTest {
 
+    private static final ProbeUserInfo NO_USER_INFO = ProbeUserInfo.of("http://a.oob.test");
+
     @BeforeEach
     void installMontoya() {
         MontoyaTestFactory.install();
@@ -46,13 +48,25 @@ class InteractionEvidenceTest {
 
         InteractionEvidence evidence = new InteractionEvidence(List.of(http(headers)));
 
-        assertThat(evidence.forwardedCredentialHeaders())
+        assertThat(evidence.forwardedCredentialHeaders(NO_USER_INFO))
                 .containsExactly("Authorization", "Private-Token", "X-Api-Key", "Cookie");
     }
 
     @Test
     void findsNoCredentialsInLookups() {
-        assertThat(new InteractionEvidence(List.of(dns())).forwardedCredentialHeaders()).isEmpty();
+        assertThat(new InteractionEvidence(List.of(dns())).forwardedCredentialHeaders(NO_USER_INFO)).isEmpty();
+    }
+
+    @Test
+    void leavesOutTheBasicAuthorizationTheProbesOwnUserInfoProduced() {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Authorization", "Basic ZXhhbXBsZS5jb206");
+        headers.put("X-Api-Key", "k");
+
+        InteractionEvidence evidence = new InteractionEvidence(List.of(http(headers)));
+
+        assertThat(evidence.forwardedCredentialHeaders(ProbeUserInfo.of("https://example.com@a.oob.test/")))
+                .containsExactly("X-Api-Key");
     }
 
     private static Interaction dns() {

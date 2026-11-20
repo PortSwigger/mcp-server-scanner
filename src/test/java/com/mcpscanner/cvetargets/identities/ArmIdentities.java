@@ -6,6 +6,7 @@ import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.checks.api.PrincipalListings;
 import com.mcpscanner.checks.api.PrincipalRole;
 import com.mcpscanner.checks.api.PrincipalRoster;
+import com.mcpscanner.checks.api.SignedInConsent;
 import com.mcpscanner.cvetargets.manifest.IdentitySetup;
 import com.mcpscanner.cvetargets.manifest.LoadedTarget;
 import com.mcpscanner.cvetargets.manifest.OtherIdentity;
@@ -27,7 +28,9 @@ public final class ArmIdentities implements Supplier<PrincipalRoster>, Principal
     private final AuthStrategy primaryAuth;
     private final IdentityScripts scripts;
     private final RecordingAccessLedger ledger;
+    private final ArmSignedInConsent signedInConsent = new ArmSignedInConsent();
     private volatile Map<String, ProvisionedIdentity> provisioned = Map.of();
+    private volatile ProvisionedSignedInSession signedInSession;
     private volatile ArmSetupReport report;
 
     public ArmIdentities(LoadedTarget target, String armName, AuthStrategy primaryAuth, IdentityScripts scripts) {
@@ -43,13 +46,46 @@ public final class ArmIdentities implements Supplier<PrincipalRoster>, Principal
     }
 
     public void provision(URI endpoint, Duration timeout) {
+        provisionIdentities(endpoint, timeout);
+        provisionSignedInSession(endpoint, timeout);
+    }
+
+    public SignedInConsent signedInConsent() {
+        return signedInSessionDeclared() ? signedInConsent : SignedInConsent.OPTED_OUT;
+    }
+
+    public Optional<ProvisionedSignedInSession> signedInSession() {
+        return Optional.ofNullable(signedInSession);
+    }
+
+    private void provisionIdentities(URI endpoint, Duration timeout) {
         if (setup().provision() == null) {
             return;
         }
         provisioned = Map.copyOf(scripts.provision().run(target, endpoint, timeout));
-        if (primaryAuth instanceof ProvisionedCredential credential) {
-            credential.provide(provisionedFor(Principal.PRIMARY_ID).headers());
+        providePrimaryHeaders(provisionedFor(Principal.PRIMARY_ID).headers());
+    }
+
+    private void provisionSignedInSession(URI endpoint, Duration timeout) {
+        if (!signedInSessionDeclared()) {
+            return;
         }
+        ProvisionedSignedInSession session = scripts.signedIn().run(target, endpoint, timeout);
+        signedInSession = session;
+        signedInConsent.provide(endpoint, session);
+        if (!session.headers().isEmpty()) {
+            providePrimaryHeaders(session.headers());
+        }
+    }
+
+    private void providePrimaryHeaders(Map<String, String> headers) {
+        if (primaryAuth instanceof ProvisionedCredential credential) {
+            credential.provide(headers);
+        }
+    }
+
+    private boolean signedInSessionDeclared() {
+        return target != null && target.manifest().signedInSession().declared();
     }
 
     public void bind(URI endpoint) {

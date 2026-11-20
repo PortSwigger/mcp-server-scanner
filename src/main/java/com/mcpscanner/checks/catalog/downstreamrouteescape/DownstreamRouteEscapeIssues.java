@@ -4,6 +4,7 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import com.mcpscanner.checks.api.CheckDescriptor;
+import com.mcpscanner.checks.shared.evidence.PayloadHighlights;
 import com.mcpscanner.checks.issue.IssueBodyBuilder;
 import com.mcpscanner.checks.issue.IssueMetadataRenderer;
 
@@ -31,34 +32,52 @@ final class DownstreamRouteEscapeIssues {
     }
 
     AuditIssue issueFor(HttpRequestResponse base, AuditInsertionPoint insertionPoint, RouteDifference difference) {
-        return AuditIssue.auditIssue(descriptor.issueName(), detail(base, insertionPoint, difference.probe()),
+        return AuditIssue.auditIssue(descriptor.issueName(), detail(base, insertionPoint, difference),
                 REMEDIATION,
                 base.request().url(), descriptor.headlineSeverity(), descriptor.headlineConfidence(),
                 IssueMetadataRenderer.background(descriptor.issueBackground(), descriptor.cwes(),
                         descriptor.references()),
-                null, descriptor.headlineSeverity(), evidence(base, difference));
+                null, descriptor.headlineSeverity(), evidence(base, insertionPoint, difference));
     }
 
-    private static String detail(HttpRequestResponse base, AuditInsertionPoint insertionPoint, RouteProbe probe) {
+    private static String detail(HttpRequestResponse base, AuditInsertionPoint insertionPoint,
+                                 RouteDifference difference) {
+        RouteProbe probe = difference.probe();
         return new IssueBodyBuilder()
                 .paragraph("Request: " + CallSubject.of(base.request().bodyToString()))
                 .paragraph("Insertion point: " + insertionPoint.name())
                 .paragraph("The path traversal values " + quoted(probe.traversals()) + " returned the same "
-                        + "successful result each time. That result differed, repeatably, from the result for the "
-                        + "matched non-traversal values " + quoted(probe.controls()) + ".")
+                        + "successful result each time, and again when " + quoted(first(probe.traversals()))
+                        + " was repeated. That result differed from the result for the matched non-traversal values "
+                        + quoted(probe.controls()) + ", which agreed with each other and again when "
+                        + quoted(first(probe.controls())) + " was repeated.")
+                .paragraph(attachedValues(probe))
                 .paragraph(EVIDENCE_SCOPE)
                 .paragraph(FOLLOW_UP)
                 .build();
+    }
+
+    private static String attachedValues(RouteProbe probe) {
+        String contrasts = probe.contrasts().isEmpty() ? ""
+                : ", and the current-segment value " + quoted(probe.contrasts()) + " whose result also differed";
+        return "The attached requests show the traversal value " + quoted(first(probe.traversals()))
+                + " and the non-traversal value " + quoted(first(probe.controls())) + contrasts + ".";
+    }
+
+    private static List<String> first(List<String> values) {
+        return values.subList(0, 1);
     }
 
     private static String quoted(List<String> values) {
         return values.stream().distinct().map(value -> "\"" + value + "\"").collect(Collectors.joining(", "));
     }
 
-    private static List<HttpRequestResponse> evidence(HttpRequestResponse base, RouteDifference difference) {
+    private static List<HttpRequestResponse> evidence(HttpRequestResponse base, AuditInsertionPoint insertionPoint,
+                                                      RouteDifference difference) {
         List<HttpRequestResponse> evidence = new ArrayList<>();
         evidence.add(base);
-        evidence.addAll(difference.evidence());
+        difference.evidence().forEach(sent ->
+                evidence.add(PayloadHighlights.ofPayload(sent.exchange(), insertionPoint, sent.value())));
         return evidence;
     }
 }

@@ -19,13 +19,15 @@ public final class AccessMatrix {
     private final Supplier<PrincipalRoster> roster;
     private final Supplier<Map<String, DiscoveryOutcome>> listings;
     private final AccessExpectations expectations;
+    private final List<Principal> synthetic;
     private final AccessOutcomes outcomes = new AccessOutcomes();
     private final AccessRowFactory rows;
     private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     public AccessMatrix(Supplier<PrincipalRoster> roster, Supplier<Map<String, DiscoveryOutcome>> listings,
-                        AccessExpectations expectations) {
+                        AccessExpectations expectations, List<Principal> synthetic) {
         this.roster = roster;
+        this.synthetic = List.copyOf(synthetic);
         this.listings = listings;
         this.expectations = expectations;
         this.rows = new AccessRowFactory(expectations, outcomes);
@@ -34,8 +36,8 @@ public final class AccessMatrix {
     public AccessSnapshot snapshot() {
         List<Principal> principals = principals();
         Map<String, DiscoveryOutcome> discovered = listings.get();
-        List<AccessRow> built = new CatalogUnion(principals, discovered).items().stream()
-                .map(item -> rows.row(item, principals))
+        List<AccessRow> built = new CatalogUnion(principals, synthetic, discovered).items().stream()
+                .map(item -> rows.row(item, principals, synthetic))
                 .toList();
         return new AccessSnapshot(discovered.get(Principal.PRIMARY_ID) instanceof DiscoveryOutcome.Listed,
                 principals, built);
@@ -43,7 +45,8 @@ public final class AccessMatrix {
 
     public Optional<AccessRow> row(AccessItemKey item) {
         List<Principal> principals = principals();
-        return new CatalogUnion(principals, listings.get()).find(item).map(listed -> rows.row(listed, principals));
+        return new CatalogUnion(principals, synthetic, listings.get()).find(item)
+                .map(listed -> rows.row(listed, principals, synthetic));
     }
 
     public AccessExpectation expectationFor(AccessItemKey item) {

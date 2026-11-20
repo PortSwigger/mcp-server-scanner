@@ -14,6 +14,7 @@ import com.mcpscanner.client.RedirectPolicy;
 import com.mcpscanner.client.StaleConnectionResendingTransport;
 import com.mcpscanner.client.TransportType;
 import com.mcpscanner.scan.ScanConnection;
+import burp.api.montoya.http.HttpService;
 import fi.iki.elonen.NanoHTTPD;
 
 import java.net.URI;
@@ -104,6 +105,10 @@ public class SseProxyServer extends NanoHTTPD {
         return getListeningPort();
     }
 
+    public HttpService service() {
+        return HttpService.httpService(LOOPBACK_HOST, port(), false);
+    }
+
     public LoopbackRoutingKey routingKey() {
         return routingKey;
     }
@@ -185,7 +190,7 @@ public class SseProxyServer extends NanoHTTPD {
                     idRewriter.restoreId(Objects.requireNonNullElse(forwarded.body(), ""), request.rewrittenBody(),
                             request.scannerBody()));
             forwarded.headers().forEach(response::addHeader);
-            recording.keep(capture, request.rewrittenBody())
+            recording.keep(capture, request.scannerBody(), request.rewrittenBody())
                     .ifPresent(id -> response.addHeader(ScannerSentinels.EXCHANGE_HEADER, id));
             return response;
         } catch (Exception e) {

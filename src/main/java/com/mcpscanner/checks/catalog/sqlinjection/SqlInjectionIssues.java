@@ -56,9 +56,9 @@ final class SqlInjectionIssues {
         if (finding.confidence() == AuditIssueConfidence.TENTATIVE) {
             body.paragraph(TENTATIVE_NOTE);
         }
-        return body.paragraph("The requests and responses are, in order: the baseline, each technique's equivalent "
-                        + "rewrite and falsifier, then three confirmation rounds each holding the baseline value resent "
-                        + "and the first SQL-specific technique repeated with a fresh token.")
+        return body.paragraph("The requests and responses are, in order: the baseline, the SQL-specific rewrite that "
+                        + "returned the baseline's reply, and its falsifier, which changed the reply. Every listed "
+                        + "technique and three confirmation rounds gave the same result.")
                 .build();
     }
 

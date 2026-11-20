@@ -1,5 +1,6 @@
 package com.mcpscanner.checks.catalog.downstreamrouteescape;
 
+import burp.api.montoya.http.message.HttpRequestResponse;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -13,26 +14,40 @@ class RouteDifferentialTest {
             List.of(".../", "..././", ".../mcp/../"), List.of());
     private static final RouteProbe BARE = new RouteProbe(List.of("..", ".."), List.of("...", "...."), List.of("."));
 
-    private final RouteDifferential differential = new RouteDifferential(new ReplySignature(new PayloadMask()),
-            new RejectionWording());
+    private static final ReplySignature SIGNATURES = new ReplySignature(new PayloadMask());
+
+    private final RouteDifferential differential = new RouteDifferential(SIGNATURES,
+            new AcceptedReply(SIGNATURES, new RejectionWording()));
 
     @Test
     void stableTraversalResultThatDiffersFromStableControlsIsADifference() {
         ScriptedSender sender = new ScriptedSender(RouteDifferentialTest::router);
 
-        Optional<RouteDifference> difference = differential.run(PROBE, sender);
+        Optional<RouteDifference> difference = run(PROBE, sender);
 
         assertThat(difference).isPresent();
         assertThat(difference.get().probe()).isEqualTo(PROBE);
-        assertThat(difference.get().evidence()).hasSize(7);
         assertThat(sender.sent).containsExactly("../", ".././", ".../", "..././", ".../mcp/../", "../", ".../");
+        assertThat(difference.get().evidence()).extracting(SentValue::value).containsExactly("../", ".../");
+    }
+
+    @Test
+    void evidenceHoldsTheFirstTraversalAndControlExchangesNotTheirRepeats() {
+        HttpRequestResponse traversal = Replies.toolText("{\"service\":\"index\"}");
+        HttpRequestResponse control = Replies.toolText("{\"error\":\"not found\"}");
+        ScriptedSender sender = new ScriptedSender(RouteDifferentialTest::router)
+                .then("../", traversal).then(".../", control);
+
+        RouteDifference difference = run(PROBE, sender).orElseThrow();
+
+        assertThat(difference.evidence()).extracting(SentValue::exchange).containsExactly(traversal, control);
     }
 
     @Test
     void traversalToolErrorStopsAfterTheFirstRequest() {
         ScriptedSender sender = new ScriptedSender(value -> Replies.toolError("invalid id"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
         assertThat(sender.sent).containsExactly("../");
     }
 
@@ -41,7 +56,7 @@ class RouteDifferentialTest {
         ScriptedSender sender = new ScriptedSender(RouteDifferentialTest::router)
                 .then(".././", Replies.toolText("{\"other\":true}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
         assertThat(sender.sent).containsExactly("../", ".././");
     }
 
@@ -49,7 +64,7 @@ class RouteDifferentialTest {
     void controlsMatchingTheTraversalAreNotADifference() {
         ScriptedSender sender = new ScriptedSender(value -> Replies.toolText("{\"error\":\"not found\"}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
     @Test
@@ -58,7 +73,7 @@ class RouteDifferentialTest {
                 ? "{\"status\":\"ok\",\"responseTimeMs\":7}"
                 : "{\"status\":\"ok\",\"responseTimeMs\":5}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
     @Test
@@ -68,7 +83,7 @@ class RouteDifferentialTest {
             default -> Replies.toolText("{\"error\":\"not found\"}");
         });
 
-        assertThat(differential.run(BARE, sender)).isEmpty();
+        assertThat(run(BARE, sender)).isEmpty();
     }
 
     @Test
@@ -77,7 +92,7 @@ class RouteDifferentialTest {
                 ? "{\"ok\":false,\"message\":\"Request failed with status code 404\"}"
                 : "{\"ok\":false,\"message\":\"Request failed with status code 403\"}"));
 
-        assertThat(differential.run(PROBE, sender)).isPresent();
+        assertThat(run(PROBE, sender)).isPresent();
     }
 
     @Test
@@ -85,7 +100,7 @@ class RouteDifferentialTest {
         ScriptedSender sender = new ScriptedSender(RouteDifferentialTest::router)
                 .then("..././", Replies.toolText("{\"error\":\"rate limited\"}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
     @Test
@@ -94,7 +109,7 @@ class RouteDifferentialTest {
                 .then("../", Replies.toolText("{\"service\":\"index\"}"))
                 .then("../", Replies.toolText("{\"service\":\"index\",\"t\":2}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
     @Test
@@ -103,7 +118,7 @@ class RouteDifferentialTest {
                 .then(".../", Replies.toolText("{\"error\":\"not found\"}"))
                 .then(".../", Replies.toolText("{\"error\":\"timeout\"}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
     @Test
@@ -111,7 +126,7 @@ class RouteDifferentialTest {
         ScriptedSender sender = new ScriptedSender(value -> value.startsWith("...")
                 ? Replies.toolError("no such license") : Replies.toolText("{\"service\":\"index\"}"));
 
-        assertThat(differential.run(PROBE, sender)).isPresent();
+        assertThat(run(PROBE, sender)).isPresent();
     }
 
     @Test
@@ -120,7 +135,7 @@ class RouteDifferentialTest {
                 ? Replies.toolText("{\"status\":404,\"detail\":\"missing\"}")
                 : Replies.toolText("{\"status\":400,\"detail\":\"Invalid identifier: path separators are not allowed\"}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
     @Test
@@ -129,7 +144,7 @@ class RouteDifferentialTest {
                 ? Replies.toolText("{\"message\":\"segments must be plain names\"}")
                 : Replies.toolText("{\"error\":\"not found\"}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
     @Test
@@ -140,8 +155,11 @@ class RouteDifferentialTest {
             default -> Replies.toolText("{\"error\":\"not found\"}");
         });
 
-        assertThat(differential.run(BARE, sender)).isPresent();
+        Optional<RouteDifference> difference = run(BARE, sender);
+
+        assertThat(difference).isPresent();
         assertThat(sender.sent).containsExactly("..", "..", "...", "....", ".", "..", "...");
+        assertThat(difference.get().evidence()).extracting(SentValue::value).containsExactly("..", "...", ".");
     }
 
     @Test
@@ -150,14 +168,14 @@ class RouteDifferentialTest {
                 ? Replies.toolText("{\"message\":\"segment may not be a dot segment\"}")
                 : Replies.toolText("{\"error\":\"not found\"}"));
 
-        assertThat(differential.run(BARE, sender)).isEmpty();
+        assertThat(run(BARE, sender)).isEmpty();
     }
 
     @Test
     void echoingToolIsNotADifference() {
         ScriptedSender sender = new ScriptedSender(value -> Replies.toolText("you asked for " + value));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
     @Test
@@ -165,10 +183,25 @@ class RouteDifferentialTest {
         ScriptedSender sender = new ScriptedSender(value -> Replies.toolText(
                 value.startsWith("...") ? "{\"normalized\":\"...\"}" : "{\"normalized\":\"..\"}"));
 
-        assertThat(differential.run(PROBE, sender)).isEmpty();
+        assertThat(run(PROBE, sender)).isEmpty();
     }
 
-    private static burp.api.montoya.http.message.HttpRequestResponse router(String value) {
+    @Test
+    void onlyTheFirstTraversalIsAProbeAndEverySendThatConfirmsItIsAConfirmation() {
+        ScriptedSender probes = new ScriptedSender(RouteDifferentialTest::router);
+        ScriptedSender confirmations = new ScriptedSender(RouteDifferentialTest::router);
+
+        assertThat(differential.run(PROBE, new RouteSenders(probes, confirmations))).isPresent();
+
+        assertThat(probes.sent).containsExactly("../");
+        assertThat(confirmations.sent).containsExactly(".././", ".../", "..././", ".../mcp/../", "../", ".../");
+    }
+
+    private Optional<RouteDifference> run(RouteProbe probe, ScriptedSender sender) {
+        return differential.run(probe, new RouteSenders(sender, sender));
+    }
+
+    private static HttpRequestResponse router(String value) {
         return value.startsWith("...") ? Replies.toolText("{\"error\":\"not found\"}")
                 : Replies.toolText("{\"service\":\"index\"}");
     }

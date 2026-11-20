@@ -1,19 +1,25 @@
 package com.mcpscanner;
 
 import burp.api.montoya.http.Http;
+import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import com.mcpscanner.access.mining.MinedValueRule;
 import com.mcpscanner.access.mining.MiningPreferences;
 import com.mcpscanner.access.AccessMatrix;
 import com.mcpscanner.access.AccessRuns;
+import com.mcpscanner.access.CheckAccessOptions;
 import com.mcpscanner.access.CheckAccessRunner;
 import com.mcpscanner.access.DirectIdentityBinding;
 import com.mcpscanner.access.IdentityBinding;
 import com.mcpscanner.access.IdentityRequests;
+import com.mcpscanner.access.ListingAudit;
+import com.mcpscanner.access.listing.ListedPrincipals;
+import com.mcpscanner.access.listing.ToolListingAudit;
 import com.mcpscanner.access.InvokedTools;
 import com.mcpscanner.access.MatrixAccessLedger;
 import com.mcpscanner.access.OwnerRequests;
 import com.mcpscanner.access.PersistedAccessExpectations;
+import com.mcpscanner.access.SyntheticCallLog;
 import com.mcpscanner.access.WriteReplayConfirmations;
 import com.mcpscanner.access.WriteReplays;
 import com.mcpscanner.auth.CurrentAuthHolder;
@@ -24,6 +30,7 @@ import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.checks.api.AccessLedger;
 import com.mcpscanner.checks.api.PrincipalRoster;
 import com.mcpscanner.checks.api.crossidentity.IdentityIssue;
+import com.mcpscanner.checks.api.crossidentity.SyntheticPrincipals;
 import com.mcpscanner.checks.shared.session.StreamingFallback;
 import com.mcpscanner.client.McpScannerSession;
 import com.mcpscanner.identity.IdentityRosterSource;
@@ -40,6 +47,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
@@ -53,6 +61,9 @@ final class AccessWiring {
     private final AccessMatrix matrix;
     private final WriteReplayConfirmations confirmations = new WriteReplayConfirmations();
     private final AccessLedger ledger;
+    private final SyntheticPrincipals synthetic;
+    private final Function<String, List<HttpRequestResponse>> toolsLists;
+    private final SyntheticCallLog syntheticCalls = new SyntheticCallLog();
     private final AccessRuns runs = new AccessRuns(Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "mcp-check-access");
         thread.setDaemon(true);
@@ -60,25 +71,33 @@ final class AccessWiring {
     }));
 
     private AccessWiring(ExtensionFoundation foundation, McpScannerSession session, IdentityListings listings,
-                         PreComparisonDiscovery discovery) {
+                         PreComparisonDiscovery discovery, CurrentAuthHolder authHolder,
+                         SyntheticPrincipals synthetic, Function<String, List<HttpRequestResponse>> toolsLists) {
+        this.synthetic = synthetic;
+        this.toolsLists = toolsLists;
         this.discovery = discovery;
         this.foundation = foundation;
-        this.authHolder = new CurrentAuthHolder();
+        this.authHolder = authHolder;
         this.roster = new IdentityRosterSource(authHolder, foundation.identities());
         this.listings = listings;
         this.matrix = new AccessMatrix(roster, listings::outcomes,
-                new PersistedAccessExpectations(foundation.configStore(), session::resolvedEndpoint));
+                new PersistedAccessExpectations(foundation.configStore(), session::resolvedEndpoint), synthetic.all());
         this.ledger = new MatrixAccessLedger(matrix, confirmations);
     }
 
     static AccessWiring create(ExtensionFoundation foundation, ConnectionWiring connection,
                                IdentityListings listings) {
-        return create(foundation, connection, listings, PreComparisonDiscovery.NONE);
+        CurrentAuthHolder authHolder = new CurrentAuthHolder();
+        return create(foundation, connection, listings, PreComparisonDiscovery.NONE, authHolder,
+                new SyntheticPrincipals(authHolder), listings::toolsListExchanges);
     }
 
     static AccessWiring create(ExtensionFoundation foundation, ConnectionWiring connection,
-                               IdentityListings listings, PreComparisonDiscovery discovery) {
-        AccessWiring wiring = new AccessWiring(foundation, connection.scannerSession(), listings, discovery);
+                               IdentityListings listings, PreComparisonDiscovery discovery,
+                               CurrentAuthHolder authHolder, SyntheticPrincipals synthetic,
+                               Function<String, List<HttpRequestResponse>> toolsLists) {
+        AccessWiring wiring = new AccessWiring(foundation, connection.scannerSession(), listings, discovery,
+                authHolder, synthetic, toolsLists);
         listings.addListener(wiring.matrix::changed);
         foundation.identities().addListener(wiring.matrix::changed);
         return wiring;
@@ -106,6 +125,10 @@ final class AccessWiring {
 
     AccessMatrix matrix() {
         return matrix;
+    }
+
+    SyntheticCallLog syntheticCalls() {
+        return syntheticCalls;
     }
 
     WriteReplayConfirmations confirmations() {
@@ -149,13 +172,21 @@ final class AccessWiring {
         OwnerRequests auditRequests = new OwnerRequests(
                 target -> primaryRequests.requestFor(ownerTargets.apply(target)), identityRequests(), minedValues());
         return new CheckAccessRunner(comparison(), http, auditRequests, issueSink,
-                new WriteReplays(confirmations, ledger), runs, foundation.eventLog(), connection.upstreamExchanges(),
-                matrix::snapshot, discovery);
+                new WriteReplays(confirmations, ledger), runs, foundation.eventLog(),
+                CheckAccessOptions.DEFAULTS.withUpstreamExchanges(connection.upstreamExchanges())
+                        .withResults(matrix::snapshot).withDiscovery(discovery.withSyntheticListings())
+                        .withListingAudit(listingAudit(connection.scannerSession())));
+    }
+
+    private ListingAudit listingAudit(McpScannerSession session) {
+        return new ToolListingAudit(new ListedPrincipals(roster, synthetic::all, listings::outcomes), syntheticCalls,
+                toolsLists, session::resolvedEndpoint);
     }
 
     CrossIdentityComparison comparison() {
         return new CrossIdentityComparison(foundation.eventLog(), authHolder, roster,
-                CrossIdentityPorts.of(ledger, listings, new MatrixObjectReferences(matrix, minedValues())));
+                CrossIdentityPorts.of(ledger, listings, new MatrixObjectReferences(matrix, minedValues())),
+                synthetic::all, syntheticCalls);
     }
 
     McpRepeaterRequestFactory auditRequests(ConnectionWiring connection, ScanningWiring scanning) {
@@ -177,7 +208,7 @@ final class AccessWiring {
     }
 
     List<Runnable> sessionResets() {
-        return List.of(runs::cancelAll, matrix::clearOutcomes, confirmations::clear);
+        return List.of(runs::cancelAll, matrix::clearOutcomes, confirmations::clear, syntheticCalls::clear);
     }
 
     void addShutdownHooks(ShutdownHooks shutdown) {

@@ -12,6 +12,10 @@ record ConfirmedRead(TraversalAttempt candidate, List<TraversalAttempt> controls
         return candidate.disclosure();
     }
 
+    TraversalAttempt missingFileTwin() {
+        return controls.get(0);
+    }
+
     TraversalPayload payload() {
         return candidate.payload();
     }

@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 public final class ProvisionScript {
 
@@ -32,22 +33,29 @@ public final class ProvisionScript {
     }
 
     public Map<String, ProvisionedIdentity> run(LoadedTarget target, URI endpoint, Duration timeout) {
-        Instant deadline = clock.instant().plus(timeout);
-        CommandResult result = attempt(target, endpoint);
-        while (!result.succeeded() && clock.instant().isBefore(deadline)) {
-            pause.pause(RETRY_PAUSE);
-            result = attempt(target, endpoint);
-        }
-        if (!result.succeeded()) {
-            throw new IllegalStateException("identity provisioning failed until the readiness timeout: "
-                    + OutputLines.tail(result.output()));
-        }
-        return parse(result.output());
+        String output = outputOf(target, target.manifest().identities().provision(), List.of(endpoint.toString()),
+                timeout, "identity provisioning");
+        return parse(output);
     }
 
-    private CommandResult attempt(LoadedTarget target, URI endpoint) {
-        String script = target.directory().resolve(target.manifest().identities().provision()).toString();
-        return commands.run(List.of(script, endpoint.toString()), target.directory(), ATTEMPT_TIMEOUT);
+    String outputOf(LoadedTarget target, String script, List<String> arguments, Duration timeout, String purpose) {
+        Instant deadline = clock.instant().plus(timeout);
+        CommandResult result = attempt(target, script, arguments);
+        while (!result.succeeded() && clock.instant().isBefore(deadline)) {
+            pause.pause(RETRY_PAUSE);
+            result = attempt(target, script, arguments);
+        }
+        if (!result.succeeded()) {
+            throw new IllegalStateException(purpose + " failed until the readiness timeout: "
+                    + OutputLines.tail(result.output()));
+        }
+        return result.output();
+    }
+
+    private CommandResult attempt(LoadedTarget target, String script, List<String> arguments) {
+        String path = target.directory().resolve(script).toString();
+        List<String> command = Stream.concat(Stream.of(path), arguments.stream()).toList();
+        return commands.run(command, target.directory(), ATTEMPT_TIMEOUT);
     }
 
     private static Map<String, ProvisionedIdentity> parse(String output) {

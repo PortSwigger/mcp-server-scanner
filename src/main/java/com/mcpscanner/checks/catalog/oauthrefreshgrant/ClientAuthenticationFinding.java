@@ -16,4 +16,11 @@ record ClientAuthenticationFinding(ClientType clientType, boolean confidentialit
         boolean allUsable = accepted.stream().allMatch(refresh -> refresh.usability() == Usability.USABLE);
         return confidentialityEstablished && allUsable ? AuditIssueConfidence.FIRM : AuditIssueConfidence.TENTATIVE;
     }
+
+    JudgedRefresh strongestAccepted() {
+        return accepted.stream()
+                .filter(refresh -> refresh.usability() == Usability.USABLE)
+                .findFirst()
+                .orElse(accepted.get(0));
+    }
 }

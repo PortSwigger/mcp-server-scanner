@@ -24,6 +24,7 @@ public class McpScanLauncher {
     private final Supplier<ScanConnection> connectionFactory;
     private final TemplateExpansionRegistry templateExpansions;
     private final AddedArgumentRegistry addedArguments;
+    private final MetaEnvelopeCarriers metaEnvelopeCarriers;
     private final ScanDestinations destinations;
     private final RunningScans runningScans;
     private final PreComparisonDiscovery discovery;
@@ -47,7 +48,17 @@ public class McpScanLauncher {
                            Supplier<ScanConnection> connectionFactory, TemplateExpansionRegistry templateExpansions,
                            AddedArgumentRegistry addedArguments, ScanDestinations destinations,
                            RunningScans runningScans, PreComparisonDiscovery discovery) {
+        this(logging, requestRenderer, connectionFactory, templateExpansions, addedArguments,
+                MetaEnvelopeCarriers.onEveryRequest(), destinations, runningScans, discovery);
+    }
+
+    public McpScanLauncher(Logging logging, ScanMessageRenderer requestRenderer,
+                           Supplier<ScanConnection> connectionFactory, TemplateExpansionRegistry templateExpansions,
+                           AddedArgumentRegistry addedArguments, MetaEnvelopeCarriers metaEnvelopeCarriers,
+                           ScanDestinations destinations, RunningScans runningScans,
+                           PreComparisonDiscovery discovery) {
         this.addedArguments = Objects.requireNonNull(addedArguments);
+        this.metaEnvelopeCarriers = Objects.requireNonNull(metaEnvelopeCarriers);
         this.discovery = Objects.requireNonNull(discovery);
         this.logging = Objects.requireNonNull(logging);
         this.requestRenderer = Objects.requireNonNull(requestRenderer);
@@ -74,18 +85,24 @@ public class McpScanLauncher {
         ScanDestination destination = destinations.forMode(mode);
         List<HttpRequest> requests = render(destination, endpoint, scan, headers);
         List<String> heldBodies = new ArrayList<>();
+        List<Runnable> releases = new ArrayList<>(List.of(() -> releaseHolds(heldBodies)));
         boolean started = false;
         try {
             recordHolds(scan.messages(), requests, heldBodies);
+            releases.add(metaEnvelopeCarriers.hold(scan.messages(), requests));
             RunningScan running = runningScans.track(destination.start(requests));
-            running.whenEnded(() -> releaseHolds(heldBodies));
+            running.whenEnded(() -> releaseAll(releases));
             started = true;
             return running;
         } finally {
             if (!started) {
-                releaseHolds(heldBodies);
+                releaseAll(releases);
             }
         }
+    }
+
+    private static void releaseAll(List<Runnable> releases) {
+        releases.forEach(Runnable::run);
     }
 
     private void recordHolds(List<ScanMessage> messages, List<HttpRequest> requests, List<String> heldBodies) {

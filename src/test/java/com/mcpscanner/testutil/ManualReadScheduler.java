@@ -11,7 +11,7 @@ import java.util.Optional;
 
 public final class ManualReadScheduler implements ReadScheduler {
 
-    public final List<String> debug = new ArrayList<>();
+    public final List<Throwable> failures = new ArrayList<>();
     private static final long READY_WITHIN_MILLIS = 500;
 
     private final Deque<Scheduled> pending = new ArrayDeque<>();
@@ -33,11 +33,11 @@ public final class ManualReadScheduler implements ReadScheduler {
             @Override
             public void shutdown() {
             }
-        }, Runnable::run, line -> { });
+        }, Runnable::run, (message, failure) -> { });
     }
 
     public UiReads reads() {
-        return new UiReads(this, Runnable::run, debug::add);
+        return new UiReads(this, Runnable::run, (message, failure) -> failures.add(failure));
     }
 
     @Override

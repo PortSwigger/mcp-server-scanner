@@ -97,7 +97,8 @@ def test_safe_challenge_points_at_resource_metadata(make_server: ServerFactory) 
 
 def test_valid_token_and_malformed_credentials(make_server: ServerFactory) -> None:
     server = make_server(
-        vulns={"unauthenticated_execution": "vulnerable", "auth_presence_only_credential": "safe"}
+        vulns={"unauthenticated_execution": "vulnerable", "auth_presence_only_credential": "safe",
+               "auth_unknown_token_service_account": "safe"}
     )
     session = _bearer_session(server, server.token())
     session.initialize()

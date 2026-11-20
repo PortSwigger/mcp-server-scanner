@@ -3,6 +3,7 @@ package com.mcpscanner.core.connection;
 import com.mcpscanner.core.protocol.ClientInfo;
 import com.mcpscanner.core.protocol.ClientProfile;
 import com.mcpscanner.core.protocol.McpFlow;
+import com.mcpscanner.core.protocol.McpRequests;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -24,6 +25,9 @@ public final class HttpSessionTest {
         standaloneRepeatedExpiryIsBounded();
         statelessLegacy404NeverReinitializes();
         modern404NeverReinitializes();
+        fuzzedProtocolVersion404NeverReinitializes();
+        sessionVersion404StillReinitializes();
+        unversioned404StillReinitializes();
         refreshRecoversExpiredLegacySession();
         recoveryCanReplaceExpiredSessionWithStatelessSession();
         ambiguousResponsesNeverReplay();
@@ -53,6 +57,79 @@ public final class HttpSessionTest {
         }, profile, "2025-06-18");
         session.send(session.session().operation("tools/list", "{}", 9));
         equal(2, initializations.get());
+    }
+
+    private static void fuzzedProtocolVersion404NeverReinitializes() {
+        var server = new UnknownVersionRejectingServer("2025-06-18");
+        var session = server.openSession();
+        var probe = withHeader(session.session().operation("tools/call", "{}", 9), "mcp-protocol-version", "1999-01-01");
+        equal(404, session.send(probe).status());
+        equal(1, server.initializations.get());
+        equal("s1", session.session().sessionId());
+    }
+
+    private static void sessionVersion404StillReinitializes() {
+        var server = new UnknownVersionRejectingServer("2025-06-18");
+        var session = server.openSession();
+        server.expireSessions();
+        equal(200, session.send(session.session().operation("tools/call", "{}", 9)).status());
+        equal(2, server.initializations.get());
+        equal("s2", session.session().sessionId());
+    }
+
+    private static void unversioned404StillReinitializes() {
+        var server = new UnknownVersionRejectingServer("2025-06-18");
+        var session = server.openSession();
+        server.expireSessions();
+        var unversioned = withoutHeader(session.session().operation("tools/call", "{}", 9), "MCP-Protocol-Version");
+        equal(200, session.send(unversioned).status());
+        equal(2, server.initializations.get());
+        equal("s2", session.session().sessionId());
+    }
+
+    private static McpRequests.Request withoutHeader(McpRequests.Request request, String name) {
+        var headers = new java.util.LinkedHashMap<>(request.headers());
+        headers.keySet().removeIf(name::equalsIgnoreCase);
+        return new McpRequests.Request(request.body(), headers);
+    }
+
+    private static McpRequests.Request withHeader(McpRequests.Request request, String name, String value) {
+        var headers = new java.util.LinkedHashMap<>(withoutHeader(request, name).headers());
+        headers.put(name, value);
+        return new McpRequests.Request(request.body(), headers);
+    }
+
+    private static final class UnknownVersionRejectingServer {
+        private final String version;
+        private final AtomicInteger initializations = new AtomicInteger();
+        private volatile String liveSession;
+
+        private UnknownVersionRejectingServer(String version) {
+            this.version = version;
+        }
+
+        private HttpSession openSession() {
+            var connection = new McpConnection(new McpFlow(8192, 10), CredentialProviders.none());
+            return connection.openInitializeHttpSession(this::send,
+                new ClientProfile(new ClientInfo("fixture", "1", null, null, null, null), "{}"), version);
+        }
+
+        private void expireSessions() {
+            liveSession = null;
+        }
+
+        private McpFlow.HttpResponse send(McpRequests.Request request) {
+            if (request.body().contains("\"initialize\"")) {
+                liveSession = "s" + initializations.incrementAndGet();
+                return new McpFlow.HttpResponse(200, Map.of("MCP-Session-Id", liveSession),
+                    "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"" + version + "\"}}", true);
+            }
+            if (request.body().contains("notifications/initialized")) return new McpFlow.HttpResponse(202, Map.of(), "", true);
+            boolean knownVersion = Headers.first(request.headers(), "MCP-Protocol-Version").map(version::equals).orElse(true);
+            boolean liveSessionId = Headers.first(request.headers(), "MCP-Session-Id").filter(id -> id.equals(liveSession)).isPresent();
+            if (!knownVersion || !liveSessionId) return new McpFlow.HttpResponse(404, Map.of(), "Not Found", true);
+            return new McpFlow.HttpResponse(200, Map.of(), "{\"jsonrpc\":\"2.0\",\"id\":9,\"result\":{}}", true);
+        }
     }
 
     private static void fixedLegacySessionsRecoverWithinTheirIdentityAndVersion() {

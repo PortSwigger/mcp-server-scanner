@@ -3,6 +3,7 @@ package com.mcpscanner.integration;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mcpscanner.testutil.ClosedPort;
 
 import javax.net.ssl.SSLContext;
 import java.io.File;
@@ -298,9 +299,7 @@ final class McpCheckItSupport {
     }
 
     private static int findFreePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
+        return ClosedPort.onLoopback();
     }
 
     private static List<String> buildCommand(int port, String[] cliArgs) {

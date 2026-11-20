@@ -1,36 +1,26 @@
 package com.mcpscanner.proxy;
 
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.LinkedHashMap;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import com.mcpscanner.http.evidence.LegacySseExchange;
+import com.mcpscanner.http.evidence.WireRecord;
+
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 
-record RecordedExchange(URI uri, String method, Map<String, List<String>> requestHeaders, String requestBody,
-                        int status, Map<String, List<String>> responseHeaders, byte[] responseBody) {
+record RecordedExchange(String requestBody, List<WireRecord> wires) {
 
-    RecordedExchange {
-        requestHeaders = Collections.unmodifiableMap(new LinkedHashMap<>(requestHeaders));
-        responseHeaders = Collections.unmodifiableMap(new LinkedHashMap<>(responseHeaders));
-        responseBody = responseBody.clone();
-    }
-
-    @Override
-    public byte[] responseBody() {
-        return responseBody.clone();
+    RecordedExchange(String requestBody, WireRecord wire) {
+        this(requestBody, List.of(wire));
     }
 
     long bodyBytes() {
-        return requestBodyBytes().length + (long) responseBody.length;
+        return wires.stream().mapToLong(WireRecord::size).sum();
     }
 
-    byte[] requestBodyBytes() {
-        return Objects.requireNonNullElse(requestBody, "").getBytes(StandardCharsets.UTF_8);
+    List<HttpRequestResponse> evidence() {
+        return wires.stream().map(WireRecord::evidence).toList();
     }
 
-    RecordedExchange withResponseBody(byte[] body) {
-        return new RecordedExchange(uri, method, requestHeaders, requestBody, status, responseHeaders, body);
+    RecordedExchange answeredOnStream(java.net.http.HttpResponse<?> stream, byte[] event) {
+        return new RecordedExchange(requestBody, LegacySseExchange.answered(wires.get(0), stream, event));
     }
 }

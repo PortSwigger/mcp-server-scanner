@@ -41,4 +41,12 @@ public final class ScanGenerationSettings implements RequestFamilyToggles {
     public void setHeaderFieldsEnabled(boolean enabled) {
         configStore.setHeaderFieldsEnabled(enabled);
     }
+
+    public boolean metaEnvelopeFuzzedOnEveryRequest() {
+        return Boolean.TRUE.equals(configStore.metaEnvelopeFuzzedOnEveryRequest());
+    }
+
+    public void setMetaEnvelopeFuzzedOnEveryRequest(boolean enabled) {
+        configStore.setMetaEnvelopeFuzzedOnEveryRequest(enabled);
+    }
 }

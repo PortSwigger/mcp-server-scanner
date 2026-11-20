@@ -21,8 +21,9 @@ public final class ScanAsChip extends JButton {
 
     static final String NEEDS_CREDENTIALS = "(needs credentials)";
     static final String COMPARING = "Connect, discovery and Scan run as the primary user; Check access replays "
-            + "each item as every compared user and as Anonymous.";
-    static final String NO_COMPARISON = "Check access needs at least one compared user.";
+            + "each item as every compared user, with No credential and with a Fake token.";
+    static final String NO_COMPARISON = "Check access replays each item with No credential and a Fake token; "
+            + "tick Compare on another user to compare signed-in users too.";
 
     private final IdentityRegistry registry;
     private final CredentialReadiness readiness;

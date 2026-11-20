@@ -3,7 +3,6 @@ package com.mcpscanner.mcp;
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.Optional;
@@ -48,18 +47,12 @@ public final class McpRequestDetector {
         return baseUrl(requestResponse.request().httpService());
     }
 
-    public static String jsonRpcBody(HttpResponse response) {
-        String body = response.bodyToString();
-        if (!isEventStream(response)) {
+    public static String jsonRpcBody(String contentType, String body) {
+        if (!SseResponseParser.isEventStream(contentType)) {
             return body;
         }
         String unwrapped = SseResponseParser.extractJsonRpcResponse(body);
         return unwrapped != null ? unwrapped : body;
-    }
-
-    private static boolean isEventStream(HttpResponse response) {
-        String contentType = response.headerValue("Content-Type");
-        return contentType != null && contentType.toLowerCase().contains("text/event-stream");
     }
 
     private static String baseUrl(HttpService service) {

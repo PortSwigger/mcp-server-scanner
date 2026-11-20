@@ -15,6 +15,7 @@ import com.mcpscanner.ui.identities.IdentityConnection;
 import com.mcpscanner.ui.identities.IdentityUiServices;
 import com.mcpscanner.ui.identities.PrimaryUserPicker;
 import com.mcpscanner.ui.identities.ScanAsChip;
+import com.mcpscanner.ui.identities.UsersMode;
 import com.mcpscanner.ui.identities.UsersPanel;
 import com.mcpscanner.ui.widgets.ScrollableForm;
 
@@ -23,6 +24,7 @@ import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 final class UsersView {
@@ -31,25 +33,27 @@ final class UsersView {
     private final ToolCallRefusals refusals;
     private final IdentityCredentialServices credentialServices;
     private final IdentityUiServices services;
+    private final UsersMode mode;
     private final UsersPanel panel;
-    private final ScanAsChip chip;
+    private final Optional<ScanAsChip> chip;
     private final ConnectionIdentityLine connectionIdentityLine;
     private final List<Runnable> subscriptions = new ArrayList<>();
-    private final PrimaryUserPicker picker;
+    private final Optional<PrimaryUserPicker> picker;
 
     UsersView(IdentityDependencies deps, IdentityConnection connection, DialogOwner dialogOwner, Component dialogParent,
               Consumer<String> declineLog, ServerConfigPanel serverConfig, Runnable openUsers,
-              Runnable openOAuthClient) {
+              Runnable openOAuthClient, UsersMode mode) {
+        this.mode = mode;
         this.registry = deps.registry();
         this.refusals = deps.refusals();
         this.credentialServices = deps.credentialServices().apply(new PanelAuthSettings(serverConfig),
                 new SwingScopeApprovals(dialogOwner, dialogParent, declineLog));
         this.services = new IdentityUiServices(registry, credentialServices, deps.listings(), deps.discovery(), deps.refusals(),
                 connection, deps.reconnectPrompt());
-        this.panel = new UsersPanel(services, serverConfig.grantForms(), openOAuthClient);
-        this.chip = panel.scanAsChip();
+        this.panel = new UsersPanel(services, serverConfig.grantForms(), openOAuthClient, mode);
+        this.chip = mode.comparesUsers() ? Optional.of(panel.scanAsChip()) : Optional.empty();
         this.connectionIdentityLine = panel.connectionIdentityLine();
-        this.picker = panel.primaryUserPicker(openUsers);
+        this.picker = mode.comparesUsers() ? Optional.of(panel.primaryUserPicker(openUsers)) : Optional.empty();
     }
 
     JComponent section() {
@@ -57,14 +61,14 @@ final class UsersView {
     }
 
     ScanAsChip chip() {
-        return chip;
+        return chip.orElseThrow();
     }
 
     ConnectionIdentityLine connectionIdentityLine() {
         return connectionIdentityLine;
     }
 
-    PrimaryUserPicker picker() {
+    Optional<PrimaryUserPicker> picker() {
         return picker;
     }
 
@@ -80,8 +84,8 @@ final class UsersView {
         return credentialServices.primaryCredentials();
     }
 
-    String primaryName() {
-        return registry.primaryUser().name();
+    String primaryHint() {
+        return mode.primaryRuns() + " run as the primary user, " + registry.primaryUser().name() + ".";
     }
 
     int refusedToolCalls() {
@@ -94,9 +98,9 @@ final class UsersView {
 
     void refresh() {
         panel.refresh();
-        chip.refresh();
+        chip.ifPresent(ScanAsChip::refresh);
         connectionIdentityLine.refresh();
-        picker.refresh();
+        picker.ifPresent(PrimaryUserPicker::refresh);
     }
 
     void focusPrimaryCredentials() {
@@ -108,15 +112,15 @@ final class UsersView {
     }
 
     String tabTitle() {
-        return "Users (" + registry.identities().size() + ")" + (refusals.refusedCount() > 0 ? " ▲" : "");
+        return "Users (" + mode.shownUsers(registry.identities().size()) + ")" + (refusals.refusedCount() > 0 ? " ▲" : "");
     }
 
     void shutdown() {
         subscriptions.forEach(Runnable::run);
         panel.dispose();
-        chip.dispose();
+        chip.ifPresent(ScanAsChip::dispose);
         connectionIdentityLine.dispose();
-        picker.dispose();
+        picker.ifPresent(PrimaryUserPicker::dispose);
         credentialServices.close();
     }
 }

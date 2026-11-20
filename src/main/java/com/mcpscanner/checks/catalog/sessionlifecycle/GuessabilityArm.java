@@ -15,6 +15,7 @@ import java.util.function.Function;
 final class GuessabilityArm {
 
     static final int PROBE_SESSIONS = 8;
+    static final int SHOWN_HANDSHAKES = 2;
 
     private final SessionIdGuessability guessability;
     private final CheckLog log;
@@ -38,7 +39,12 @@ final class GuessabilityArm {
         if (assessment.weaknesses().isEmpty()) {
             return Optional.empty();
         }
-        List<HttpRequestResponse> handshakes = traffic.all().stream().filter(GuessabilityArm::initialize).toList();
+        List<String> issuedIds = probes.issuedIds();
+        List<HttpRequestResponse> handshakes = traffic.all().stream()
+                .filter(GuessabilityArm::initialize)
+                .flatMap(exchange -> HandshakeEvidence.of(exchange, issuedIds).stream())
+                .limit(SHOWN_HANDSHAKES)
+                .toList();
         return Optional.of(new GuessableIds(probes.issuedIds(), assessment.weaknesses(), handshakes,
                 bareUse.apply(probes), probes.issuedIds().contains(liveSessionId)));
     }

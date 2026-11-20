@@ -35,36 +35,25 @@ public final class TextMarkers {
     }
 
     public static HttpRequestResponse carriedOver(HttpRequestResponse from, HttpRequestResponse to) {
-        HttpRequestResponse withRequest = carryRequest(from, to);
-        return carryResponse(from, withRequest);
+        return responseCarriedOver(from, requestCarriedOver(from, to));
     }
 
-    private static HttpRequestResponse carryRequest(HttpRequestResponse from, HttpRequestResponse to) {
+    static HttpRequestResponse requestCarriedOver(HttpRequestResponse from, HttpRequestResponse to) {
         if (from.requestMarkers().isEmpty() || to.request() == null) {
             return to;
         }
-        List<byte[]> texts = markedTexts(from.request().toByteArray(), from.requestMarkers());
-        List<Marker> markers = find(to.request().toByteArray(), texts);
+        List<Marker> markers = AnchoredMarkers.relocated(bytesOf(from.request().toByteArray()),
+                from.requestMarkers(), bytesOf(to.request().toByteArray()));
         return markers.isEmpty() ? to : to.withRequestMarkers(markers);
     }
 
-    private static HttpRequestResponse carryResponse(HttpRequestResponse from, HttpRequestResponse to) {
+    static HttpRequestResponse responseCarriedOver(HttpRequestResponse from, HttpRequestResponse to) {
         if (from.responseMarkers().isEmpty() || from.response() == null || to.response() == null) {
             return to;
         }
-        List<byte[]> texts = markedTexts(from.response().toByteArray(), from.responseMarkers());
-        List<Marker> markers = find(to.response().toByteArray(), texts);
+        List<Marker> markers = AnchoredMarkers.relocated(bytesOf(from.response().toByteArray()),
+                from.responseMarkers(), bytesOf(to.response().toByteArray()));
         return markers.isEmpty() ? to : to.withResponseMarkers(markers);
-    }
-
-    private static List<byte[]> markedTexts(ByteArray message, List<Marker> markers) {
-        byte[] bytes = bytesOf(message);
-        return markers.stream()
-                .map(Marker::range)
-                .filter(range -> range.startIndexInclusive() >= 0 && range.endIndexExclusive() <= bytes.length
-                        && range.startIndexInclusive() < range.endIndexExclusive())
-                .map(range -> Arrays.copyOfRange(bytes, range.startIndexInclusive(), range.endIndexExclusive()))
-                .toList();
     }
 
     private static List<byte[]> encoded(Collection<String> texts) {

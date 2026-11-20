@@ -57,6 +57,17 @@ class McpClientManagerTest {
     }
 
     @Test
+    void beginningAConnectAttemptTellsEveryAttemptListener() {
+        AtomicInteger attempts = new AtomicInteger();
+        manager.addConnectAttemptListener(attempts::incrementAndGet);
+        manager.addConnectAttemptListener(attempts::incrementAndGet);
+
+        manager.beginConnectAttempt();
+
+        assertThat(attempts.get()).isEqualTo(2);
+    }
+
+    @Test
     void connectionLostTellsLossListenersBeforeDisconnectingTheConnection() {
         when(session.catalog("tools/list", null)).thenReturn(new Reply(2, Map.of("tools", List.of()), Map.of()));
         optionalCatalogsEmpty();

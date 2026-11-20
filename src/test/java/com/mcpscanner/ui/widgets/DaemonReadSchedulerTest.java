@@ -16,7 +16,7 @@ class DaemonReadSchedulerTest {
         DaemonReadScheduler scheduler = new DaemonReadScheduler();
         AtomicReference<Boolean> readOnEdt = new AtomicReference<>();
         AtomicReference<Boolean> appliedOnEdt = new AtomicReference<>();
-        OffEdtFeed<String> feed = UiReads.background(scheduler, line -> { }).feed(0, () -> {
+        OffEdtFeed<String> feed = UiReads.background(scheduler, (message, failure) -> { }).feed(0, () -> {
             readOnEdt.set(SwingUtilities.isEventDispatchThread());
             return "value";
         }, value -> appliedOnEdt.set(SwingUtilities.isEventDispatchThread()));

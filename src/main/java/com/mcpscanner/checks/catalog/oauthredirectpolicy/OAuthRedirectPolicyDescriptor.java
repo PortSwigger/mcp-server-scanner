@@ -18,11 +18,11 @@ final class OAuthRedirectPolicyDescriptor {
                     + "whether the authorization server sends codes or errors to redirect URIs those clients "
                     + "never registered (unregistered path, http downgrade, dot-segment path, expanded wildcard "
                     + "host, unsupported response_type, denied consent form), and whether registration accepts "
-                    + "javascript: or data: redirect URIs. Authorization requests carry the MCP session's cookies "
-                    + "only when the authorization endpoint shares the MCP origin. The check never redeems a code "
-                    + "and never uses the extension's own OAuth client. It deletes its registered probe clients "
-                    + "through RFC 7592 client management when the authorization server offers it, and stops "
-                    + "probing, cleanup included, when the server answers HTTP 429.",
+                    + "an HTTPS redirect URI on an unrelated host, or javascript: or data: redirect URIs. "
+                    + "Authorization requests carry the MCP session's cookies only when the authorization "
+                    + "endpoint shares the MCP origin. The check never redeems a code and never uses the "
+                    + "extension's own OAuth client. It deletes its registered probe clients through RFC "
+                    + "7592 client management when the authorization server offers it, and stops probing, cleanup included, when the server answers HTTP 429.",
             CheckKind.HOST,
             AuditIssueSeverity.MEDIUM,
             AuditIssueConfidence.FIRM,

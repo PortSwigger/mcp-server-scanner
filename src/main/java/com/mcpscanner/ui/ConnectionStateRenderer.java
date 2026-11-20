@@ -1,51 +1,34 @@
 package com.mcpscanner.ui;
 
-import com.mcpscanner.checks.registry.ScanCheckRegistry;
-import com.mcpscanner.scan.ScanInventory;
-import com.mcpscanner.scan.ScanMode;
 import com.mcpscanner.ui.state.ConnectionStatus;
 import com.mcpscanner.ui.state.UiConnectionState;
 import com.mcpscanner.ui.widgets.Blockers;
 import com.mcpscanner.ui.widgets.PrimaryActionButton;
 
 import java.util.Optional;
-import java.util.function.Supplier;
 
 final class ConnectionStateRenderer {
 
     interface Host {
         UiConnectionState state();
 
-        boolean isConnected();
-
-        boolean scanInFlight();
-
         Optional<String> connectBlocker();
-
-        Optional<PlannedRequests> plannedRequests(ScanInventory selection);
-
-        void forgetPlannedCounts();
     }
 
-    record Views(ConnectionHeader header, ScanBar scanBar, ServerConfigPanel serverConfig,
-                 InventoryPanels inventory, InventoryTabs inventoryTabs,
-                 OAuthClientSection oauthClient, ScanActivityPanel scanActivity) {
+    record Views(ConnectionHeader header, ScanBarView scanBar, ServerConfigPanel serverConfig,
+                 InventoryPanels inventory, InventoryTabs inventoryTabs, OAuthClientSection oauthClient) {
     }
 
     private final Views views;
-    private final ScanCheckRegistry checkRegistry;
-    private final Supplier<ScanMode> scanMode;
     private final Host host;
 
-    ConnectionStateRenderer(Views views, ScanCheckRegistry checkRegistry, Supplier<ScanMode> scanMode, Host host) {
+    ConnectionStateRenderer(Views views, Host host) {
         this.views = views;
-        this.checkRegistry = checkRegistry;
-        this.scanMode = scanMode;
         this.host = host;
     }
 
     void render() {
-        host.forgetPlannedCounts();
+        views.scanBar().forgetPlannedCounts();
         UiConnectionState state = host.state();
         if (!(state instanceof UiConnectionState.Connected)) {
             views.inventory().serverInfo().clearConnection();
@@ -55,17 +38,11 @@ final class ConnectionStateRenderer {
         refreshScanButton();
         refreshPrimaryReadiness();
         refreshChecksSummary();
-        views.scanActivity().refresh();
+        views.scanBar().refreshActivity();
     }
 
     void overlay(ConnectionStatus status) {
         views.header().statusCluster().update(status);
-    }
-
-    void showScanStarting() {
-        views.inventory().refreshDetailActions();
-        scanButton().setEnabled(false);
-        scanButton().setText(ScanLaunchPresenter.STARTING);
     }
 
     void refreshPrimaryReadiness() {
@@ -77,21 +54,13 @@ final class ConnectionStateRenderer {
     void refreshScanButton() {
         views.inventoryTabs().refreshCounts();
         views.inventory().refreshDetailActions();
-        views.scanBar().refreshPausedTasks();
-        if (host.scanInFlight()) {
-            return;
+        if (views.scanBar().refreshUnlessStarting()) {
+            refreshNextStepHint();
         }
-        ScanReadiness readiness = scanReadiness();
-        Blockers.apply(scanButton(), readiness.blocker(), readiness.tooltip(scanMode.get()));
-        scanButton().setText(readiness.buttonLabel());
-        refreshNextStepHint();
     }
 
     void refreshChecksSummary() {
-        long enabled = checkRegistry.enabledActiveCheckCount();
-        views.scanBar().checksSummary().setText(enabled + " MCP checks on");
-        views.scanBar().checksSummary().setToolTipText(
-                "Scans run " + ScanModeText.of(scanMode.get()).checksRun(enabled) + ". Click to review them.");
+        views.scanBar().refreshChecksSummary();
     }
 
     private void renderHeader(UiConnectionState state) {
@@ -100,7 +69,7 @@ final class ConnectionStateRenderer {
         views.header().setConnectLabel(status.primaryButtonLabel());
         boolean connected = state instanceof UiConnectionState.Connected;
         views.header().connectButton().setPrimary(!connected);
-        scanButton().setPrimary(connected);
+        views.scanBar().showConnected(connected);
         applyConfigurationLock(state instanceof UiConnectionState.Connecting || connected);
     }
 
@@ -117,10 +86,7 @@ final class ConnectionStateRenderer {
 
     private void refreshNextStepHint() {
         views.header().showConnectHint(idleConnectBlocker().orElse(null));
-        UiConnectionState state = host.state();
-        boolean nothingToTick = state instanceof UiConnectionState.Connecting
-                || (host.isConnected() && views.inventory().isEmpty());
-        views.scanBar().showScanHint(nothingToTick ? null : scanReadiness().shortBlocker().orElse(null));
+        views.scanBar().refreshScanHint();
     }
 
     private Optional<String> idleConnectBlocker() {
@@ -134,16 +100,6 @@ final class ConnectionStateRenderer {
             return Optional.of("Enter the MCP endpoint URL");
         }
         return host.connectBlocker();
-    }
-
-    private ScanReadiness scanReadiness() {
-        ScanInventory selection = views.inventory().selection();
-        Optional<PlannedRequests> requests = host.isConnected() ? host.plannedRequests(selection) : Optional.empty();
-        return new ScanReadiness(host.isConnected(), selection, requests);
-    }
-
-    private PrimaryActionButton scanButton() {
-        return views.scanBar().scanButton();
     }
 
     private static InventoryView.Availability availability(UiConnectionState state) {

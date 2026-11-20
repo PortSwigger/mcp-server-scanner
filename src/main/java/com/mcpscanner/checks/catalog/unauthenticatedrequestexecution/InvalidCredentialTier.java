@@ -1,6 +1,5 @@
 package com.mcpscanner.checks.catalog.unauthenticatedrequestexecution;
 
-import burp.api.montoya.http.message.HttpRequestResponse;
 import com.mcpscanner.checks.shared.auth.AuthVariant;
 import com.mcpscanner.checks.shared.auth.AuthVariantSuite;
 import com.mcpscanner.checks.shared.auth.oracle.BaselineEquivalenceOracle;
@@ -8,11 +7,9 @@ import com.mcpscanner.checks.shared.probe.IndependentSessionSender;
 import com.mcpscanner.checks.shared.probe.McpMethodClass;
 import com.mcpscanner.checks.shared.probe.ProbeExchange;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 
 final class InvalidCredentialTier {
 
@@ -43,24 +40,17 @@ final class InvalidCredentialTier {
         if (!reproducesBaseline(subject, confirmation)) {
             return Optional.empty();
         }
-        Optional<ProbeExchange> anonymousAgain = anonymousRecheck.stillRefused(subject);
-        if (anonymousAgain.isEmpty()) {
+        if (anonymousRecheck.stillRefused(subject).isEmpty()) {
             return Optional.empty();
         }
         AuthVariant malformedVariant = suite.malformedCredentialControl();
         return Optional.of(new Finding(FindingKind.INVALID_CREDENTIAL_ACCEPTED, subject,
                 malformedVariant.name() + ", " + fabricated.name(),
                 malformedVariant.candidate().value() + ", " + fabricated.candidate().value(),
-                evidenceOf(subject, refusedAnonymous, malformed, confirmation, anonymousAgain.get())));
+                List.of(subject.baseline(), refusedAnonymous.answer(), malformed.answer())));
     }
 
     private boolean reproducesBaseline(AuditSubject subject, ProbeExchange candidate) {
         return oracle.judgeUncontrolled(subject.baseline(), candidate.last()).isHit();
-    }
-
-    private static List<HttpRequestResponse> evidenceOf(AuditSubject subject, ProbeExchange... probes) {
-        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(subject.baseline()));
-        Stream.of(probes).forEach(probe -> evidence.addAll(probe.exchanges()));
-        return evidence;
     }
 }

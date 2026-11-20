@@ -34,6 +34,7 @@ public final class AuthorizationServerDiscovery {
                         document.webUri("token_endpoint"),
                         document.webUri("revocation_endpoint"),
                         resourceUri,
-                        scope)));
+                        scope,
+                        document.texts("scopes_supported"))));
     }
 }

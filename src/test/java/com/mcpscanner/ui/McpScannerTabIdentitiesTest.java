@@ -97,7 +97,7 @@ class McpScannerTabIdentitiesTest {
         Identity bob = fixture.identities.add(Identity.create("bob", IdentityRole.PEER, IdentityAuthKind.BEARER));
         fixture.identities.setCredential(bob.id(), new BearerTokenAuthStrategy("bob-token"));
         await().atMost(ofSeconds(5)).until(() -> fromEdt(chip::isVisible));
-        await().atMost(ofSeconds(5)).until(() -> fromEdt(chip::getText).equals("Scan as User 1 · compare bob + Anonymous ▾"));
+        await().atMost(ofSeconds(5)).until(() -> fromEdt(chip::getText).equals("Scan as User 1 · compare bob + No credential + Fake token ▾"));
     }
 
     @Test

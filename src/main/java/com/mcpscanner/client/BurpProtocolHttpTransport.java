@@ -8,12 +8,14 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.mcpscanner.http.BurpMessages;
 import com.mcpscanner.http.EmptyResponse;
+import com.mcpscanner.http.evidence.WireRecord;
 import com.mcpscanner.mcp.BurpStreamingRefusal;
 import com.mcpscanner.mcp.BoundedBodyReader;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -63,7 +65,7 @@ public final class BurpProtocolHttpTransport implements ProtocolHttpTransport, A
         HttpRequestResponse sent = awaitBurp(sendThroughBurp(toBurpRequest(request), optionsFor(timeout)));
         if (sent == null || sent.response() == null) throw noResponse(request, timeout);
         if (EmptyResponse.is(sent.response())) throw emptyReply(request, timeout, started);
-        return toResponse(sent.response(), request);
+        return toResponse(sent, request);
     }
 
     @Override
@@ -114,10 +116,11 @@ public final class BurpProtocolHttpTransport implements ProtocolHttpTransport, A
                 .withResponseTimeout(timeout.toMillis());
     }
 
-    private static ProtocolHttpResponse toResponse(HttpResponse response, ProtocolHttpRequest request)
+    private static ProtocolHttpResponse toResponse(HttpRequestResponse sent, ProtocolHttpRequest request)
             throws IOException {
+        HttpResponse response = sent.response();
         return new ProtocolHttpResponse(response.statusCode(), BurpMessages.groupedHeaders(response),
-                new ByteArrayInputStream(unframedBody(response)), request.uri());
+                new ByteArrayInputStream(unframedBody(response)), request.uri(), Optional.of(WireRecord.ofBurp(sent)));
     }
 
     private static byte[] unframedBody(HttpResponse response) throws IOException {

@@ -63,7 +63,7 @@ final class ForwardedClientTier {
             return Optional.empty();
         }
         return Optional.of(new Finding(FindingKind.FORWARDED_CLIENT_ADDRESS_TRUSTED, subject, variant.name(),
-                variant.candidate().value(), List.of(subject.baseline(), refused, admitted, refusedAgain)));
+                variant.candidate().value(), List.of(subject.baseline(), refused, admitted)));
     }
 
     private HttpRequestResponse send(AuditSubject subject, RequestMutation mutation) {

@@ -45,21 +45,49 @@ class BaseRequestLedgerTest {
     }
 
     @Test
-    void tellsAHeaderVariantFromTheLaunchedRequestButIgnoresHeadersBurpOrTheExtensionManage() {
+    void tellsAHeaderVariantFromTheLaunchedRequestButIgnoresHeadersBurpOrTheSendPathManage() {
         HttpRequest launched = request("POST", "/mcp", "{}", List.of(
                 header("Host", "127.0.0.1:1"), header("Accept", "application/json"),
-                header("X-Mcp-Scanner-Audit-Capability", "1")));
+                header("X-Mcp-Scanner-Audit-Capability", "capability")));
         when(delegate.renderJsonRpc(any(), any(), any())).thenReturn(launched);
         ledger.recording(delegate).renderJsonRpc("http://t/mcp", mock(McpMessage.class), Map.of());
 
         assertThat(ledger.contains(request("POST", "/mcp", "{}", List.of(
                 header("accept", "application/json"), header("Content-Length", "2"),
-                header("Host", "127.0.0.1:2"))))).isTrue();
+                header("Host", "127.0.0.1:2"), header("X-Mcp-Scanner-Audit-Capability", "capability"),
+                header("X-Mcp-Scanner-Routed", "routing-key"))))).isTrue();
         assertThat(ledger.contains(request("POST", "/mcp", "{}", List.of(
-                header("Accept", "application/json'"))))).isFalse();
+                header("Accept", "application/json'"), header("X-Mcp-Scanner-Audit-Capability", "capability"))))).isFalse();
         assertThat(ledger.contains(request("POST", "/mcp", "{}", List.of(
-                header("Accept", "application/json"),
+                header("Accept", "application/json"), header("X-Mcp-Scanner-Audit-Capability", "capability"),
                 header("X-Forwarded-Host", "evil.test"))))).isFalse();
+    }
+
+    @Test
+    void tellsAFuzzedScannerSentinelFromTheLaunchedRequest() {
+        HttpRequest launched = request("POST", "/mcp", "{}", List.of(
+                header("X-Mcp-Scanner-Audit-Capability", "capability"),
+                header("X-Mcp-Scanner-Framed-Operation", "framed")));
+        when(delegate.renderJsonRpc(any(), any(), any())).thenReturn(launched);
+        ledger.recording(delegate).renderJsonRpc("http://t/mcp", mock(McpMessage.class), Map.of());
+
+        assertThat(ledger.contains(request("POST", "/mcp", "{}", List.of(
+                header("X-Mcp-Scanner-Audit-Capability", "capability\"|ping -n 21 127.0.0.1 ||"),
+                header("X-Mcp-Scanner-Framed-Operation", "framed"))))).isFalse();
+        assertThat(ledger.contains(request("POST", "/mcp", "{}", List.of(
+                header("X-Mcp-Scanner-Audit-Capability", "capability"),
+                header("X-Mcp-Scanner-Framed-Operation", "framed''"))))).isFalse();
+    }
+
+    @Test
+    void matchesALaunchedRegistrationAfterTheCleanupHandlerRemovesItsSentinel() {
+        HttpRequest registration = request("POST", "/register", "{\"client_name\":\"x\"}", List.of(
+                header("Content-Type", "application/json"), header("X-Mcp-Scanner-Registration", "1")));
+        when(delegate.renderClientRegistration(any())).thenReturn(registration);
+        ledger.recording(delegate).renderClientRegistration(mock(ClientRegistrationMessage.class));
+
+        assertThat(ledger.contains(request("POST", "/register", "{\"client_name\":\"x\"}", List.of(
+                header("Content-Type", "application/json"))))).isTrue();
     }
 
     @Test

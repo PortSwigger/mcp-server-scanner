@@ -55,16 +55,6 @@ class BurpMessagesTest {
     }
 
     @Test
-    void buildsAResponseFromItsStatusHeadersAndUtf8Body() {
-        HttpResponse response = BurpMessages.toResponse(404, Map.of("Mcp-Session-Id", List.of("s-1")), "café");
-
-        assertThat(response.statusCode()).isEqualTo((short) 404);
-        assertThat(response.headerValue("Mcp-Session-Id")).isEqualTo("s-1");
-        assertThat(response.headerValue("Content-Length")).isEqualTo("5");
-        assertThat(response.body().getBytes()).isEqualTo("café".getBytes(StandardCharsets.UTF_8));
-    }
-
-    @Test
     void startsRequestFromUrlAndAppliesMethod() {
         HttpRequest request = recordingMessages().toRequest("https://mcp.example.com/mcp", "POST", Map.of(), null);
 

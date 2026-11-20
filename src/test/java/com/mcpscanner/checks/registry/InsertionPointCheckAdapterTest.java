@@ -127,6 +127,67 @@ class InsertionPointCheckAdapterTest {
         assertThat(check.calls).hasSize(1);
     }
 
+    @Test
+    void anInsertionPointInAPassengersMetaEnvelopeIsSkipped() {
+        RecordingChecks.InsertionPoint check = new RecordingChecks.InsertionPoint("ip", List.of(issue));
+
+        adapterOnMetaEnvelope(check, true).doCheck(base, insertionPoint, http);
+
+        assertThat(check.calls).isEmpty();
+    }
+
+    @Test
+    void anInsertionPointTheMetaEnvelopeRuleAllowsIsFuzzed() {
+        RecordingChecks.InsertionPoint check = new RecordingChecks.InsertionPoint("ip", List.of(issue));
+
+        adapterOnMetaEnvelope(check, false).doCheck(base, insertionPoint, http);
+
+        assertThat(check.calls).hasSize(1);
+    }
+
+    @Test
+    void anInsertionPointChangingOnlyWhatTheProxyDropsIsSkipped() {
+        RecordingChecks.InsertionPoint check = new RecordingChecks.InsertionPoint("ip", List.of(issue));
+
+        adapterOnProxyDroppedPoint(check, true).doCheck(base, insertionPoint, http);
+
+        assertThat(check.calls).isEmpty();
+    }
+
+    @Test
+    void anInsertionPointTheProxyForwardsUnchangedIsFuzzed() {
+        RecordingChecks.InsertionPoint check = new RecordingChecks.InsertionPoint("ip", List.of(issue));
+
+        adapterOnProxyDroppedPoint(check, false).doCheck(base, insertionPoint, http);
+
+        assertThat(check.calls).hasSize(1);
+    }
+
+    private static InsertionPointCheckAdapter adapterOnProxyDroppedPoint(RecordingChecks.InsertionPoint check,
+                                                                         boolean onlyDropped) {
+        return new InsertionPointCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(), check,
+                CheckInstrumentation.NONE, UpstreamExchanges.NONE, ConnectionReuse.withoutLocalAnswers(),
+                IssueDestination.NONE, new ScanNotices(), new ProbeCalls() {
+                    @Override public boolean include(HttpRequestResponse call) { return false; }
+                    @Override public boolean fuzzesOnlyWhatTheProxyDrops(HttpRequestResponse call,
+                                                                         AuditInsertionPoint point) {
+                        return onlyDropped;
+                    }
+                });
+    }
+
+    private static InsertionPointCheckAdapter adapterOnMetaEnvelope(RecordingChecks.InsertionPoint check,
+                                                                    boolean passengerEnvelopePoint) {
+        return new InsertionPointCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(), check,
+                CheckInstrumentation.NONE, UpstreamExchanges.NONE, ConnectionReuse.withoutLocalAnswers(),
+                IssueDestination.NONE, new ScanNotices(), new ProbeCalls() {
+                    @Override public boolean include(HttpRequestResponse call) { return false; }
+                    @Override public boolean isPassengerMetaEnvelopePoint(HttpRequestResponse call, AuditInsertionPoint point) {
+                        return passengerEnvelopePoint;
+                    }
+                });
+    }
+
     private static InsertionPointCheckAdapter adapterOnProbeCalls(RecordingChecks.InsertionPoint check,
                                                                   boolean atAddedLeaf) {
         return new InsertionPointCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(), check,

@@ -1,6 +1,7 @@
 package com.mcpscanner.checks.shared.oauth;
 
 import com.mcpscanner.mcp.HttpOrigin;
+import com.mcpscanner.mcp.LoopbackHosts;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -47,6 +48,10 @@ public final class HttpUris {
     public static String pathWithoutTrailingSlash(URI uri) {
         String path = uri.getRawPath() == null ? "" : uri.getRawPath();
         return path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
+    }
+
+    public static boolean isSecureOrLoopback(URI uri) {
+        return "https".equalsIgnoreCase(uri.getScheme()) || LoopbackHosts.isLoopback(uri.getHost());
     }
 
     private static boolean isHttp(URI uri) {

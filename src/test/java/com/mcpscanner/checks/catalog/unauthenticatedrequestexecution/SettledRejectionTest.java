@@ -25,6 +25,8 @@ class SettledRejectionTest {
     private static final AuthVariant HEADER_VARIANT = variant(VariantFamily.ROUTING_HEADER);
     private static final AuthVariant PATH_VARIANT = variant(VariantFamily.PATH);
     private static final List<ProbeExchange> CONTROLS = List.of(probe(401, AUTH_REFUSAL));
+    private static final String SSE = "Content-Type: text/event-stream";
+    private static final String CHUNKED_JSON = "Content-Type: application/json\r\nTransfer-Encoding: chunked";
 
     private final SettledRejection settled = new SettledRejection();
 
@@ -83,6 +85,40 @@ class SettledRejectionTest {
         ProbeExchange lost = ProbeExchange.of(HttpRequestResponse.httpRequestResponse(anonymous(), null));
 
         assertThat(settled.settles(PATH_VARIANT, lost, CONTROLS)).isFalse();
+    }
+
+    @Test
+    void sseRefusalsThatDifferOnlyInTheirEventIdsAreTheSameAnswer() {
+        List<ProbeExchange> controls = List.of(probe(401, SSE, sseRefusal("evt-1")));
+
+        assertThat(settled.settles(HEADER_VARIANT, probe(401, SSE, sseRefusal("evt-2")), controls)).isTrue();
+    }
+
+    @Test
+    void chunkedRefusalsFramedDifferentlyAreTheSameAnswer() {
+        List<ProbeExchange> controls = List.of(probe(401, CHUNKED_JSON, "18\r\n" + AUTH_REFUSAL + "\r\n0\r\n\r\n"));
+        String reframed = "5\r\n" + AUTH_REFUSAL.substring(0, 5) + "\r\n13\r\n" + AUTH_REFUSAL.substring(5)
+                + "\r\n0\r\n\r\n";
+
+        assertThat(settled.settles(HEADER_VARIANT, probe(401, CHUNKED_JSON, reframed), controls)).isTrue();
+    }
+
+    @Test
+    void aChunkedPathVariantAnsweredByTheMcpHandlerIsLeftOpen() {
+        String split = "3\r\n{\"j\r\n3e\r\nsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32001,\"message\":\"x\"}}\r\n"
+                + "0\r\n\r\n";
+
+        assertThat(settled.settles(PATH_VARIANT, probe(404, CHUNKED_JSON, split), CONTROLS)).isFalse();
+    }
+
+    private static String sseRefusal(String eventId) {
+        return "id: " + eventId + "\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,"
+                + "\"error\":{\"code\":-32001,\"message\":\"Unauthorized\"}}\n\n";
+    }
+
+    private static ProbeExchange probe(int status, String head, String body) {
+        return ProbeExchange.of(HttpRequestResponse.httpRequestResponse(anonymous(), HttpResponse.httpResponse(
+                "HTTP/1.1 " + status + " X\r\n" + head + "\r\n\r\n" + body)));
     }
 
     private static ProbeExchange probe(int status, String body) {

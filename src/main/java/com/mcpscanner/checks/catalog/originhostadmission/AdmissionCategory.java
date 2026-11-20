@@ -24,10 +24,11 @@ enum AdmissionCategory {
             "The MCP server opened its server-to-client event stream under these headers:",
             "Each probe was an HTTP GET with Accept: text/event-stream in a fresh MCP session of its own, with "
                     + "only the Origin header changed. The server answered 2xx with a text/event-stream body and "
-                    + "kept the stream open, as it did for a same-origin control before and after the probes. The "
-                    + "event stream carries the server's notifications and requests to the client, so the "
-                    + "transport's Origin validation must cover it as well as POST. The scanner could not test the "
-                    + "Host header on this route.",
+                    + "kept the stream open, as it did for a same-origin control opened before the probes and again "
+                    + "as a final control after them. The same-origin opening and the first admitted foreign "
+                    + "opening are attached. The event stream carries the server's notifications and requests to "
+                    + "the client, so the transport's Origin validation must cover it as well as POST. "
+                    + "The scanner could not test the Host header on this route.",
             StreamEvidenceNote.OPENED_OUTSIDE_BURP + " This proves header admission only: the scanner did not "
                     + "drive a browser or read events another client would receive.");
 
@@ -71,8 +72,9 @@ enum AdmissionCategory {
         static final String REPLAYED_RESULT = "The MCP server returned the captured operation's result under these "
                 + "headers:";
         static final String REPLAY_EVIDENCE = "The captured MCP request returned the same successful result "
-                + "under the probe as in a fresh baseline and a final control. The destination, method and body "
-                + "were unchanged. This proves header admission only: the scanner did not drive a browser, perform "
+                + "under each listed probe as in a fresh baseline and a final control resent after the probes. "
+                + "The destination, method and body were unchanged. The baseline and the first admitted probe are "
+                + "attached. This proves header admission only: the scanner did not drive a browser, perform "
                 + "DNS rebinding, or establish that the operation is sensitive.";
 
         private Wording() {

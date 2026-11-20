@@ -20,18 +20,18 @@ final class EquivalenceProbe {
         Set<SyntaxFamily> separated = EnumSet.noneOf(SyntaxFamily.class);
         int insensitive = 0;
         for (SyntaxForm form : SyntaxForm.applicableTo(slot)) {
-            if (field.gaveUp() || insensitive >= INSENSITIVE_FORMS_BEFORE_GIVING_UP || corroborated(separations)) {
+            if (field.probesHeld() || insensitive >= INSENSITIVE_FORMS_BEFORE_GIVING_UP || corroborated(separations)) {
                 break;
             }
             if (separated.contains(form.family())) {
                 continue;
             }
             String token = canaries.token();
-            Probe equivalent = send(field, slot, form, token, true);
+            Probe equivalent = send(field::send, slot, form, token, true);
             if (!equivalent.shape().matches(baseline.shape())) {
                 continue;
             }
-            Separation pair = new Separation(form, equivalent, send(field, slot, form, token, false));
+            Separation pair = new Separation(form, equivalent, send(field::send, slot, form, token, false));
             if (pair.separates(baseline)) {
                 separations.add(pair);
                 separated.add(form.family());
@@ -44,7 +44,8 @@ final class EquivalenceProbe {
 
     Separation repeat(ProbeField field, ValueSlot slot, SyntaxForm form) {
         String token = canaries.token();
-        return new Separation(form, send(field, slot, form, token, true), send(field, slot, form, token, false));
+        return new Separation(form, send(field::confirm, slot, form, token, true),
+                send(field::confirm, slot, form, token, false));
     }
 
     private static boolean corroborated(List<Separation> separations) {
@@ -52,8 +53,8 @@ final class EquivalenceProbe {
         return survey.sqlSpecific().isPresent() && survey.independentlyCorroborated();
     }
 
-    private static Probe send(ProbeField field, ValueSlot slot, SyntaxForm form, String token, boolean equivalent) {
+    private static Probe send(SlotSender sender, ValueSlot slot, SyntaxForm form, String token, boolean equivalent) {
         String segment = slot.segment();
-        return field.send(slot, equivalent ? form.equivalent(segment, token) : form.falsifier(segment, token));
+        return sender.send(slot, equivalent ? form.equivalent(segment, token) : form.falsifier(segment, token));
     }
 }

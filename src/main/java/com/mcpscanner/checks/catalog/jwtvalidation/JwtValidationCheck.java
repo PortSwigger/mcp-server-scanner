@@ -54,7 +54,7 @@ public final class JwtValidationCheck implements HostCheck {
             log.notRun(subject, SkipReason.prerequisiteMissing("the bearer credential is not a compact JWT"));
             return List.of();
         }
-        return new RateLimitedProbing(log).run(subject, http, probingHttp ->
-                audit.run(seed, captured.get(), bearer.get(), probingHttp).map(issues::create).stream().toList());
+        return new RateLimitedProbing(log).run(subject, http, sends ->
+                audit.run(seed, captured.get(), bearer.get(), sends).map(issues::create).stream().toList());
     }
 }

@@ -1,5 +1,6 @@
 package com.mcpscanner.testutil;
 
+import burp.api.montoya.core.Annotations;
 import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.core.Marker;
 import burp.api.montoya.core.Range;
@@ -72,6 +73,13 @@ public final class MontoyaTestFactory {
         lenient().when(factory.httpRequestResponse(any(HttpRequest.class), nullable(HttpResponse.class)))
                 .thenAnswer(invocation -> requestResponseMock(invocation.getArgument(0), invocation.getArgument(1),
                         List.of(), List.of()));
+        lenient().when(factory.httpRequestResponse(any(HttpRequest.class), nullable(HttpResponse.class),
+                        nullable(Annotations.class)))
+                .thenAnswer(invocation -> annotated(requestResponseMock(invocation.getArgument(0),
+                        invocation.getArgument(1), List.of(), List.of()), invocation.getArgument(2)));
+        lenient().when(factory.annotations()).thenAnswer(invocation -> annotationsMock(null));
+        lenient().when(factory.annotations(nullable(String.class)))
+                .thenAnswer(invocation -> annotationsMock(invocation.getArgument(0)));
         lenient().when(factory.marker(anyInt(), anyInt())).thenAnswer(invocation ->
                 markerMock(Range.range(invocation.getArgument(0), invocation.getArgument(1))));
         lenient().when(factory.marker(any(Range.class))).thenAnswer(invocation -> markerMock(invocation.getArgument(0)));
@@ -92,6 +100,18 @@ public final class MontoyaTestFactory {
         lenient().when(rr.withResponseMarkers(anyList())).thenAnswer(invocation -> requestResponseMock(request,
                 response, requestMarkers, List.copyOf((List<Marker>) invocation.getArgument(0))));
         return rr;
+    }
+
+    private static HttpRequestResponse annotated(HttpRequestResponse exchange, Annotations annotations) {
+        lenient().when(exchange.annotations()).thenReturn(annotations);
+        return exchange;
+    }
+
+    private static Annotations annotationsMock(String notes) {
+        Annotations annotations = mock(Annotations.class, withSettings().stubOnly());
+        lenient().when(annotations.notes()).thenReturn(notes);
+        lenient().when(annotations.hasNotes()).thenReturn(notes != null && !notes.isEmpty());
+        return annotations;
     }
 
     private static Marker markerMock(Range range) {
@@ -172,7 +192,12 @@ public final class MontoyaTestFactory {
 
     private static void installHttpRequestStubs(MontoyaObjectFactory factory) {
         lenient().when(factory.httpRequest(any(HttpService.class), anyString()))
-                .thenAnswer(invocation -> mock(HttpRequest.class));
+                .thenAnswer(invocation -> parsedRequest(invocation.getArgument(0, HttpService.class),
+                        invocation.getArgument(1, String.class)));
+
+        lenient().when(factory.httpRequest(any(HttpService.class), any(ByteArray.class)))
+                .thenAnswer(invocation -> rawRequest(invocation.getArgument(0, HttpService.class),
+                        invocation.getArgument(1, ByteArray.class).getBytes()));
 
         lenient().when(factory.httpRequest(anyString()))
                 .thenReturn(mock(HttpRequest.class));
@@ -191,6 +216,39 @@ public final class MontoyaTestFactory {
             ByteArray raw = invocation.getArgument(0);
             return buildHttpResponseMock(raw.getBytes());
         });
+    }
+
+    private static HttpRequest parsedRequest(HttpService service, String raw) {
+        String normalized = raw.replace("\r\n", "\n");
+        int bodyStart = normalized.indexOf("\n\n");
+        String head = bodyStart < 0 ? normalized : normalized.substring(0, bodyStart);
+        String body = bodyStart < 0 ? "" : normalized.substring(bodyStart + 2);
+        String[] lines = head.split("\n");
+        String[] requestLine = lines[0].split(" ");
+        java.util.LinkedHashMap<String, String> headers = new java.util.LinkedHashMap<>();
+        for (int i = 1; i < lines.length; i++) {
+            int colon = lines[i].indexOf(':');
+            if (colon > 0) {
+                headers.put(lines[i].substring(0, colon).trim(), lines[i].substring(colon + 1).trim());
+            }
+        }
+        String url = (service.secure() ? "https://" : "http://") + service.host() + ":" + service.port()
+                + requestLine[1];
+        return requestMock(new RequestState(url, requestLine[0], body, headers, service));
+    }
+
+    private static HttpRequest rawRequest(HttpService service, byte[] raw) {
+        HttpRequest request = parsedRequest(service, new String(raw, java.nio.charset.StandardCharsets.ISO_8859_1));
+        lenient().when(request.toByteArray()).thenAnswer(inv -> ByteArray.byteArray(raw));
+        String url = originOf(service) + request.path();
+        lenient().when(request.url()).thenReturn(url);
+        return request;
+    }
+
+    private static String originOf(HttpService service) {
+        boolean defaultPort = service.port() == (service.secure() ? 443 : 80);
+        return (service.secure() ? "https://" : "http://") + service.host()
+                + (defaultPort ? "" : ":" + service.port());
     }
 
     private static HttpRequest buildHttpRequestMock(String url) {
@@ -242,7 +300,7 @@ public final class MontoyaTestFactory {
         }
 
         byte[] head() {
-            StringBuilder head = new StringBuilder(method).append(' ').append(pathOf(url)).append(" HTTP/1.1\r\n");
+            StringBuilder head = new StringBuilder(method).append(' ').append(targetOf(url)).append(" HTTP/1.1\r\n");
             headers.forEach((name, value) -> head.append(name).append(": ").append(value).append("\r\n"));
             return head.append("\r\n").toString().getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
         }
@@ -369,6 +427,7 @@ public final class MontoyaTestFactory {
         lenient().when(response.statusCode()).thenReturn(status);
         lenient().when(response.httpVersion()).thenReturn(lines.length > 0 ? lines[0].split(" ", 2)[0] : "");
         lenient().when(response.toByteArray()).thenAnswer(inv -> ByteArray.byteArray(rawBytes));
+        lenient().when(response.bodyOffset()).thenReturn(rawBytes.length - rawBodyBytes.length);
         lenient().when(response.bodyToString()).thenReturn(body);
         ByteArray bodyBytes = ByteArray.byteArray(rawBodyBytes);
         lenient().when(response.body()).thenReturn(bodyBytes);

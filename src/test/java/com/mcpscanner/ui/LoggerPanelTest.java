@@ -138,6 +138,87 @@ class LoggerPanelTest {
     }
 
     @Test
+    void connectLinesSurviveTheDebugVolumeOfASeventeenCheckScan() throws Exception {
+        McpEventLog log = new McpEventLog(null);
+        LoggerPanel panel = new LoggerPanel(log);
+
+        log.info("Connected to MCP server");
+        log.info("Opening browser for sign-in");
+        log.info("Signed-in consent probes not run: opt-in is off");
+        for (int invocation = 0; invocation < 2_327; invocation++) {
+            log.debug("check " + invocation % 17 + " started");
+            log.debug("check " + invocation % 17 + " finished");
+        }
+        log.kept("Scan finished");
+        awaitLine(panel, "Scan finished");
+
+        assertThat(textArea(panel).getText().lines()).hasSize(4).anySatisfy(line -> assertThat(line)
+                .endsWith("Connected to MCP server")).anySatisfy(line -> assertThat(line)
+                .endsWith("Opening browser for sign-in")).anySatisfy(line -> assertThat(line)
+                .endsWith("Signed-in consent probes not run: opt-in is off"));
+    }
+
+    @Test
+    void anEvictedLineInTheMiddleOfTheViewLeavesTheView() throws Exception {
+        McpEventLog log = new McpEventLog(null);
+        LoggerPanel panel = new LoggerPanel(log);
+
+        log.kept("Scan started");
+        for (int line = 0; line <= 999; line++) {
+            log.info("line " + line);
+        }
+        awaitLine(panel, "line 999");
+
+        assertThat(textArea(panel).getText().lines()).hasSize(1000)
+                .first().asString().endsWith("Scan started");
+        assertThat(textArea(panel).getText().lines()).element(1).asString().endsWith("line 1");
+    }
+
+    @Test
+    void anEvictedMultiLineMessageLeavesTheViewWhole() throws Exception {
+        McpEventLog log = new McpEventLog(null);
+        LoggerPanel panel = new LoggerPanel(log);
+
+        log.kept("Scan started");
+        log.warn("metadata fetch failed: Unexpected character\n at [Source: REDACTED; line: 1]");
+        for (int line = 0; line <= 999; line++) {
+            log.info("line " + line);
+        }
+        awaitLine(panel, "line 999");
+
+        assertThat(textArea(panel).getText()).doesNotContain("[Source");
+        assertThat(textArea(panel).getText().lines()).hasSize(1000)
+                .first().asString().endsWith("Scan started");
+        assertThat(textArea(panel).getText().lines()).element(1).asString().endsWith("line 1");
+    }
+
+    @Test
+    void theDebugViewDropsTheDebugLinesThatAreEvicted() throws Exception {
+        McpEventLog log = new McpEventLog(null);
+        LoggerPanel panel = new LoggerPanel(log);
+        levelFilter(panel).setSelectedItem(LogLevelFilter.DEBUG);
+
+        log.info("Connected to MCP server");
+        for (int line = 0; line < 1_500; line++) {
+            log.debug("decision " + line);
+        }
+        awaitLine(panel, "decision 1499");
+
+        assertThat(textArea(panel).getText().lines()).hasSize(999)
+                .first().asString().endsWith("decision 501");
+        levelFilter(panel).setSelectedItem(LogLevelFilter.ALL);
+        assertThat(textArea(panel).getText()).contains("Connected to MCP server");
+    }
+
+    private static void awaitLine(LoggerPanel panel, String lastMessage) throws Exception {
+        await().atMost(ofSeconds(10)).until(() -> {
+            String[] text = new String[1];
+            SwingUtilities.invokeAndWait(() -> text[0] = textArea(panel).getText());
+            return text[0].contains(lastMessage);
+        });
+    }
+
+    @Test
     void clearEmptiesTheLogForEveryFilter() throws Exception {
         McpEventLog log = new McpEventLog(null);
         log.error("broken");

@@ -33,6 +33,17 @@ final class ReservedHeaderPolicy {
                 && !LOCAL_SERVER_PSEUDO.contains(name);
     }
 
+    static boolean isForwardableOverSession(String name) {
+        return isForwardable(name)
+                && !name.equalsIgnoreCase("Authorization")
+                && !name.equalsIgnoreCase(McpHeaders.PROTOCOL_VERSION)
+                && !name.equalsIgnoreCase(McpHeaders.SESSION_ID);
+    }
+
+    static boolean reachesServerOverSession(String name) {
+        return isForwardableOverSession(name) && !McpHeaders.isOperationHeader(name);
+    }
+
     static boolean isIdentityBearing(String name) {
         return !isTransportFraming(name) && !isScannerSentinel(name)
                 && !McpHeaders.isProtocolHeader(name) && !McpHeaders.isOperationHeader(name)

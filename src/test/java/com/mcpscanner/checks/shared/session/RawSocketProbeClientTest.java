@@ -3,6 +3,7 @@ package com.mcpscanner.checks.shared.session;
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import com.mcpscanner.checks.shared.jsonrpc.McpReply;
 import com.mcpscanner.http.wire.OneConnectionServer;
 import com.mcpscanner.http.wire.SocketHttpTransport;
 import com.mcpscanner.testutil.ClosedPort;
@@ -11,12 +12,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -44,14 +46,53 @@ class RawSocketProbeClientTest {
     }
 
     @Test
-    void liftsTheJsonRpcAnswerOutOfAnEventStreamReply() throws Exception {
+    void theEvidenceRequestIsTheBytesTheServerReceivedWithItsCredential() throws Exception {
+        try (OneConnectionServer server = OneConnectionServer.replyingWith(EVENT_STREAM_REPLY)) {
+            HttpRequestResponse exchange = client.send(ping(server.port()).withHeader("Host", "attacker.example")
+                    .withHeader("Authorization", "Bearer kept")).orElseThrow();
+
+            assertThat(text(exchange.request().toByteArray().getBytes()))
+                    .isEqualTo(server.received().head() + PING)
+                    .contains("\r\nAuthorization: Bearer kept\r\n", "\r\nContent-Length: " + PING.length() + "\r\n",
+                            "\r\nConnection: close\r\n")
+                    .doesNotContain("X-Mcp-Scanner-");
+        }
+    }
+
+    @Test
+    void theEvidenceResponseIsTheEventStreamExactlyAsReceived() throws Exception {
         try (OneConnectionServer server = OneConnectionServer.replyingWith(EVENT_STREAM_REPLY)) {
             HttpRequestResponse exchange = client.send(ping(server.port())).orElseThrow();
 
-            assertThat(exchange.response().statusCode()).isEqualTo((short) 200);
-            assertThat(exchange.response().bodyToString()).isEqualTo(ANSWER);
-            assertThat(exchange.response().headerValue("Content-Type")).isEqualTo("application/json");
-            assertThat(exchange.response().headerValue("X-Served-By")).isEqualTo("stream");
+            assertThat(text(exchange.response().toByteArray().getBytes())).isEqualTo(EVENT_STREAM_REPLY);
+            assertThat(McpReply.answering(exchange, McpReply::isResponse).answered()).isTrue();
+        }
+    }
+
+    @Test
+    void aChunkedReplyKeepsItsFramingAndRepeatedHeadersAndStillAnswersTheProbe() throws Exception {
+        String event = "event: message\r\ndata: " + ANSWER + "\r\n\r\n";
+        String chunked = "HTTP/1.1 200 Fine\r\nContent-Type: text/event-stream\r\nSet-Cookie: a=1\r\n"
+                + "Set-Cookie: b=2\r\nTransfer-Encoding: chunked\r\n\r\n"
+                + Integer.toHexString(event.length()) + "\r\n" + event + "\r\n0\r\n\r\n";
+        try (OneConnectionServer server = OneConnectionServer.replyingWith(chunked)) {
+            HttpRequestResponse exchange = client.send(ping(server.port())).orElseThrow();
+
+            assertThat(text(exchange.response().toByteArray().getBytes())).startsWith(chunked.substring(0,
+                    chunked.indexOf("\r\n\r\n") + 4) + Integer.toHexString(event.length()) + "\r\n" + event);
+            assertThat(McpReply.answering(exchange, McpReply::isResponse).answered()).isTrue();
+        }
+    }
+
+    @Test
+    void aChunkedJsonReplyKeepsItsFramingAndStillAnswersTheProbe() throws Exception {
+        String chunked = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n"
+                + Integer.toHexString(ANSWER.length()) + "\r\n" + ANSWER + "\r\n0\r\n\r\n";
+        try (OneConnectionServer server = OneConnectionServer.replyingWith(chunked)) {
+            HttpRequestResponse exchange = client.send(ping(server.port())).orElseThrow();
+
+            assertThat(text(exchange.response().toByteArray().getBytes())).isEqualTo(chunked);
+            assertThat(McpReply.answering(exchange, McpReply::isResponse).answered()).isTrue();
         }
     }
 
@@ -60,7 +101,11 @@ class RawSocketProbeClientTest {
         try (OneConnectionServer server = OneConnectionServer.silent()) {
             Optional<HttpRequestResponse> exchange = client.send(ping(server.port()));
 
-            assertThat(exchange).hasValueSatisfying(sent -> assertThat(sent.response()).isNull());
+            assertThat(exchange).hasValueSatisfying(sent -> {
+                assertThat(sent.response()).isNull();
+                assertThat(text(sent.request().toByteArray().getBytes())).startsWith("POST /mcp HTTP/1.1\r\n")
+                        .contains("\r\nConnection: close\r\n").endsWith(PING);
+            });
         }
     }
 
@@ -79,7 +124,7 @@ class RawSocketProbeClientTest {
     @Test
     void aReplyThatFailsToParseAtRuntimeWasSentWithoutAResponseRatherThanThrown() throws Exception {
         ProbeReplyReader failingReader = mock(ProbeReplyReader.class);
-        when(failingReader.read(anyInt(), any(), any(), any())).thenThrow(new IllegalStateException("unparsable"));
+        doThrow(new IllegalStateException("unparsable")).when(failingReader).awaitReply(any(), any(), any());
         RawSocketProbeClient failingClient = new RawSocketProbeClient(
                 new SocketHttpTransport(Duration.ofMillis(500)), failingReader);
         try (OneConnectionServer server = OneConnectionServer.replyingWith(EVENT_STREAM_REPLY)) {
@@ -87,6 +132,10 @@ class RawSocketProbeClientTest {
 
             assertThat(exchange).hasValueSatisfying(sent -> assertThat(sent.response()).isNull());
         }
+    }
+
+    private static String text(byte[] bytes) {
+        return new String(bytes, StandardCharsets.ISO_8859_1);
     }
 
     private static HttpRequest ping(int port) {

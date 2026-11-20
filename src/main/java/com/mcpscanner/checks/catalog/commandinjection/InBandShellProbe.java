@@ -30,37 +30,40 @@ final class InBandShellProbe {
         if (!injected.answered() || !injected.contains(computed)) {
             return ProbeOutcome.inconclusive();
         }
-        InjectionReply direct = field.send(canary.command());
+        InjectionReply direct = field.confirm(canary.command());
         if (computes(direct, canary)) {
             return found(FindingKind.INTENDED_COMMAND, field, List.of(computed), baseline, injected, direct);
         }
         InjectionReply matched = field.sendMatchedControl();
         if (matched.successful() && !matched.contains(computed)) {
-            return confirmed(FindingKind.SHELL_COMPUTED_RESULT, field, breakout, computed, baseline, injected, matched);
+            return confirmed(FindingKind.SHELL_COMPUTED_RESULT, field, breakout, computed, baseline, injected, direct);
         }
         if (!matched.rejected() || matched.contains(computed)) {
             return ProbeOutcome.inconclusive();
         }
-        InjectionReply quoted = field.send(breakout.wrap(field.original(), canary.quotedCommand()));
+        InjectionReply quoted = field.confirm(breakout.wrap(field.original(), canary.quotedCommand()));
         if (quoted.answered() && !quoted.contains(computed) && quoted.contains(canary.quotedLiteral())) {
             return confirmed(FindingKind.SHELL_COMPUTED_RESULT_QUOTED_CONTROL, field, breakout, computed, baseline,
-                    injected, matched, quoted);
+                    injected, direct, quoted);
         }
         return ProbeOutcome.inconclusive();
     }
 
     private ProbeOutcome confirmed(FindingKind kind, ProbeField field, ShellBreakout breakout, String computed,
-                                   InjectionReply... controls) {
+                                   InjectionReply baseline, InjectionReply injected, InjectionReply... controls) {
         ArithmeticCanary fresh = confirmations.next();
-        InjectionReply repeated = field.send(breakout.wrap(field.original(), fresh.command()));
+        InjectionReply repeated = field.confirm(breakout.wrap(field.original(), fresh.command()));
         if (!computes(repeated, fresh)) {
             return ProbeOutcome.inconclusive();
         }
-        InjectionReply repeatedDirect = field.send(fresh.command());
-        FindingKind confirmedKind = computes(repeatedDirect, fresh) ? FindingKind.INTENDED_COMMAND : kind;
-        InjectionReply[] evidence = Stream.concat(Arrays.stream(controls), Stream.of(repeated, repeatedDirect))
+        InjectionReply repeatedDirect = field.confirm(fresh.command());
+        if (computes(repeatedDirect, fresh)) {
+            return found(FindingKind.INTENDED_COMMAND, field, List.of(computed, fresh.result()), baseline, injected,
+                    repeatedDirect);
+        }
+        InjectionReply[] evidence = Stream.concat(Stream.of(baseline, injected), Arrays.stream(controls))
                 .toArray(InjectionReply[]::new);
-        return found(confirmedKind, field, List.of(computed, fresh.result()), evidence);
+        return found(kind, field, List.of(computed), evidence);
     }
 
     private static boolean computes(InjectionReply reply, ArithmeticCanary canary) {

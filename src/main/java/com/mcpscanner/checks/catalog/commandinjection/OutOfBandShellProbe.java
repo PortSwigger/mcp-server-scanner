@@ -1,7 +1,6 @@
 package com.mcpscanner.checks.catalog.commandinjection;
 
 import burp.api.montoya.collaborator.CollaboratorPayload;
-import burp.api.montoya.http.message.HttpRequestResponse;
 import com.mcpscanner.checks.api.CheckLog;
 import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.shared.collaborator.CollaboratorWatch;
@@ -34,7 +33,7 @@ final class OutOfBandShellProbe {
             log.notRunOncePerLoad(described(field), COLLABORATOR_UNAVAILABLE);
             return;
         }
-        Map<String, HttpRequestResponse> sentByPayloadId = new LinkedHashMap<>();
+        Map<String, SentBreakout> sentByPayloadId = new LinkedHashMap<>();
         List<CollaboratorPayload> payloads = watch.probing(source -> sendBreakouts(field, source, sentByPayloadId));
         PendingProbe pending = new PendingProbe(field.subject(), sentByPayloadId);
         watch.watch(payloads, soFar -> {
@@ -44,7 +43,7 @@ final class OutOfBandShellProbe {
     }
 
     private List<CollaboratorPayload> sendBreakouts(ProbeField field, PayloadSource source,
-                                                    Map<String, HttpRequestResponse> sentByPayloadId) {
+                                                    Map<String, SentBreakout> sentByPayloadId) {
         List<CollaboratorPayload> payloads = new ArrayList<>();
         for (ShellBreakout breakout : field.breakouts()) {
             if (field.gaveUp()) {
@@ -57,7 +56,7 @@ final class OutOfBandShellProbe {
             }
             InjectionReply reply = field.send(breakout.wrap(field.original(), OutOfBandCommand.reaching(payload.get().toString())));
             payloads.add(payload.get());
-            sentByPayloadId.put(payload.get().id().toString(), watch.kept(reply.exchange()));
+            sentByPayloadId.put(payload.get().id().toString(), new SentBreakout(breakout, watch.kept(reply.exchange())));
         }
         return payloads;
     }

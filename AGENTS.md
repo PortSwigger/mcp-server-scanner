@@ -1,6 +1,6 @@
 # AGENTS.md
 
-A Burp Suite extension that security-tests MCP (Model Context Protocol) servers: it discovers tools, resources, templates and prompts, builds JSON-RPC requests with insertion points and scans them with its own checks (optionally alongside Burp's). **Burp Suite Professional only** (Collaborator is needed for the out-of-band checks).
+A Burp Suite extension that security-tests MCP (Model Context Protocol) servers: it discovers tools, resources, templates and prompts, builds JSON-RPC requests with insertion points and scans them with its own checks (optionally alongside Burp's). In Burp Suite Community it connects, browses, asks the server for values and sends to Repeater and Organizer; scanning, Check access and Collect IDs need **Burp Suite Professional** (and Collaborator for the out-of-band checks).
 
 Architecture overview: [ARCHITECTURE.md](./ARCHITECTURE.md). Java 17.
 
@@ -14,13 +14,16 @@ Architecture overview: [ARCHITECTURE.md](./ARCHITECTURE.md). Java 17.
 ./gradlew dependencies --write-locks              # after changing a dependency (gradle.lockfile mismatch)
 ./gradlew cveTargets [-Pcheck=<id>] [-Ptarget=<id>] [-Psmoke]   # CVE harness, needs Docker, not part of build
 ./gradlew cveTargetsBurp [-PburpConfig=extensions-only|with-builtins]  # same arms through headless Burp Pro
+./gradlew cveTargetsBurp -Psmoke -PburpConfig=extensions-only -PcveParallel=3   # consolidated run: one real pair per check through Burp, 3 arms at once
 ./gradlew cveTargetsLifecycle                     # harness self-test
 ./gradlew burpCanary                              # Burp send-latency canary (Burp Pro jar via -PburpJar or BURP_JAR)
 ./gradlew slowLinkTest                            # 100 ms-per-hop latency test; run `uv sync` in test-server/ once first
+./gradlew editionUiTest                           # Swing tab built as Community and as Professional (tag edition-ui), not part of build
 ```
 
 - **Always run `./gradlew shadowJar` after a code change**: the fat JAR is what gets loaded into Burp.
 - Commit `gradle.lockfile` whenever you regenerate it.
+- Run `editionUiTest` after changing what either edition shows in the tab.
 - `build` does not run the latency or CVE suites (localhost hides serialised sends and locks held across a send): run `slowLinkTest` after changing send paths, locking or concurrency, `burpCanary` after changing connection reuse, and `cveTargets -Pcheck=<id>` after changing a check.
 - Raise a declared concurrency in `SlowLinkIT` only when the code really sends that many requests at once, never to make it pass.
 
@@ -40,14 +43,18 @@ Rules a check must follow (most are enforced by tests):
 - No check thread waits on Collaborator: register payloads with `CollaboratorWatch` and report through `CheckServices.lateIssues()`.
 - Open probe sessions only through `checks/shared/session`; never DELETE or disturb the scanner's live session.
 - When Burp refuses a `text/event-stream` reply, recover with `StreamingFallback` and report what went outside Burp through `OutsideBurpSends`.
-- OAuth checks send through `checks/shared/oauth/OAuthHttp`, revoke every token they obtain and delete every client they register. Pass evidence that may hold secrets through `checks/shared/redaction/ExchangeRedactor`.
+- OAuth checks send every authorization-server request through `checks/shared/oauth/OAuthHttp`, which sends it outside Burp's scan queue (`http/OutsideScanQueue`) so the server's `RateLimit-*` headers cannot make Burp throttle the whole scan (see ARCHITECTURE.md); they revoke every token they obtain and delete every client they register. Issue evidence is always the raw exchange; never redact or mask it (`DeletedTypesTest`).
 - If a change legitimately alters how many requests an operation sends, update its row in `performance/RequestBudgets` in the same change and say why.
 
 ## Traps
 
 - **Do not replace the local proxy with a synchronous intercept in `HttpHandler`** (`RequestToBeSentAction.continueWith(...)` with a synthesised response). The hook fires too late in Burp's scanner pipeline and the request is already on the wire. The proxy is mandatory for SSE. The one exception is `Http1LoopbackRelay`, which uses `RequestToBeSentAction.spoof`.
+- **Pro-only features are built only in the Pro wiring** (`ProfessionalFeatures`, created only when `BurpEdition` is Professional) and never constructed in Community: no scanner, Collaborator, site map, scan engine, Check access, Collect IDs or compared-user discovery from the always-built wiring. Guarded by `architecture/ProfessionalOnlyWiringTest`, `McpScannerExtensionCommunityTest`, and by `McpScannerTabCommunityTest` and `McpScannerTabProfessionalTest` in `editionUiTest` (not part of `build`); a new Pro-only method in `McpScannerExtension` must be added to the guard's list.
 - **Never read Burp's site map or `Audit.issues()` on the EDT**: it can deadlock Burp. Go through `ui/widgets/UiReads` / `OffEdtFeed`.
 - Burp refuses streamed (`text/event-stream`) replies to extensions. Recognise that only through `mcp/BurpStreamingRefusal`, never by Burp's obfuscated exception class names, which change between releases.
+- **"Send requests through Burp"** (`ExtensionConfigStore.useBurpNetworking`) chooses Burp or the JDK client for the MCP connection's traffic and the OAuth auth probe's event-stream GET; read it per send through one selector (`SelectableProtocolTransport`, `NetworkingSelectedChallengeSender`), never scattered if/else. Other sends (OAuth flow and metadata, Check access, Collect IDs, checks) always use Burp. Sends outside Burp while it is on are the accepted exception for streamed replies: the JDK SSE client, the `StreamingFallback` JDK/raw-socket recoveries and stream probes, because Burp refuses `text/event-stream` replies to extensions (decision 2026-11-18, no workaround; see ARCHITECTURE.md). A Burp send that times out returns an empty reply (status 0, no bytes, `http/EmptyResponse`), not null: treat it as no answer.
+- **Issue evidence comes only from `http/evidence/WireRecord`** (Burp's own exchange, the JDK rendering, the socket tap) and passes through `http/evidence/ReportedEvidence`; never rebuild a response from our own status, headers or body (`architecture/EvidenceFidelityTest`). Known limits of the JDK path: response header names are lowercased and sorted, the reason phrase is the standard one for the status, and the body is the de-chunked body.
+- Checks compare or search reply bodies through `checks/shared/jsonrpc/ReplyBody` or `McpReply`, not `bodyToString()`: outside-Burp replies keep their SSE and chunk framing.
 - Read every untrusted response body through `mcp/BoundedBodyReader` (size cap).
 - Build URL requests only with `http/BareRequests.fromUrl` (`CodeHygieneTest`): Montoya's `httpRequestFromUrl` starts from Burp's browser template and would send its headers to the target.
 - Scanner sentinel headers (`X-Mcp-Scanner-*`, `ScannerSentinels`) route requests through the proxy and must never reach the target; anything forwarded upstream goes through sentinel stripping, or `McpHttpHandler` loops it back to the proxy.
@@ -72,7 +79,7 @@ Rules a check must follow (most are enforced by tests):
 `cve-targets/<check-id>/<target-id>/` holds real vulnerable/fixed Docker pairs, each with a `compose.yaml` and a `target.json` manifest; the harness asserts each arm's declared fire/silent outcome and always tears it down. Full reference: [cve-targets/README.md](./cve-targets/README.md).
 
 - Compose files must join the external `mcp-cve-targets` network and never create their own.
-- Name helper services per target: the harness refuses to start an arm while another project on the network uses one of its helper service names.
+- Name helper services per target: the harness refuses to start an arm while another project on the network uses one of its helper service names, and within one run serialises arms that share a helper.
 - `-Psmoke` keeps only targets marked `"smoke": true` (one fast real pair per check).
 - A `silent` arm fails unless at least one check probe reached the target, except for a declared `knownMiss`.
 
@@ -87,9 +94,10 @@ Rules a check must follow (most are enforced by tests):
 - `proxy` — local loopback proxy that sits between Burp's scanner and the target (SSE unwrapping, JSON-RPC id rewriting, credentials, evidence capture).
 - `auth` — authentication strategies; `auth/oauth` OAuth 2.1 with PKCE, DCR and metadata discovery.
 - `identity` — users (primary and compared), their credentials and owned values.
-- `access` — Check access (cross-identity comparison) and `access/mining` (collecting IDs).
+- `access` — Check access (cross-identity comparison), `access/listing` (the No credential and Fake token listing issues) and `access/mining` (collecting IDs).
 - `checks` — `api` (kernel and kinds), `registry` (Montoya adapters), `issue` (issue rendering), `shared` (toolkits), `catalog/<check>` (one package per check).
 - `scan` — request generator (`scan/request`), field and insertion-point generator (`scan/field`), launcher and scan modes.
+- `signedin` — Professional-only Burp side of the OAuth consent check's signed-in trial (`SignedInConsent` port): the project opt-in, Burp's cookie jar, the Connect OAuth sign-in and browser consent observations.
 - `engine` — the extension's own scan engine (extension checks without Burp's built-in ones).
 - `automation` (in `src/automation/java`, not `src/main`) — loopback-only test automation API used by the headless Burp harness. It ships only in the harness JAR (`./gradlew harnessJar`), found through `ExtensionAutomation` and `META-INF/services`; `check` fails if it reaches the release JAR.
 - `ui` — Swing UI; `ui/state` holds the connection state machine.

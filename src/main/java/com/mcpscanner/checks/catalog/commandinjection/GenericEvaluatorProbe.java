@@ -36,18 +36,18 @@ final class GenericEvaluatorProbe {
         if (!matched.answered() || matched.contains(computed)) {
             return ProbeOutcome.inconclusive();
         }
-        InjectionReply bare = field.send(breakout.bareDecoder(computed));
+        InjectionReply bare = field.confirm(breakout.bareDecoder(computed));
         if (evaluated(bare, computed)) {
             return ProbeOutcome.found(Finding.proving(FindingKind.EVALUATED_ARGUMENT, field.subject(),
-                    breakout.label(), List.of(computed), baseline, injected, matched, bare));
+                    breakout.label(), List.of(computed), baseline, bare));
         }
         String fresh = confirmations.next().result();
-        InjectionReply repeated = field.send(breakout.payload(field.original(), fresh));
+        InjectionReply repeated = field.confirm(breakout.payload(field.original(), fresh));
         if (!evaluated(repeated, fresh)) {
             return ProbeOutcome.inconclusive();
         }
         return ProbeOutcome.found(Finding.proving(FindingKind.INTERPRETER_COMPUTED_RESULT, field.subject(),
-                breakout.label(), List.of(computed, fresh), baseline, injected, matched, bare, repeated));
+                breakout.label(), List.of(computed), baseline, injected, bare));
     }
 
     private ProbeOutcome probe(ProbeField field, InjectionReply baseline, String computed, EvaluatorFamily family) {
@@ -60,12 +60,12 @@ final class GenericEvaluatorProbe {
         if (!matched.answered() || matched.contains(computed)) {
             return ProbeOutcome.inconclusive();
         }
-        InjectionReply literal = field.send(family.literalControl(payload));
+        InjectionReply literal = field.confirm(family.literalControl(payload));
         if (!literal.successful() || literal.contains(computed) || !literal.contains(payload)) {
             return ProbeOutcome.inconclusive();
         }
         return ProbeOutcome.found(Finding.proving(FindingKind.EVALUATED_ARGUMENT, field.subject(), family.label(),
-                List.of(computed), baseline, evaluated, matched, literal));
+                List.of(computed), baseline, evaluated, literal));
     }
 
     private static boolean evaluated(InjectionReply reply, String computed) {

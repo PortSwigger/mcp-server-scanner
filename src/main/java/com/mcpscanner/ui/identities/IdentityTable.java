@@ -1,5 +1,6 @@
 package com.mcpscanner.ui.identities;
 
+import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.ui.widgets.SwingHtmlGuard;
 import com.mcpscanner.ui.widgets.ThemeColors;
 
@@ -112,7 +113,7 @@ final class IdentityTable extends JTable {
     }
 
     private String anonymousNote(int row) {
-        return model.rowAt(row).identity().isEmpty() ? "Anonymous is always compared" : null;
+        return model.rowAt(row).identity().isEmpty() ? Principal.ANONYMOUS_NAME + " is always compared" : null;
     }
 
     private final class IdentityCellRenderer extends DefaultTableCellRenderer {

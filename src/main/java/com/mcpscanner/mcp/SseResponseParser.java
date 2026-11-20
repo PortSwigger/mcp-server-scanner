@@ -2,6 +2,7 @@ package com.mcpscanner.mcp;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.StringReader;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
@@ -31,8 +32,6 @@ public final class SseResponseParser {
 
     private SseResponseParser() {}
 
-    public record SseEvent(String eventType, String data) {}
-
     public static boolean isEventStream(String contentType) {
         return contentType != null && contentType.toLowerCase(Locale.ROOT).contains(EVENT_STREAM_MEDIA_TYPE);
     }
@@ -54,13 +53,17 @@ public final class SseResponseParser {
         return data;
     }
 
-    public static SseEvent readNextEvent(BufferedReader reader) throws IOException {
-        SseFrameReader frames = SseFrameReader.over(reader, EVENT_LIMITS);
-        String frame;
-        while ((frame = frames.nextFrame()) != null) {
-            SseFrame event = SseFrame.parse(frame);
+    public static SseFrameReader eventFrames(InputStream stream) {
+        return SseFrameReader.capturing(stream, EVENT_LIMITS);
+    }
+
+    public static RawSseFrame nextDataFrame(SseFrameReader frames) throws IOException {
+        RawSseFrame frame;
+        while ((frame = frames.nextRawFrame()) != null) {
+            SseFrame event = SseFrame.parse(frame.text());
             if (event.hasData()) {
-                return new SseEvent(event.eventType(), boundedData(event));
+                boundedData(event);
+                return frame;
             }
         }
         return null;
@@ -85,7 +88,7 @@ public final class SseResponseParser {
             SseFrame event = SseFrame.parse(frame);
             if (event.isMessage() && event.hasData()) {
                 String data = boundedData(event);
-                if (hasTopLevelId(data)) {
+                if (isReply(data)) {
                     return data;
                 }
                 lastData = data;
@@ -195,8 +198,11 @@ public final class SseResponseParser {
         }
     }
 
-    public static String extractEndpointUrl(BufferedReader reader) throws IOException {
-        SseFrameReader frames = SseFrameReader.over(reader, ENDPOINT_LIMITS);
+    public static SseFrameReader endpointFrames(InputStream stream) {
+        return SseFrameReader.over(stream, ENDPOINT_LIMITS);
+    }
+
+    public static String extractEndpointUrl(SseFrameReader frames) throws IOException {
         String frame;
         while ((frame = frames.nextFrame()) != null) {
             SseFrame event = SseFrame.parse(frame);
@@ -207,10 +213,10 @@ public final class SseResponseParser {
         return null;
     }
 
-    private static boolean hasTopLevelId(String json) {
+    private static boolean isReply(String json) {
         try {
             JsonNode node = McpObjectMapper.INSTANCE.readTree(json);
-            return node != null && node.has("id");
+            return node != null && node.isObject() && !node.has("method") && (node.has("result") || node.has("error"));
         } catch (Exception e) {
             return false;
         }

@@ -7,6 +7,7 @@ import com.mcpscanner.access.AccessRunListener;
 import com.mcpscanner.access.AccessRuns;
 import com.mcpscanner.access.AccessRunSummary;
 import com.mcpscanner.access.AccessSnapshot;
+import com.mcpscanner.access.CheckAccessOptions;
 import com.mcpscanner.access.CheckAccessRunner;
 import com.mcpscanner.access.IdentityRequests;
 import com.mcpscanner.access.MatrixAccessLedger;
@@ -14,6 +15,7 @@ import com.mcpscanner.access.OwnerRequests;
 import com.mcpscanner.access.WriteReplayConfirmations;
 import com.mcpscanner.access.WriteReplays;
 import com.mcpscanner.auth.BearerTokenAuthStrategy;
+import com.mcpscanner.auth.NoAuthStrategy;
 import com.mcpscanner.access.AccessComparison;
 import com.mcpscanner.access.comparison.CrossIdentityComparison;
 import com.mcpscanner.access.comparison.CrossIdentityPorts;
@@ -23,6 +25,7 @@ import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.checks.api.PrincipalListings;
 import com.mcpscanner.checks.api.PrincipalRole;
 import com.mcpscanner.checks.api.PrincipalRoster;
+import com.mcpscanner.checks.api.crossidentity.SyntheticPrincipals;
 import com.mcpscanner.client.ConnectResult;
 import com.mcpscanner.client.McpDiscoveryClient;
 import com.mcpscanner.client.PrimaryConnection;
@@ -30,7 +33,6 @@ import com.mcpscanner.client.McpScannerSession;
 import com.mcpscanner.client.McpServerConfig;
 import com.mcpscanner.client.TransportType;
 import com.mcpscanner.cvetargets.requests.VerbatimHeaderHttp;
-import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.identity.Identity;
 import com.mcpscanner.identity.IdentityAuthKind;
 import com.mcpscanner.identity.IdentityRegistry;
@@ -64,6 +66,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 
@@ -82,6 +85,7 @@ final class CheckAccessFixture implements AutoCloseable {
             "notes://team/handbook.md");
     private static final List<String> MODULES = List.of("cross_identity_object", "cross_identity_resource",
             "cross_identity_role", "cross_identity_session");
+    private static final List<Principal> SYNTHETIC = new SyntheticPrincipals(NoAuthStrategy::new).all();
     private static final PrincipalRoster ROSTER = PrincipalRoster.of(ALICE, List.of(BOB, CAROL));
     private static final List<String> FIXTURE_ITEMS = List.of("get_document", "search_docs", "delete_project",
             "list_users", "whoami", "notes://alice/private.md", "notes://bob/private.md", "notes://team/handbook.md");
@@ -111,7 +115,8 @@ final class CheckAccessFixture implements AutoCloseable {
         Map<String, DiscoveryOutcome> listings = discoverAll(endpoint);
         ScannerProxyFixture alice = ScannerProxyFixture.connect(endpoint, TransportType.STREAMABLE_HTTP);
         AccessRuns runs = new AccessRuns(Executors.newSingleThreadExecutor());
-        AccessMatrix matrix = new AccessMatrix(() -> ROSTER, () -> listings, new StoredExpectations());
+        AccessMatrix matrix = new AccessMatrix(() -> ROSTER, () -> listings, new StoredExpectations(),
+                SYNTHETIC);
         matrix.setExpectation(HANDBOOK, AccessExpectation.SHARED_BY_DESIGN);
         return new CheckAccessFixture(alice, runs, matrix, runner(alice, matrix, listed(listings), () -> ROSTER, runs,
                 PreComparisonDiscovery.NONE));
@@ -142,7 +147,7 @@ final class CheckAccessFixture implements AutoCloseable {
                         PrincipalRole.PEER, () -> bearer("bob"), Optional.empty(), Map.of())).toList());
         ScannerProxyFixture alice = ScannerProxyFixture.connect(endpoint, TransportType.STREAMABLE_HTTP);
         AccessRuns runs = new AccessRuns(Executors.newSingleThreadExecutor());
-        AccessMatrix matrix = new AccessMatrix(roster, listings::outcomes, new StoredExpectations());
+        AccessMatrix matrix = new AccessMatrix(roster, listings::outcomes, new StoredExpectations(), SYNTHETIC);
         matrix.setExpectation(HANDBOOK, AccessExpectation.SHARED_BY_DESIGN);
         return new CheckAccessFixture(alice, runs, matrix, runner(alice, matrix, listings, roster, runs,
                 lateUser == LateComparedUser.DISCOVERED_AUTOMATICALLY ? discovery : PreComparisonDiscovery.NONE));
@@ -168,8 +173,22 @@ final class CheckAccessFixture implements AutoCloseable {
     }
 
     AccessSnapshot checkAllItems() {
-        return check(matrix.snapshot().rows().stream()
-                .filter(row -> FIXTURE_ITEMS.contains(row.item().key().name())).toList());
+        return check(fixtureRows(row -> true));
+    }
+
+    AccessSnapshot checkReadItems() {
+        return check(fixtureRows(row -> !row.item().writes()));
+    }
+
+    AccessSnapshot checkWriteItems() {
+        return check(fixtureRows(row -> row.item().writes()));
+    }
+
+    private List<AccessRow> fixtureRows(Predicate<AccessRow> kind) {
+        return matrix.snapshot().rows().stream()
+                .filter(row -> FIXTURE_ITEMS.contains(row.item().key().name()))
+                .filter(kind)
+                .toList();
     }
 
     AccessSnapshot checkEveryItem() {
@@ -215,8 +234,8 @@ final class CheckAccessFixture implements AutoCloseable {
                 () -> ScanConnection.unbound(baseline -> withAliceCredentials(proxy.proxy().auditHeaders(baseline))));
         return new CheckAccessRunner(comparison, proxy.routed(new VerbatimHeaderHttp()),
                 new OwnerRequests(primary::requestFor, new IdentityRequests(roster)), issue -> { },
-                new WriteReplays(confirmations, ledger), runs, McpEventLog.noop(), UpstreamExchanges.NONE,
-                matrix::snapshot, discovery);
+                new WriteReplays(confirmations, ledger), runs, McpEventLog.noop(),
+                CheckAccessOptions.DEFAULTS.withResults(matrix::snapshot).withDiscovery(discovery));
     }
 
     private static Map<String, String> withAliceCredentials(Map<String, String> auditHeaders) {

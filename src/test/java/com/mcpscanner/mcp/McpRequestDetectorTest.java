@@ -3,7 +3,6 @@ package com.mcpscanner.mcp;
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -23,9 +22,6 @@ class McpRequestDetectorTest {
 
     @Mock
     private HttpService httpService;
-
-    @Mock
-    private HttpResponse response;
 
     @Test
     void classifyReturnsToolsCallForToolsCallBody() {
@@ -124,24 +120,6 @@ class McpRequestDetectorTest {
         when(httpService.port()).thenReturn(8080);
 
         assertThat(McpRequestDetector.extractBaseUrl(requestResponse)).isEqualTo("http://localhost:8080");
-    }
-
-    @Test
-    void jsonRpcBodyReturnsPlainJsonBodyUnchanged() {
-        String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}";
-        when(response.bodyToString()).thenReturn(body);
-        when(response.headerValue("Content-Type")).thenReturn("application/json");
-
-        assertThat(McpRequestDetector.jsonRpcBody(response)).isEqualTo(body);
-    }
-
-    @Test
-    void jsonRpcBodyUnwrapsSseFramedReply() {
-        String reply = "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"x\"}}";
-        when(response.headerValue("Content-Type")).thenReturn("text/event-stream");
-        when(response.bodyToString()).thenReturn("event: message\ndata: " + reply + "\n\n");
-
-        assertThat(McpRequestDetector.jsonRpcBody(response)).isEqualTo(reply);
     }
 
     @Test

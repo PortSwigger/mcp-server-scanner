@@ -167,11 +167,11 @@ class BurpScannerAuditTest {
     }
 
     @Test
-    void reportsAHarnessObtainedOAuthArmAsNotRunnable() {
+    void runsAHarnessObtainedOAuthArm() {
         AuthStrategy oauth = mock(AuthStrategy.class, withSettings().extraInterfaces(ArmBoundAuth.class));
 
         assertThat(burpAudit(BurpAuditConfiguration.EXTENSIONS_ONLY).notRunnable(BurpArmFixtures.vulnerableArm(root, oauth)))
-                .isPresent();
+                .isEmpty();
     }
 
     @Test
@@ -213,6 +213,20 @@ class BurpScannerAuditTest {
         assertThatThrownBy(() -> quietAfterAnInstant.audit(BurpArmFixtures.fixedArm(root, new NoAuthStrategy()),
                 new ArmEndpoint(ENDPOINT, new NoAuthStrategy(), TransportType.STREAMABLE_HTTP), new ArmTeardown(), new ArmProgress()))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("without finishing");
+        assertThat(closed).isTrue();
+    }
+
+    @Test
+    void aLegacySseArmWhoseIssueEvidenceAnswersAPostWithTheStreamFails() {
+        String composite = "POST /messages?session_id=1 HTTP/1.1 => HTTP/1.1 200 OK | text/event-stream";
+        finalSnapshot = new AuditSnapshot("finished", 500, 20, 12, 60, 57, List.of(new ReportedIssue(
+                "MCP arbitrary host file read", "HIGH", "FIRM", "http://127.0.0.1:41000", "detail", true,
+                List.of(BurpArmFixtures.CHECK), List.of(composite))), 0, Map.of());
+
+        assertThatThrownBy(() -> burpAudit(BurpAuditConfiguration.EXTENSIONS_ONLY).audit(
+                BurpArmFixtures.vulnerableArm(root, new NoAuthStrategy()),
+                new ArmEndpoint(ENDPOINT, new NoAuthStrategy(), TransportType.SSE), new ArmTeardown(),
+                new ArmProgress())).isInstanceOf(IllegalStateException.class).hasMessageContaining(composite);
         assertThat(closed).isTrue();
     }
 

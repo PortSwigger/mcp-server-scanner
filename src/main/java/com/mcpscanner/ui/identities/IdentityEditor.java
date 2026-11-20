@@ -36,10 +36,10 @@ final class IdentityEditor extends JPanel {
     private final AuthKindChoices kinds;
     private final JComboBox<IdentityAuthKind> auth = new JComboBox<>();
     private final WrappingText kindHelp = new WrappingText("").muted();
-    private final PrivateMarkerField marker = new PrivateMarkerField();
+    private final Optional<PrivateMarkerField> marker;
     private final CredentialSection credentials;
-    private final ComparedUserFields compared;
-    private final SharedCredentialsBanner sharedCredentials;
+    private final Optional<ComparedUserFields> compared;
+    private final Optional<SharedCredentialsBanner> sharedCredentials;
     private final StaleConnectionBanner staleConnection;
     private LabeledForm.Row kindHelpRow;
 
@@ -52,8 +52,10 @@ final class IdentityEditor extends JPanel {
         this.bound = new BoundIdentity(services.registry());
         this.kinds = new AuthKindChoices(auth, grantForms);
         this.credentials = new CredentialSection(services, commands, bound, grantForms, openOAuthClient);
-        this.compared = new ComparedUserFields(services, commands, primaryChoice, bound);
-        this.sharedCredentials = new SharedCredentialsBanner(new SharedCredentials(services.registry()));
+        this.marker = role.ifComparing(PrivateMarkerField::new);
+        this.compared = role.ifComparing(() -> new ComparedUserFields(services, commands, primaryChoice, bound));
+        this.sharedCredentials = role.ifComparing(() ->
+                new SharedCredentialsBanner(new SharedCredentials(services.registry())));
         this.staleConnection = new StaleConnectionBanner(services);
         setOpaque(false);
         title.setFont(title.getFont().deriveFont(Font.BOLD));
@@ -77,22 +79,24 @@ final class IdentityEditor extends JPanel {
 
     void refresh() {
         bound.current().ifPresent(identity -> {
-            title.setText("Compared user: " + identity.name());
+            if (role.comparesUsers()) {
+                title.setText("Compared user: " + identity.name());
+            }
             bound.load(() -> {
                 kinds.offer(role, identity.authKind());
                 credentials.showHeld(identity);
                 shownName.follow(identity.name());
-                marker.follow(identity.privateMarker());
+                marker.ifPresent(field -> field.follow(identity.privateMarker()));
             });
             Optional<String> help = AuthLabels.help(identity.authKind(), services.registry().detected(identity.id()));
             kindHelp.setText(help.orElse(""));
             kindHelpRow.setVisible(help.isPresent());
             credentials.refresh(identity);
-            marker.describe(identity.name());
-            sharedCredentials.refresh(identity);
+            marker.ifPresent(field -> field.describe(identity.name()));
+            sharedCredentials.ifPresent(banner -> banner.refresh(identity));
             staleConnection.refresh(identity);
             if (role == EditorRole.COMPARED) {
-                compared.refresh(identity);
+                compared.orElseThrow().refresh(identity);
             }
             revalidate();
             repaint();
@@ -121,8 +125,12 @@ final class IdentityEditor extends JPanel {
         return name;
     }
 
+    Optional<ComparedUserFields> comparedUserFields() {
+        return compared;
+    }
+
     JComboBox<IdentityRole> roleCombo() {
-        return compared.roleCombo();
+        return compared.orElseThrow().roleCombo();
     }
 
     JComboBox<IdentityAuthKind> authCombo() {
@@ -130,15 +138,15 @@ final class IdentityEditor extends JPanel {
     }
 
     JButton discoverButton() {
-        return compared.discoverButton();
+        return compared.orElseThrow().discoverButton();
     }
 
     JButton makePrimaryButton() {
-        return compared.makePrimaryButton();
+        return compared.orElseThrow().makePrimaryButton();
     }
 
     String roleHelp() {
-        return compared.roleHelp();
+        return compared.orElseThrow().roleHelp();
     }
 
     String kindHelp() {
@@ -146,7 +154,7 @@ final class IdentityEditor extends JPanel {
     }
 
     JTextField markerField() {
-        return marker.field();
+        return marker.orElseThrow().field();
     }
 
     CredentialSection credentials() {
@@ -154,7 +162,7 @@ final class IdentityEditor extends JPanel {
     }
 
     String sessionLine() {
-        return compared.sessionLine();
+        return compared.orElseThrow().sessionLine();
     }
 
     List<String> authLabels() {
@@ -166,23 +174,23 @@ final class IdentityEditor extends JPanel {
         form.setOpaque(false);
         form.addRow("Name:", name);
         if (role == EditorRole.COMPARED) {
-            compared.addAccessTo(form);
+            compared.orElseThrow().addAccessTo(form);
         }
         form.addRow("Auth:", auth);
         kindHelpRow = form.addUnlabeledRow(kindHelp);
-        form.addFullWidthRow(sharedCredentials);
+        sharedCredentials.ifPresent(form::addFullWidthRow);
         form.addFullWidthRow(staleConnection);
         credentials.addTo(form);
-        marker.addTo(form);
+        marker.ifPresent(field -> field.addTo(form));
         if (role == EditorRole.COMPARED) {
-            compared.addStatusTo(form);
+            compared.orElseThrow().addStatusTo(form);
         }
         return form;
     }
 
     private void seed(Identity identity) {
         shownName.seed(identity.name());
-        marker.seed(identity.privateMarker());
+        marker.ifPresent(field -> field.seed(identity.privateMarker()));
         credentials.seed(identity);
     }
 
@@ -195,8 +203,8 @@ final class IdentityEditor extends JPanel {
             }
         });
         auth.addActionListener(event -> bound.ifEditing(this::changeAuthKind));
-        marker.onChange(typed -> bound.ifEditing(identity ->
-                commands.update(identity.withPrivateMarker(typed))));
+        marker.ifPresent(field -> field.onChange(typed -> bound.ifEditing(identity ->
+                commands.update(identity.withPrivateMarker(typed)))));
     }
 
     private void commitName() {

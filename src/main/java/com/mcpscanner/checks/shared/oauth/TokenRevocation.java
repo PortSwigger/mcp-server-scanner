@@ -26,25 +26,29 @@ public final class TokenRevocation {
     }
 
     public void revoke(String clientId, List<IssuedToken> tokens) {
+        revoke(ClientCredentials.publicClient(clientId), tokens);
+    }
+
+    public void revoke(ClientCredentials client, List<IssuedToken> tokens) {
         if (tokens.isEmpty()) {
             return;
         }
         if (revocationEndpoint.isEmpty()) {
-            logLeft(clientId, tokens.size(), "the authorization server advertises no revocation endpoint");
+            logLeft(client.clientId(), tokens.size(), "the authorization server advertises no revocation endpoint");
             return;
         }
-        long unrevoked = tokens.stream().filter(token -> !revoked(revocationEndpoint.get(), clientId, token)).count();
+        long unrevoked = tokens.stream().filter(token -> !revoked(revocationEndpoint.get(), client, token)).count();
         if (unrevoked > 0) {
-            logLeft(clientId, unrevoked, "revocation at " + revocationEndpoint.get() + " was refused or unanswered");
+            logLeft(client.clientId(), unrevoked, "revocation at " + revocationEndpoint.get() + " was refused or unanswered");
         }
     }
 
-    private boolean revoked(URI endpoint, String clientId, IssuedToken token) {
+    private boolean revoked(URI endpoint, ClientCredentials client, IssuedToken token) {
         Map<String, String> form = new LinkedHashMap<>();
         form.put("token", token.value());
         form.put("token_type_hint", token.typeHint());
-        form.put("client_id", clientId);
-        return http.postForm(endpoint, AuthorizationParameters.encode(form), "application/json", Map.of())
+        return http.postForm(endpoint, AuthorizationParameters.encode(client.form(form)), "application/json",
+                        client.headers())
                 .filter(exchange -> exchange.response().statusCode() == REVOKED)
                 .isPresent();
     }

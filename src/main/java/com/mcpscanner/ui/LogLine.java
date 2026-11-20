@@ -19,4 +19,8 @@ final class LogLine {
         String time = LocalTime.ofInstant(entry.timestamp(), ZoneId.systemDefault()).format(TIME_FORMAT);
         return String.format("%s  %-5s  %s%n", time, entry.level().name(), entry.message());
     }
+
+    static int lineCount(McpEventLog.LogEntry entry) {
+        return (int) of(entry).chars().filter(character -> character == '\n').count();
+    }
 }

@@ -111,13 +111,13 @@ class AccessPanelTest {
 
         assertThat(fixture.panel().visibleCard()).isEqualTo(AccessPanel.MATRIX_CARD);
         assertThat(columnNames(table)).containsExactly("Item", "Primary (Primary user)", "bob (peer)", "carol (lower)",
-                "Anonymous", "Who should reach it");
+                "No credential", "Fake token", "Who should reach it");
         assertThat(text(table, row(table, "list_users"), 0)).isEqualTo("tool  list_users");
         assertThat(text(table, row(table, "list_users"), 2)).isEqualTo("○ hidden · not yet checked");
         assertThat(text(table, row(table, "list_users"), 1)).isEqualTo("● listed · owner");
         assertThat(text(table, row(table, "list_users"), 4)).isEqualTo("not yet checked");
-        assertThat(text(table, row(table, "list_users"), 5)).isEqualTo("Only Primary (inferred)");
-        assertThat(text(table, row(table, "delete_project"), 5)).isEqualTo("Primary's level or above (inferred)");
+        assertThat(text(table, row(table, "list_users"), 6)).isEqualTo("Only Primary (inferred)");
+        assertThat(text(table, row(table, "delete_project"), 6)).isEqualTo("Primary's level or above (inferred)");
         assertThat(view.info().isVisible()).isTrue();
         assertThat(view.info().getText()).isEqualTo(AccessInfoNote.LISTING_ONLY);
         assertThat(view.toolbar().filter() == AccessFilter.ALL).isTrue();
@@ -145,14 +145,14 @@ class AccessPanelTest {
                 .lists(BOB, List.of(readOnlyTool("search")), List.of()));
 
         assertThat(checkButtonText()).isEqualTo("Check access");
-        assertThat(scopeText()).isEqualTo("2 items · alice vs bob + Anonymous");
+        assertThat(scopeText()).isEqualTo("2 items · alice vs bob + No credential + Fake token");
         assertThat(onEdt(() -> toolbar().scopeLabel().isVisible())).isTrue();
         assertThat(onEdt(() -> toolbar().scopeLabel().getForeground())).isEqualTo(ThemeColors.muted());
         assertThat(onEdt(() -> toolbar().noComparisonHint().isVisible())).isFalse();
     }
 
     @Test
-    void withNobodyComparedCheckAccessIsDisabledAndTheHintLinksToIdentities() throws Exception {
+    void withNobodyComparedCheckAccessIsEnabledAndTheHintSuggestsComparingSignedInUsers() throws Exception {
         fixture = new AccessPanelFixture(new AccessFixtures().lists(ALICE, List.of(readOnlyTool("search")), List.of()));
         AtomicInteger opened = new AtomicInteger();
         run(() -> fixture.panel().setIdentityShortcuts(new IdentityShortcuts() {
@@ -161,31 +161,27 @@ class AccessPanelTest {
             public void openIdentities() { opened.incrementAndGet(); }
         }));
 
-        assertThat(onEdt(() -> checkButton().isEnabled())).isFalse();
-        assertThat(onEdt(() -> checkButton().getToolTipText())).isEqualTo(CheckAccessReadiness.NO_COMPARISON);
+        assertThat(onEdt(() -> checkButton().isEnabled())).isTrue();
+        assertThat(onEdt(() -> checkButton().getToolTipText())).isNotEqualTo(CheckAccessReadiness.NO_COMPARISON);
         assertThat(CheckAccessReadiness.NO_COMPARISON)
-                .isEqualTo("Tick Compare on another user in Users to check access");
+                .isEqualTo("Tick Compare on another user in Users to compare signed-in users too");
         NoComparisonHint hint = toolbar().noComparisonHint();
         assertThat(onEdt(hint::isVisible)).isTrue();
         assertThat(onEdt(hint::text)).isEqualTo(CheckAccessReadiness.NO_COMPARISON);
-        assertThat(onEdt(() -> toolbar().scopeLabel().isVisible())).isFalse();
         run(() -> hint.identitiesLink().activate());
         assertThat(opened).hasValue(1);
     }
 
     @Test
-    void withNobodyComparedStartingACheckRunsNothing() throws Exception {
+    void withNobodyComparedStartingACheckReplaysEachItemWithoutAndWithAFakeCredential() throws Exception {
         fixture = new AccessPanelFixture(new AccessFixtures().lists(ALICE, List.of(readOnlyTool("search")), List.of()));
-        AccessPanel panel = fixture.panel();
         CheckAccessControl control = controlFor();
         run(() -> control.show(fixture.matrix.snapshot(), fixture.matrix.snapshot().rows()));
 
+        assertThat(control.blocker()).isEmpty();
         run(() -> control.start(fixture.matrix.snapshot().rows()));
 
-        assertThat(control.running()).isFalse();
-        assertThat(control.blocker()).contains(CheckAccessReadiness.NO_COMPARISON);
-        assertThat(fixture.check.compared()).isEmpty();
-        assertThat(panel.title()).isEqualTo("Access");
+        await().atMost(java.time.Duration.ofSeconds(5)).until(() -> fixture.check.compared().size() == 1);
     }
 
     @Test
@@ -215,7 +211,7 @@ class AccessPanelTest {
     void outcomesRecordedDuringAnEditKeepTheEditorOpenAndShowOnceItCloses() throws Exception {
         JTable table = fixture.panel().matrixView().table();
         int row = row(table, "list_users");
-        run(() -> table.editCellAt(row, 5));
+        run(() -> table.editCellAt(row, 6));
 
         fixture.matrix.record(toolKey("list_users"), BOB.id(), AccessOutcome.REFUSED);
         run(() -> { });
@@ -257,7 +253,7 @@ class AccessPanelTest {
         run(() -> view.toolbar().filterCombo().setSelectedItem(AccessFilter.DIFFERENCES_ONLY));
 
         assertThat(itemNames(view.table())).doesNotContain("search").contains("list_users", "delete_project");
-        assertThat(scopeText()).isEqualTo("4 items · Primary vs bob, carol + Anonymous");
+        assertThat(scopeText()).isEqualTo("4 items · Primary vs bob, carol + No credential + Fake token");
     }
 
     @Test
@@ -272,7 +268,7 @@ class AccessPanelTest {
         assertThat(text(table, search, 3)).contains("? same result as Primary — allowed? Set Who should reach it");
         assertThat(onEdt(() -> view.openExpectationFrom(search, 2))).isFalse();
         assertThat(onEdt(() -> view.openExpectationFrom(search, 3))).isTrue();
-        assertThat(onEdt(table::getEditingColumn)).isEqualTo(5);
+        assertThat(onEdt(table::getEditingColumn)).isEqualTo(6);
         assertThat(onEdt(table::getEditingRow)).isEqualTo(search);
     }
 
@@ -280,11 +276,11 @@ class AccessPanelTest {
     void editingWhoShouldReachItPersistsAndDropsTheInferredSuffix() throws Exception {
         JTable table = fixture.panel().matrixView().table();
 
-        run(() -> table.setValueAt(AccessExpectation.SHARED_BY_DESIGN, row(table, "list_users"), 5));
+        run(() -> table.setValueAt(AccessExpectation.SHARED_BY_DESIGN, row(table, "list_users"), 6));
 
         assertThat(fixture.fixtures.expectations().stored(toolKey("list_users")))
                 .contains(AccessExpectation.SHARED_BY_DESIGN);
-        assertThat(text(table, row(table, "list_users"), 5)).isEqualTo("Anyone — same result for everyone");
+        assertThat(text(table, row(table, "list_users"), 6)).isEqualTo("Anyone — same result for everyone");
     }
 
     @Test

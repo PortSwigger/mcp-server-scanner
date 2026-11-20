@@ -23,13 +23,14 @@ import com.mcpscanner.testutil.InMemoryPersistedObject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,7 +45,7 @@ class IdentityDiscoveryServiceTest {
 
     private final List<McpServerConfig> discoveredConfigs = new ArrayList<>();
     private final Map<String, Function<McpServerConfig, ConnectResult>> serverByToken = new ConcurrentHashMap<>();
-    private final Queue<Runnable> pending = new ArrayDeque<>();
+    private final BlockingQueue<Runnable> pending = new LinkedBlockingQueue<>();
     private final IdentityListings listings = new IdentityListings();
     private IdentityRegistry registry;
     private Executor executor = Runnable::run;
@@ -199,7 +200,7 @@ class IdentityDiscoveryServiceTest {
                 Thread.onSpinWait();
             }
             listings.outcome(bob.id()).ifPresent(shownWhileWaiting::add);
-            runPending();
+            runNextPending();
         });
         runner.start();
         service.discoverMissing();
@@ -392,6 +393,14 @@ class IdentityDiscoveryServiceTest {
 
     private void serves(String token, String... tools) {
         serverByToken.put("Bearer " + token, config -> catalog(tools));
+    }
+
+    private void runNextPending() {
+        try {
+            pending.poll(5, TimeUnit.SECONDS).run();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void runPending() {

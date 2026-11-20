@@ -60,15 +60,11 @@ final class BypassSweep {
         if (routeControl.suppresses(variantControl)) {
             return Optional.empty();
         }
-        Optional<ProbeExchange> anonymousAgain = anonymousRecheck.stillRefused(subject);
-        if (anonymousAgain.isEmpty()) {
+        if (anonymousRecheck.stillRefused(subject).isEmpty()) {
             return Optional.empty();
         }
-        List<ProbeExchange> controls = new ArrayList<>(refusedControls);
-        variantControl.ifPresent(controls::add);
-        controls.add(anonymousAgain.get());
         return Optional.of(new Finding(kindOf(variant), subject, variant.name(), variant.candidate().value(),
-                evidenceOf(subject, controls, candidate)));
+                evidenceOf(subject, refusedControls.get(0), variantControl, candidate)));
     }
 
     private static FindingKind kindOf(AuthVariant variant) {
@@ -76,11 +72,12 @@ final class BypassSweep {
                 ? FindingKind.SESSION_CREDENTIAL : FindingKind.AUTHENTICATION_BYPASS;
     }
 
-    private static List<HttpRequestResponse> evidenceOf(AuditSubject subject, List<ProbeExchange> controls,
+    private static List<HttpRequestResponse> evidenceOf(AuditSubject subject, ProbeExchange refusedAnonymous,
+                                                        Optional<ProbeExchange> variantControl,
                                                         ProbeExchange candidate) {
-        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(subject.baseline()));
-        controls.forEach(control -> evidence.add(control.last()));
-        evidence.addAll(candidate.exchanges());
+        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(subject.baseline(), refusedAnonymous.answer()));
+        variantControl.ifPresent(control -> evidence.add(control.answer()));
+        evidence.add(candidate.answer());
         return evidence;
     }
 }

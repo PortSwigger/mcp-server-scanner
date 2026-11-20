@@ -1,12 +1,39 @@
 package com.mcpscanner.checks.catalog.downstreamrouteescape;
 
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.responses.HttpResponse;
+import com.mcpscanner.testutil.MontoyaTestFactory;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ReplySignatureTest {
 
     private final ReplySignature signatures = new ReplySignature(new PayloadMask());
+
+    @BeforeEach
+    void installMontoya() {
+        MontoyaTestFactory.install();
+    }
+
+    @Test
+    void aChunkFramedFailureBodyHasTheSameSignatureAsTheUnframedBody() {
+        HttpRequestResponse chunked = wire("Transfer-Encoding: chunked\r\n\r\n4\r\ngone\r\n0\r\n\r\n");
+        HttpRequestResponse plain = wire("Content-Length: 4\r\n\r\ngone");
+
+        assertThat(signatures.of(chunked, "../")).isEqualTo(signatures.of(plain, "../"));
+    }
+
+    private static HttpRequestResponse wire(String headTailAndBody) {
+        HttpResponse response = HttpResponse.httpResponse(
+                "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n" + headTailAndBody);
+        HttpRequestResponse exchange = mock(HttpRequestResponse.class);
+        when(exchange.response()).thenReturn(response);
+        return exchange;
+    }
 
     @Test
     void successfulToolResultHasASuccessSignature() {

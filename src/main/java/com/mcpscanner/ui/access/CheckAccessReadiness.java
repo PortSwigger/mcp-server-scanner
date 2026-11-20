@@ -17,12 +17,13 @@ final class CheckAccessReadiness {
         if (!snapshot.connected()) {
             return Optional.of("Connect to an MCP server first");
         }
-        if (snapshot.comparedIdentities().isEmpty()) {
-            return Optional.of(NO_COMPARISON);
-        }
         if (rows.isEmpty()) {
             return Optional.of("No tools or resources to compare");
         }
         return Optional.empty();
+    }
+
+    static boolean suggestsComparing(AccessSnapshot snapshot) {
+        return snapshot.connected() && snapshot.comparedIdentities().isEmpty();
     }
 }

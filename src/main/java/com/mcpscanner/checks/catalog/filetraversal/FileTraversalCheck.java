@@ -10,6 +10,7 @@ import com.mcpscanner.checks.api.CheckDescriptor;
 import com.mcpscanner.checks.api.CheckLog;
 import com.mcpscanner.checks.api.InsertionPointCheck;
 import com.mcpscanner.checks.api.RateLimitedProbing;
+import com.mcpscanner.checks.api.RateLimitedSends;
 import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.api.SkipSubject;
 import com.mcpscanner.checks.issue.IssueIdentity;
@@ -62,7 +63,7 @@ public final class FileTraversalCheck implements InsertionPointCheck {
             log.notRun(subject, NOT_MCP);
             return List.of();
         }
-        return rateLimited.run(subject, http, guarded -> probe(baseRequestResponse, insertionPoint, guarded));
+        return rateLimited.run(subject, http, sends -> probe(baseRequestResponse, insertionPoint, sends));
     }
 
     @Override
@@ -71,12 +72,13 @@ public final class FileTraversalCheck implements InsertionPointCheck {
     }
 
     private List<AuditIssue> probe(HttpRequestResponse baseRequestResponse, AuditInsertionPoint insertionPoint,
-                                   Http http) {
+                                   RateLimitedSends sends) {
         String missingName = missingNames.get();
-        PayloadSender sender = new PayloadSender(http, insertionPoint, probeService);
-        List<Finding> findings = new ArrayList<>(classifier.classify(new ContentProbe(sender)
+        PayloadSender prober = new PayloadSender(sends.probes(), insertionPoint, probeService);
+        PayloadSender confirmer = new PayloadSender(sends.confirmations(), insertionPoint, probeService);
+        List<Finding> findings = new ArrayList<>(classifier.classify(new ContentProbe(prober, confirmer)
                 .run(TraversalPayloads.forBaseValue(insertionPoint.baseValue()), missingName)));
-        new RootBoundaryProbe(sender).run(missingName).ifPresent(findings::add);
+        new RootBoundaryProbe(prober).run(missingName).ifPresent(findings::add);
         String fieldName = insertionPointNames.nameOf(baseRequestResponse.request(), insertionPoint);
         return findings.stream()
                 .map(finding -> issues.issueFor(finding, baseRequestResponse.request(), fieldName))

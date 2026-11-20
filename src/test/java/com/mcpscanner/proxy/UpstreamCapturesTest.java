@@ -1,10 +1,18 @@
 package com.mcpscanner.proxy;
 
+import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.http.HttpService;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.responses.HttpResponse;
 import com.mcpscanner.client.ProtocolHttpRequest;
 import com.mcpscanner.client.ProtocolHttpResponse;
 import com.mcpscanner.client.ProtocolHttpTransport;
+import com.mcpscanner.http.evidence.WireRecord;
 import com.mcpscanner.testutil.FakeMcpServer;
+import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.mcpscanner.testutil.ScriptedProtocolTransport;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
@@ -12,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,10 +31,25 @@ class UpstreamCapturesTest {
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
     private final UpstreamCaptures captures = new UpstreamCaptures();
-    private final ScriptedProtocolTransport upstream = new ScriptedProtocolTransport(request ->
-            FakeMcpServer.exchange(request, 200, Map.of("Content-Type", List.of("application/json"),
-                    "X-Upstream", List.of("yes")), "{\"echo\":" + request.body() + "}"));
+    private final ScriptedProtocolTransport upstream = new ScriptedProtocolTransport(UpstreamCapturesTest::echo);
     private final ProtocolHttpTransport recording = captures.recording(upstream);
+
+    @BeforeEach
+    void installMontoya() {
+        MontoyaTestFactory.install();
+    }
+
+    @Test
+    void aResponseWithoutAWireRecordIsNotRecorded() throws Exception {
+        ProtocolHttpTransport unrecorded = captures.recording((request, timeout) ->
+                FakeMcpServer.exchange(request, 200, Map.of(), "{}"));
+
+        try (ForwardCapture capture = captures.open()) {
+            read(unrecorded.send(post("{\"id\":1}"), TIMEOUT));
+
+            assertThat(capture.chosenFor("{\"id\":1}")).isEmpty();
+        }
+    }
 
     @Test
     void sendsOutsideACaptureAreNotRecorded() throws Exception {
@@ -44,14 +68,11 @@ class UpstreamCapturesTest {
 
             RecordedExchange recorded = capture.chosenFor("{\"id\":1}").orElseThrow();
             assertThat(body).isEqualTo("{\"echo\":{\"id\":1}}");
-            assertThat(recorded.uri()).isEqualTo(ENDPOINT);
-            assertThat(recorded.method()).isEqualTo("POST");
-            assertThat(recorded.requestHeaders()).containsEntry("Authorization", List.of("Bearer injected"));
             assertThat(recorded.requestBody()).isEqualTo("{\"id\":1}");
-            assertThat(recorded.status()).isEqualTo(200);
-            assertThat(recorded.responseHeaders()).containsEntry("X-Upstream", List.of("yes"));
-            assertThat(new String(recorded.responseBody(), StandardCharsets.UTF_8))
-                    .isEqualTo("{\"echo\":{\"id\":1}}");
+            assertThat(text(recorded.evidence().get(0).request().toByteArray().getBytes()))
+                    .isEqualTo(rawRequest(post("{\"id\":1}")));
+            assertThat(text(recorded.evidence().get(0).response().toByteArray().getBytes()))
+                    .isEqualTo(rawReply(post("{\"id\":1}")));
         }
     }
 
@@ -127,8 +148,7 @@ class UpstreamCapturesTest {
 
     @Test
     void explicitlyRecordedExchangesJoinTheCurrentCaptureOnly() {
-        RecordedExchange posted = new RecordedExchange(ENDPOINT, "POST", Map.of(), "{\"id\":5}", 202, Map.of(),
-                new byte[0]);
+        RecordedExchange posted = new RecordedExchange("{\"id\":5}", wireOf(post("{\"id\":5}")));
         captures.record(posted);
 
         try (ForwardCapture capture = captures.open()) {
@@ -136,6 +156,38 @@ class UpstreamCapturesTest {
 
             assertThat(capture.chosenFor("{\"id\":5}")).contains(posted);
         }
+    }
+
+    private static ProtocolHttpResponse echo(ProtocolHttpRequest request) {
+        ProtocolHttpResponse scripted = FakeMcpServer.exchange(request, 200,
+                Map.of("Content-Type", List.of("application/json")), echoed(request));
+        return new ProtocolHttpResponse(scripted.status(), scripted.headers(), scripted.body(), scripted.uri(),
+                Optional.of(wireOf(request)));
+    }
+
+    private static WireRecord wireOf(ProtocolHttpRequest request) {
+        return WireRecord.ofBurp(HttpRequestResponse.httpRequestResponse(
+                HttpRequest.httpRequest(HttpService.httpService(ENDPOINT.getHost(), 443, true),
+                        ByteArray.byteArray(rawRequest(request).getBytes(StandardCharsets.ISO_8859_1))),
+                HttpResponse.httpResponse(ByteArray.byteArray(rawReply(request).getBytes(StandardCharsets.ISO_8859_1)))));
+    }
+
+    private static String rawRequest(ProtocolHttpRequest request) {
+        String body = request.hasBody() ? request.body() : "";
+        return request.method() + " /mcp HTTP/1.1\r\nHost: upstream.test\r\nAuthorization: Bearer injected\r\n"
+                + "Content-Length: " + body.length() + "\r\n\r\n" + body;
+    }
+
+    private static String rawReply(ProtocolHttpRequest request) {
+        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Upstream: yes\r\n\r\n" + echoed(request);
+    }
+
+    private static String echoed(ProtocolHttpRequest request) {
+        return "{\"echo\":" + request.body() + "}";
+    }
+
+    private static String text(byte[] bytes) {
+        return new String(bytes, StandardCharsets.ISO_8859_1);
     }
 
     private void send(String body) throws Exception {

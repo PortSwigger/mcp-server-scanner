@@ -59,11 +59,12 @@ final class HttpBringUp {
 
     private static Optional<McpFlow.HttpResponse> wrongFramingReply(TransportType requestedTransport,
                                                                     McpRequests.Request request) {
-        boolean modernFraming = request.headers().containsKey(McpHeaders.METHOD);
-        if (requestedTransport == TransportType.STREAMABLE_HTTP && modernFraming) {
+        Optional<String> framedMethod = framedMethod(request);
+        if (requestedTransport == TransportType.STREAMABLE_HTTP
+                && framedMethod.filter(McpMethods.SERVER_DISCOVER::equals).isPresent()) {
             return Optional.of(emptyReply(404));
         }
-        if (requestedTransport == TransportType.MODERN_HTTP && !modernFraming) {
+        if (requestedTransport == TransportType.MODERN_HTTP && framedMethod.isEmpty()) {
             return Optional.of(emptyReply(400));
         }
         return Optional.empty();
@@ -74,13 +75,20 @@ final class HttpBringUp {
     }
 
     private static boolean isAdmissionRequest(McpRequests.Request request) {
-        String method = request.headers().get(McpHeaders.METHOD);
-        if (method != null) return method.equals(McpMethods.SERVER_DISCOVER);
+        Optional<String> method = framedMethod(request);
+        if (method.isPresent()) return method.get().equals(McpMethods.SERVER_DISCOVER);
         try {
             JsonNode envelope = McpObjectMapper.INSTANCE.readTree(request.body());
             return envelope != null && McpMethods.INITIALIZE.equals(envelope.path("method").asText());
         } catch (IOException invalidBody) {
             return false;
         }
+    }
+
+    private static Optional<String> framedMethod(McpRequests.Request request) {
+        return request.headers().entrySet().stream()
+                .filter(header -> header.getKey().equalsIgnoreCase(McpHeaders.METHOD))
+                .map(Map.Entry::getValue)
+                .findFirst();
     }
 }

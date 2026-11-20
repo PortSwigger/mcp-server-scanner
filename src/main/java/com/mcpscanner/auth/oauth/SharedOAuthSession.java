@@ -28,6 +28,8 @@ public final class SharedOAuthSession {
     private final ReentrantLock flowLock = new ReentrantLock();
     private final Object publication = new Object();
     private final SignInEvidence signInEvidence;
+    private final java.util.List<java.util.function.Consumer<java.util.Set<String>>> grantListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
 
     SharedOAuthSession(AuthorizationCodeConfig config, TokenExchange exchange,
                        BrowserAuthorization browser, Clock clock) {
@@ -99,6 +101,10 @@ public final class SharedOAuthSession {
                 }, approval);
     }
 
+    public void onGrantWidened(java.util.function.Consumer<java.util.Set<String>> listener) {
+        grantListeners.add(java.util.Objects.requireNonNull(listener, "listener must not be null"));
+    }
+
     public java.util.Set<String> requestedScopes() {
         return publishedConfig().scopes();
     }
@@ -165,6 +171,7 @@ public final class SharedOAuthSession {
             OAuthCredential credential = new OAuthFlowEngine(exchange, browser, new InMemoryCredentialStore(), clock)
                     .authenticate(next);
             publish(next, credential);
+            grantListeners.forEach(listener -> listener.accept(credential.grantedScopes()));
             return tokens(credential);
         } catch (CallbackValidationException failure) {
             throw callbackFailure(failure);

@@ -1,10 +1,10 @@
 package com.mcpscanner.proxy;
 
 import com.mcpscanner.mcp.BoundedBodyReader;
+import com.mcpscanner.mcp.SseFrameReader;
 import com.mcpscanner.mcp.SseResponseParser;
 import com.mcpscanner.core.protocol.McpSse;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -26,8 +26,8 @@ final class SseStreamOpening {
                 SseRequestHeaders.challenge(response.headers()));
     }
 
-    static String messageEndpoint(BufferedReader reader, URI reachedSseUrl) throws IOException {
-        String path = SseResponseParser.extractEndpointUrl(reader);
+    static String messageEndpoint(SseFrameReader frames, URI reachedSseUrl) throws IOException {
+        String path = SseResponseParser.extractEndpointUrl(frames);
         if (path == null) {
             throw new IOException("SSE stream closed without sending endpoint event");
         }

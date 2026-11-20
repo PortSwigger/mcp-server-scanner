@@ -4,11 +4,10 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import com.mcpscanner.checks.api.HostSettlement;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 record TrialOutcome(TrialStatus status, HttpRequestResponse baseline, List<ProbeObservation> probes,
-                    Optional<HttpRequestResponse> control, Set<HttpRequestResponse> sentOutsideBurp) {
+                    Set<HttpRequestResponse> sentOutsideBurp) {
 
     enum TrialStatus {
         CONCLUSIVE, BASELINE_NOT_SUCCESSFUL, BASELINE_UNREACHABLE_OUTSIDE_BURP, CONTROL_DIVERGED
@@ -18,9 +17,8 @@ record TrialOutcome(TrialStatus status, HttpRequestResponse baseline, List<Probe
         probes = List.copyOf(probes);
     }
 
-    TrialOutcome(TrialStatus status, HttpRequestResponse baseline, List<ProbeObservation> probes,
-                 Optional<HttpRequestResponse> control) {
-        this(status, baseline, probes, control, Set.of());
+    TrialOutcome(TrialStatus status, HttpRequestResponse baseline, List<ProbeObservation> probes) {
+        this(status, baseline, probes, Set.of());
     }
 
     static TrialOutcome baselineNotSuccessful(HttpRequestResponse baseline) {
@@ -28,7 +26,7 @@ record TrialOutcome(TrialStatus status, HttpRequestResponse baseline, List<Probe
     }
 
     static TrialOutcome baselineFailed(TrialStatus status, HttpRequestResponse baseline) {
-        return new TrialOutcome(status, baseline, List.of(), Optional.empty());
+        return new TrialOutcome(status, baseline, List.of());
     }
 
     boolean wentOutsideBurp(HttpRequestResponse exchange) {

@@ -245,6 +245,18 @@ class StreamingFallbackTest {
     }
 
     @Test
+    void aProbeTheRawSocketClientCouldNotSendKeepsItsCredentialButNoScannerSentinel() {
+        when(burp.sendRequest(any(HttpRequest.class))).thenThrow(new IllegalStateException(STREAMED));
+        rawSocketConnects = false;
+
+        HttpRequestResponse exchange = fallback.around(burp).sendRequest(routedProbe()
+                .withHeader("Authorization", "Bearer kept").withHeader("Host", "attacker.example.test"));
+
+        assertThat(exchange.request().headers()).noneMatch(header -> ScannerSentinels.ALL.contains(header.name()));
+        assertThat(exchange.request().headerValue("Authorization")).isEqualTo("Bearer kept");
+    }
+
+    @Test
     void sendsNothingOutsideBurpBeforeBurpRefusesAStream() {
         HttpRequest probe = plainProbe().withHeader("Host", "attacker.example.test");
 

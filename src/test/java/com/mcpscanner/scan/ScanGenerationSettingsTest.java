@@ -32,6 +32,18 @@ class ScanGenerationSettingsTest {
     }
 
     @Test
+    void metaEnvelopeIsFuzzedOncePerServerByDefault() {
+        assertThat(settings.metaEnvelopeFuzzedOnEveryRequest()).isFalse();
+    }
+
+    @Test
+    void metaEnvelopeOnEveryRequestSwitchPersists() {
+        settings.setMetaEnvelopeFuzzedOnEveryRequest(true);
+
+        assertThat(new ScanGenerationSettings(store).metaEnvelopeFuzzedOnEveryRequest()).isTrue();
+    }
+
+    @Test
     void clientRegistrationIsSentByDefaultExactlyWhenTheServerAdvertisesARegistrationEndpoint() {
         ScanInventory empty = new ScanInventory(List.of(), List.of(), List.of(), List.of());
         ServerSurface advertising = new ServerSurface(empty, ServerCapabilities.none(), null,

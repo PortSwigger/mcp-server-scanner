@@ -40,7 +40,7 @@ class StrictStreamableServerProbeTest {
         server.start();
         RecordingRealHttp http = new RecordingRealHttp();
         OAuthMetadataDiscoverer discoverer = OAuthMetadataDiscoverer.defaultInstance(http, McpEventLog.noop(),
-                (url, purpose) -> SuspiciousDestinationGate.Decision.allow());
+                (url, purpose) -> SuspiciousDestinationGate.Decision.allow(), () -> true);
         probe = new AuthRequirementProbe(http, discoverer);
     }
 

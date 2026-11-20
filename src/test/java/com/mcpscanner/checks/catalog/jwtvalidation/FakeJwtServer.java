@@ -4,6 +4,7 @@ import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import com.mcpscanner.testutil.SpentRateLimitQuota;
 import com.mcpscanner.testutil.ImmutableHttpRequest;
 
 import java.nio.charset.StandardCharsets;
@@ -36,6 +37,7 @@ final class FakeJwtServer {
     private boolean claimsIgnored;
     private int openAfterRequests = Integer.MAX_VALUE;
     private int throttleAfterRequests = Integer.MAX_VALUE;
+    private int quotaSpentAfterRequests = Integer.MAX_VALUE;
     private String operationResult = SECRET;
     private String forgeryResult;
 
@@ -65,6 +67,11 @@ final class FakeJwtServer {
 
     FakeJwtServer throttlingAfter(int requests) {
         throttleAfterRequests = requests;
+        return this;
+    }
+
+    FakeJwtServer spendingQuotaAfter(int requests) {
+        quotaSpentAfterRequests = requests;
         return this;
     }
 
@@ -113,21 +120,30 @@ final class FakeJwtServer {
 
     private HttpRequestResponse answer(HttpRequest request) {
         received.add(request);
+        return HttpRequestResponse.httpRequestResponse(request, reply(request));
+    }
+
+    private HttpResponse reply(HttpRequest request) {
         if (received.size() > throttleAfterRequests) {
-            return HttpRequestResponse.httpRequestResponse(request, response(429, "{}"));
+            return respond(429, "{}");
         }
         if ("GET".equals(request.method())) {
             String document = documents.get(request.url());
-            return HttpRequestResponse.httpRequestResponse(request,
-                    document == null ? response(404, "{}") : response(200, document));
+            return document == null ? respond(404, "{}") : respond(200, document);
         }
         String authorization = request.headerValue("Authorization");
         if (!authorised(authorization)) {
-            return HttpRequestResponse.httpRequestResponse(request, response(401, "{\"error\":\"invalid_token\"}"));
+            return respond(401, "{\"error\":\"invalid_token\"}");
         }
         boolean live = authorization != null && authorization.equals("Bearer " + liveToken);
-        return HttpRequestResponse.httpRequestResponse(request,
-                response(200, live || forgeryResult == null ? operationResult : forgeryResult));
+        return respond(200, live || forgeryResult == null ? operationResult : forgeryResult);
+    }
+
+    private HttpResponse respond(int status, String body) {
+        String quotaHeaders = received.size() > quotaSpentAfterRequests
+                ? SpentRateLimitQuota.HEADER_LINES
+                : "";
+        return response(status, quotaHeaders, body);
     }
 
     private boolean authorised(String authorization) {
@@ -153,7 +169,12 @@ final class FakeJwtServer {
     }
 
     static HttpResponse response(int status, String body) {
-        return HttpResponse.httpResponse("HTTP/1.1 " + status + " X\r\nContent-Type: application/json\r\n\r\n" + body);
+        return response(status, "", body);
+    }
+
+    private static HttpResponse response(int status, String extraHeaders, String body) {
+        return HttpResponse.httpResponse("HTTP/1.1 " + status + " X\r\nContent-Type: application/json\r\n"
+                + extraHeaders + "\r\n" + body);
     }
 
     static Predicate<String> algorithm(String algorithm) {

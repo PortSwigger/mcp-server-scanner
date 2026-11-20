@@ -101,6 +101,21 @@ class SseReplyReaderTest {
         }
     }
 
+    @Test
+    void eachFrameKeepsTheBytesItWasReadFrom() {
+        String first = "id: 4\r\nevent: message\r\ndata: {\"a\":\r\ndata: 1}\r\n\r\n";
+        String second = ": ping\r\n\r\n";
+        ThreadPoolExecutor executor = executor();
+        try (SseReplyReader reader = new SseReplyReader(new ByteArrayInputStream(
+                (first + second).getBytes(StandardCharsets.UTF_8)), executor, Duration.ofSeconds(1))) {
+            assertThat(reader.nextFrame().bytes()).isEqualTo(first.getBytes(StandardCharsets.UTF_8));
+            assertThat(reader.nextFrame().bytes()).isEqualTo(second.getBytes(StandardCharsets.UTF_8));
+            assertThat(reader.nextFrame()).isNull();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static ThreadPoolExecutor executor() {
         return new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1));
     }

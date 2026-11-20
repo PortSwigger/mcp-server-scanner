@@ -1,6 +1,7 @@
 package com.mcpscanner.automation;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
+import com.mcpscanner.mcp.ScannerSentinels;
 import com.mcpscanner.scan.request.ClientRegistrationMessage;
 import com.mcpscanner.scan.request.McpMessage;
 import com.mcpscanner.scan.request.ScanMessageRenderer;
@@ -13,8 +14,9 @@ import java.util.stream.Collectors;
 
 public final class BaseRequestLedger {
 
-    private static final Set<String> BURP_MANAGED_HEADERS = Set.of("host", "content-length", "connection");
-    private static final String EXTENSION_SENTINEL_PREFIX = "x-mcp-scanner-";
+    private static final Set<String> MANAGED_IN_FLIGHT = Set.of("host", "content-length", "connection",
+            ScannerSentinels.ROUTED_HEADER.toLowerCase(Locale.ROOT),
+            ScannerSentinels.GENERATED_REGISTRATION_HEADER.toLowerCase(Locale.ROOT));
 
     private final Set<String> launched = ConcurrentHashMap.newKeySet();
 
@@ -59,7 +61,6 @@ public final class BaseRequestLedger {
     }
 
     private static boolean identifying(String headerName) {
-        String name = headerName.toLowerCase(Locale.ROOT);
-        return !BURP_MANAGED_HEADERS.contains(name) && !name.startsWith(EXTENSION_SENTINEL_PREFIX);
+        return !MANAGED_IN_FLIGHT.contains(headerName.toLowerCase(Locale.ROOT));
     }
 }

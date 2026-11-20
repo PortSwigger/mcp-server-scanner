@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -66,6 +65,6 @@ class OriginHostAdmissionIssuesTest {
                 new ProbeObservation(AdmissionProbe.STANDARD_SET.get(1), exchange, ProbeVerdict.ADMITTED),
                 new ProbeObservation(AdmissionProbe.STANDARD_SET.get(2), exchange, ProbeVerdict.REFUSED),
                 new ProbeObservation(AdmissionProbe.STANDARD_SET.get(3), exchange, ProbeVerdict.INCONCLUSIVE));
-        return new TrialOutcome(status, exchange, probes, Optional.of(exchange));
+        return new TrialOutcome(status, exchange, probes);
     }
 }

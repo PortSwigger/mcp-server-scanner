@@ -35,6 +35,8 @@ class SsrfFilterBypassCheckTest {
             + "\"name\":\"archive_page\",\"arguments\":{\"url\":\"https://docs.example.test/a\"}}}";
     private static final int REFUSAL_PROBES = 2;
     private static final int SPELLINGS = AddressSpelling.values().length;
+    private static final int HIT_REPLY = REFUSAL_PROBES + 1;
+    private static final int CONFIRMATIONS = 3;
 
     private final FilteringFetchTool tool = new FilteringFetchTool();
     private final McpEventLog eventLog = new McpEventLog(null);
@@ -57,7 +59,8 @@ class SsrfFilterBypassCheckTest {
             assertThat(issue.detail()).contains("tools/call fetch").contains("http://[::ffff:7f00:1]:8191/")
                     .contains("http://[::ffff:c633:6407]/").contains("IPv4-mapped IPv6 address in hexadecimal")
                     .doesNotContain("dotted form");
-            assertThat(issue.requestResponses()).hasSize(3);
+            assertThat(issue.requestResponses()).extracting(SsrfFilterBypassCheckTest::urlArgument).containsExactly(
+                    "http://127.0.0.1:8191/", "http://[::ffff:7f00:1]:8191/", "http://[::ffff:c633:6407]/");
             assertThat(issue.detail()).doesNotContain("[::1]").doesNotContain("0.0.0.0");
         });
         assertThat(tool.fetchedUrls()).contains("http://[::ffff:7f00:1]:8191/");
@@ -72,6 +75,39 @@ class SsrfFilterBypassCheckTest {
         assertThat(issues).singleElement().satisfies(issue -> {
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
             assertThat(issue.detail()).contains("own page");
+        });
+    }
+
+    @Test
+    void attachesOnlyTheFirstProvenSpellingWithItsControlAndListsTheOthers() {
+        tool.refusing("127.0.0.1"::equals);
+
+        List<AuditIssue> issues = audit(FETCH_CALL, URL_FIELD, Optional.of(tool.collaborator()));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
+            assertThat(issue.detail()).contains("in hexadecimal", "in dotted form", "as one decimal number",
+                            "in octal", "shortened")
+                    .contains("The refusal, the IPv4-mapped IPv6 address in hexadecimal loopback probe and its "
+                            + "Collaborator control are attached.");
+            assertThat(issue.requestResponses()).extracting(SsrfFilterBypassCheckTest::urlArgument).containsExactly(
+                    "http://127.0.0.1:8191/", "http://[::ffff:7f00:1]:8191/", "http://[::ffff:c633:6407]/");
+        });
+    }
+
+    @Test
+    void attachesTheProvenSpellingWhoseReplyShowsTheTargetPageWhenFirm() {
+        tool.refusing("127.0.0.1"::equals).servingTheHomePageOnLoopbackTo("0x7f000001"::equals);
+
+        List<AuditIssue> issues = audit(FETCH_CALL, URL_FIELD, Optional.of(tool.collaborator()));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
+            assertThat(issue.detail()).contains("in dotted form").contains("The refusal, the IPv4 address as one "
+                    + "hexadecimal number loopback probe and its Collaborator control are attached.");
+            assertThat(issue.requestResponses()).hasSize(3);
+            assertThat(urlArgument(issue.requestResponses().get(1))).isEqualTo("http://0x7f000001:8191/");
+            assertThat(urlArgument(issue.requestResponses().get(2))).startsWith("http://0xc6336407/");
         });
     }
 
@@ -196,6 +232,32 @@ class SsrfFilterBypassCheckTest {
         assertThat(infoLines()).anyMatch(line -> line.contains("rate"));
     }
 
+    @Test
+    void confirmsAndReportsAHitWhoseReplySaysTheRateLimitQuotaIsSpent() {
+        tool.refusing(FilteringFetchTool.DOTTED_ONLY_FILTER::contains).servingTheHomePageOnLoopback()
+                .spendingQuotaFrom(HIT_REPLY);
+
+        List<AuditIssue> issues = audit(FETCH_CALL, URL_FIELD, Optional.of(tool.collaborator()));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
+            assertThat(issue.requestResponses()).extracting(SsrfFilterBypassCheckTest::urlArgument).containsExactly(
+                    "http://127.0.0.1:8191/", "http://[::ffff:7f00:1]:8191/", "http://[::ffff:c633:6407]/");
+        });
+        assertThat(tool.received()).hasSize(HIT_REPLY + CONFIRMATIONS);
+    }
+
+    @Test
+    void stopsProbingOnceAReplyWithoutAHitSaysTheRateLimitQuotaIsSpent() {
+        tool.refusing(FilteringFetchTool.DOTTED_ONLY_FILTER::contains).spendingQuotaFrom(1);
+
+        List<AuditIssue> issues = audit(FETCH_CALL, URL_FIELD, Optional.of(tool.collaborator()));
+
+        assertThat(issues).isEmpty();
+        assertThat(tool.received()).hasSize(1);
+        assertThat(infoLines()).anyMatch(line -> line.contains("rate limit"));
+    }
+
     private List<AuditIssue> audit(String body, String fieldName, Optional<CollaboratorClient> client) {
         return new CheckUnderTest(client).audit(body, fieldName);
     }
@@ -229,6 +291,13 @@ class SsrfFilterBypassCheckTest {
             issues.addAll(late.settle(check));
             return issues;
         }
+    }
+
+    private static String urlArgument(HttpRequestResponse exchange) {
+        String body = exchange.request().bodyToString();
+        int start = body.indexOf("\"url\":\"") + "\"url\":\"".length();
+        String url = body.substring(start, body.indexOf('"', start));
+        return url.replaceAll("/[a-z0-9]+\\." + FakeCollaborator.DOMAIN.replace(".", "\\.") + ".*", "/");
     }
 
     private static HttpRequest mcpRequest(String endpoint, String body) {

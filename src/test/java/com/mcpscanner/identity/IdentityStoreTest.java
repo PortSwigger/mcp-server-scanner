@@ -1,5 +1,6 @@
 package com.mcpscanner.identity;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.config.AuthTypeNames;
@@ -32,7 +33,7 @@ class IdentityStoreTest {
     @BeforeEach
     void setUp() {
         persisted = InMemoryPersistedObject.create();
-        config = new ExtensionConfigStore(persisted, mock(Logging.class));
+        config = new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class));
         eventLog = mock(McpEventLog.class);
         store = new IdentityStore(config, eventLog);
     }

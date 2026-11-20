@@ -13,6 +13,7 @@ import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.AuthenticatedMcpServer;
 import com.mcpscanner.testutil.AuthenticatedMcpServer.McpCall;
 import com.mcpscanner.testutil.AuthenticatedMcpServer.TokenCall;
+import com.mcpscanner.testutil.ClosedPort;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.mcpscanner.testutil.RecordingRealHttp;
 import com.mcpscanner.core.oauth.RegistrationMode;
@@ -22,7 +23,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
-import java.net.ServerSocket;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -249,9 +249,7 @@ class OAuthAuthCodeScannerSessionTest {
     }
 
     private static int freePort() throws IOException {
-        try (ServerSocket probe = new ServerSocket(0)) {
-            return probe.getLocalPort();
-        }
+        return ClosedPort.onLoopback();
     }
 
     private static Map<String, String> query(URI uri) {

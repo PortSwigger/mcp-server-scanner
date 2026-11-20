@@ -72,4 +72,15 @@ class TokenRevocationTest {
 
         verify(eventLog, never()).error(org.mockito.ArgumentMatchers.anyString());
     }
+
+    @Test
+    void authenticatesAConfidentialClientTheWayItWasIssued() {
+        server.on("POST", REVOKE.toString(), status(200));
+
+        revocation(Optional.of(REVOKE)).revoke(new ClientCredentials("client-1",
+                Optional.of(new ClientSecret("s1", ClientSecretMethod.POST))), List.of(IssuedToken.access("a1")));
+
+        assertThat(server.sentTo(REVOKE.toString())).extracting(request -> request.bodyToString())
+                .containsExactly("token=a1&token_type_hint=access_token&client_id=client-1&client_secret=s1");
+    }
 }

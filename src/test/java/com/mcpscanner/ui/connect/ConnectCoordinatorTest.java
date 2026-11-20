@@ -155,9 +155,11 @@ class ConnectCoordinatorTest {
                 AuthTypeNames.OAUTH, oauthHints(URI.create("https://manual.issuer.example")), URI.create(ENDPOINT)),
                 (phase, message) -> {}, () -> {});
 
-        org.mockito.InOrder order = org.mockito.Mockito.inOrder(support);
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(clientManager, support);
+        order.verify(clientManager).beginConnectAttempt();
         order.verify(support).beginSignInAttempt();
         order.verify(support).completeOAuthDance(any(), any(), any(), any());
+        order.verify(clientManager).connect(any());
     }
 
     @Test

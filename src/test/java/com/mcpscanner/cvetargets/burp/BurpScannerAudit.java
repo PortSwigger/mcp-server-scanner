@@ -64,7 +64,10 @@ public final class BurpScannerAudit implements ArmAudit {
             CompletedAudit audit = requireFinished(completion.await(burp.automation(), teardown::isClosed,
                     snapshot -> progress.record(observation(launched, polled(snapshot), earlierArms, startup,
                             Duration.between(started, clock.instant())))));
-            return observation(launched, audit, earlierArms, startup, Duration.between(started, clock.instant()));
+            ArmObservation observation = observation(launched, audit, earlierArms, startup,
+                    Duration.between(started, clock.instant()));
+            LegacySseEvidenceShape.require(endpoint.transport(), observation.issues());
+            return observation;
         }
     }
 
@@ -139,6 +142,6 @@ public final class BurpScannerAudit implements ArmAudit {
 
     static IssueSummary summary(ReportedIssue issue) {
         return new IssueSummary(issue.name(), AuditIssueSeverity.valueOf(issue.severity()),
-                AuditIssueConfidence.valueOf(issue.confidence()), issue.baseUrl(), issue.detail());
+                AuditIssueConfidence.valueOf(issue.confidence()), issue.baseUrl(), issue.detail(), issue.evidence());
     }
 }

@@ -7,7 +7,7 @@ plugins {
     id 'com.gradleup.shadow' version '8.3.5'
 }
 
-version = '2.1.2'
+version = '2.2.0'
 
 // Jackson databind + core ship at 2.21.3 in the BOM; jackson-annotations is published as 2.21
 // (no patch suffix) by upstream as of the 2.21 line — these are the matched coordinates.
@@ -159,8 +159,20 @@ tasks.withType(Test).configureEach {
 tasks.named('test') {
     maxHeapSize = '2g'
     useJUnitPlatform {
-        excludeTags 'live', 'cve-target', 'cve-target-lifecycle', 'burp-canary', 'slow-link'
+        excludeTags 'live', 'cve-target', 'cve-target-lifecycle', 'burp-canary', 'slow-link', 'edition-ui'
     }
+}
+
+tasks.register('editionUiTest', Test) {
+    description = 'Builds the whole Swing tab in Burp Suite Community and Professional and checks which edition shows which UI.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    maxHeapSize = '2g'
+    useJUnitPlatform {
+        includeTags 'edition-ui'
+    }
+    outputs.upToDateWhen { false }
 }
 
 tasks.register('slowLinkTest', Test) {
@@ -192,8 +204,9 @@ def cveTargetTask = { String name, String tag, String text, String resultsPath =
         }
         systemProperty 'cveTargets.root', file('cve-targets').absolutePath
         systemProperty 'cveTargets.results', layout.buildDirectory.dir("cve-targets/${resultsPath}").get().asFile.absolutePath
+        systemProperty 'cveTargets.durations', new File(System.getProperty('user.home'), ".cache/mcp-cve-targets/durations/${resultsPath}.json").absolutePath
         ['check': 'check', 'target': 'target', 'cveSlots': 'slots', 'cveSlotsDir': 'slotsDir',
-         'cveParallel': 'parallel'].each { gradleProperty, harnessProperty ->
+         'cveParallel': 'parallel', 'cveDurations': 'durations'].each { gradleProperty, harnessProperty ->
             def value = providers.gradleProperty(gradleProperty).orNull
             if (value != null) {
                 systemProperty "cveTargets.${harnessProperty}", value

@@ -1,24 +1,43 @@
 package com.mcpscanner.checks.registry;
 
 import burp.api.montoya.http.Http;
+import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.scancheck.ScanCheckType;
 import com.mcpscanner.checks.api.CheckDescriptor;
 import com.mcpscanner.checks.api.CheckKind;
 import com.mcpscanner.checks.api.HostCheck;
 import com.mcpscanner.checks.api.RecordingChecks;
+import com.mcpscanner.checks.shared.scancontext.ScanNotices;
+import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.ConnectionReusingHttp;
+import com.mcpscanner.http.OutsideScanQueue;
+import com.mcpscanner.http.ScanQueueBypass;
+import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class HostCheckAdapterTest {
 
@@ -126,6 +145,80 @@ class HostCheckAdapterTest {
         assertThatThrownBy(() -> adapterFor(mislabelled, true)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void aSendTheCheckMarksOutsideTheScanQueueLeavesBurpsAuditHttpForTheUnqueuedHttp() {
+        Http unqueued = mock(Http.class);
+        HttpRequest oauth = HttpRequest.httpRequestFromUrl("https://a.test/register");
+        HttpRequest mcp = HttpRequest.httpRequestFromUrl("https://a.test/mcp");
+        HostCheckAdapter adapter = new HostCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(),
+                new SendingHostCheck(http -> {
+                    OutsideScanQueue.send(http, oauth);
+                    http.sendRequest(mcp);
+                }), CheckInstrumentation.NONE, UpstreamExchanges.NONE, ConnectionReuse.withoutLocalAnswers(),
+                IssueDestination.NONE, new ScanNotices(), ProbeCalls.NONE, ScanQueueBypass.through(unqueued));
+
+        adapter.doCheck(firstOnHostA, null, http);
+
+        verify(unqueued).sendRequest(argThat((HttpRequest sent) -> sent.url().equals(oauth.url())));
+        verify(http).sendRequest(argThat((HttpRequest sent) -> sent.url().equals(mcp.url())));
+        verify(http, never()).sendRequest(argThat((HttpRequest sent) -> sent.url().equals(oauth.url())));
+    }
+
+    @Test
+    void anHttpAlreadyOffTheScanQueueKeepsTheChecksMarkedSends() {
+        Http unqueued = mock(Http.class);
+        HttpRequest oauth = HttpRequest.httpRequestFromUrl("https://a.test/register");
+        HostCheckAdapter adapter = new HostCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(),
+                new SendingHostCheck(http -> OutsideScanQueue.send(http, oauth)), CheckInstrumentation.NONE,
+                UpstreamExchanges.NONE, ConnectionReuse.withoutLocalAnswers(), IssueDestination.NONE,
+                new ScanNotices(), ProbeCalls.NONE, ScanQueueBypass.through(unqueued));
+
+        adapter.doCheck(firstOnHostA, null, ScanQueueBypass.alreadyOffScanQueue(http));
+
+        verify(http).sendRequest(argThat((HttpRequest sent) -> sent.url().equals(oauth.url())));
+        verify(unqueued, never()).sendRequest(any(HttpRequest.class));
+    }
+
+    @Test
+    void aConnectionIdTheScannersHttpUsesIsNeverSentThroughTheUnqueuedHttp() {
+        ConnectionReuse reuse = ConnectionReuse.withoutLocalAnswers();
+        Http audit = answeringHttp1();
+        Http unqueuedBurp = answeringHttp1();
+        HttpRequest oauth = HttpRequest.httpRequestFromUrl("https://a.test/register");
+        HttpRequest mcp = HttpRequest.httpRequestFromUrl("https://a.test/mcp");
+        HostCheckAdapter adapter = new HostCheckAdapter(AdapterFixtures.settingsAllowing(true), McpEventLog.noop(),
+                new SendingHostCheck(http -> {
+                    for (int send = 0; send < 3; send++) {
+                        http.sendRequest(mcp);
+                        OutsideScanQueue.send(http, oauth);
+                    }
+                }), CheckInstrumentation.NONE, UpstreamExchanges.NONE, reuse, IssueDestination.NONE,
+                new ScanNotices(), ProbeCalls.NONE,
+                ScanQueueBypass.through(ConnectionReusingHttp.around(unqueuedBurp, reuse)));
+
+        adapter.doCheck(firstOnHostA, null, audit);
+
+        assertThat(connectionIds(audit)).isNotEmpty().doesNotContainAnyElementsOf(connectionIds(unqueuedBurp));
+    }
+
+    private static Http answeringHttp1() {
+        HttpResponse response = mock(HttpResponse.class);
+        when(response.httpVersion()).thenReturn("HTTP/1.1");
+        when(response.statusCode()).thenReturn((short) 200);
+        HttpRequestResponse exchange = mock(HttpRequestResponse.class);
+        when(exchange.response()).thenReturn(response);
+        Http http = mock(Http.class);
+        when(http.sendRequest(any(HttpRequest.class))).thenReturn(exchange);
+        when(http.sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1), anyString())).thenReturn(exchange);
+        return http;
+    }
+
+    private static List<String> connectionIds(Http http) {
+        ArgumentCaptor<String> ids = ArgumentCaptor.forClass(String.class);
+        verify(http, atLeast(0)).sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1), ids.capture());
+        return ids.getAllValues();
+    }
+
     private static HostCheckAdapter adapterFor(RecordingChecks.Host check, boolean enabled) {
         return new HostCheckAdapter(AdapterFixtures.settingsAllowing(enabled), McpEventLog.noop(), check);
     }
@@ -160,6 +253,30 @@ class HostCheckAdapterTest {
                 throw new IllegalStateException("transient");
             }
             return List.of(issue);
+        }
+    }
+
+    private record SendingHostCheck(Consumer<Http> sends) implements HostCheck {
+
+        @Override
+        public CheckDescriptor descriptor() {
+            return RecordingChecks.descriptorFor("sending", CheckKind.HOST);
+        }
+
+        @Override
+        public boolean appliesTo(HttpRequestResponse hostBaseRequestResponse) {
+            return true;
+        }
+
+        @Override
+        public String appliesOnlyTo() {
+            return "any request";
+        }
+
+        @Override
+        public List<AuditIssue> audit(HttpRequestResponse hostBaseRequestResponse, Http http) {
+            sends.accept(http);
+            return List.of();
         }
     }
 }

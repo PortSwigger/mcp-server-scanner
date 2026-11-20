@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +33,8 @@ class AuthorizerTest {
 
     private AuthorizationAttempt authorize(AuthorizationVariant variant) {
         AuthorizationServer server = new AuthorizationServer(URI.create("https://auth.example.com"), AUTHORIZE,
-                Optional.empty(), Optional.empty(), Optional.empty(), URI.create("https://mcp.example.com/mcp"), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty(), URI.create("https://mcp.example.com/mcp"), Optional.empty(),
+                List.of());
         return new Authorizer(http.oauth(), new AuthorizationRequestFactory(server), SESSION)
                 .authorize("client-1", CALLBACK, "state-1", variant);
     }

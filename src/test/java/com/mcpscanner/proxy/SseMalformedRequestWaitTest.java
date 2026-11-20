@@ -19,6 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static com.mcpscanner.testutil.OpenedStreams.openedByAGet;
 import static java.time.Duration.ofMillis;
 import static java.time.Duration.ofSeconds;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -141,7 +142,7 @@ class SseMalformedRequestWaitTest {
         @SuppressWarnings("unchecked")
         HttpClient client() throws Exception {
             HttpClient http = mock(HttpClient.class);
-            HttpResponse<InputStream> sse = mock(HttpResponse.class);
+            HttpResponse<InputStream> sse = openedByAGet(mock(HttpResponse.class));
             lenient().when(sse.statusCode()).thenReturn(200);
             when(sse.body()).thenReturn(stream);
             HttpResponse<String> accepted = mock(HttpResponse.class);

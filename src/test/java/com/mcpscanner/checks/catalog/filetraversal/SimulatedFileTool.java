@@ -7,6 +7,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mcpscanner.testutil.SpentRateLimitQuota;
 import com.mcpscanner.mcp.McpObjectMapper;
 
 import java.net.URLDecoder;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -30,6 +32,7 @@ final class SimulatedFileTool {
     static final String ROOT = "/srv/workspace";
     private static final HttpResponse TOO_MANY_REQUESTS =
             HttpResponse.httpResponse("HTTP/1.1 429 Too Many Requests\r\nContent-Type: text/plain\r\n\r\nslow down");
+    private static final String SPENT_QUOTA = SpentRateLimitQuota.HEADER_LINES;
     static final String PASSWD = TargetFileTest.PASSWD;
     static final String GIT_CONFIG = TargetFileTest.GIT_CONFIG;
     private static final Map<String, String> FILES = Map.of(
@@ -193,6 +196,8 @@ final class SimulatedFileTool {
     private List<String> argumentKeys = List.of("path");
 
     private int answeredBeforeRateLimit = Integer.MAX_VALUE;
+    private Predicate<Outcome> spendsTheQuota = outcome -> false;
+    private boolean quotaSpent;
 
     SimulatedFileTool(Policy policy) {
         this.policy = policy;
@@ -200,6 +205,16 @@ final class SimulatedFileTool {
 
     SimulatedFileTool rateLimitingAfter(int answered) {
         this.answeredBeforeRateLimit = answered;
+        return this;
+    }
+
+    SimulatedFileTool spendingTheQuotaOnceAFileLeaks() {
+        spendsTheQuota = outcome -> outcome.text().contains(PASSWD);
+        return this;
+    }
+
+    SimulatedFileTool spendingTheQuotaFromTheFirstReply() {
+        spendsTheQuota = outcome -> true;
         return this;
     }
 
@@ -241,8 +256,9 @@ final class SimulatedFileTool {
         }
         ObjectNode envelope = JsonNodeFactory.instance.objectNode().put("jsonrpc", "2.0").put("id", 7);
         envelope.set("result", result);
-        return HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
-                + McpObjectMapper.INSTANCE.writeValueAsString(envelope));
+        quotaSpent = quotaSpent || spendsTheQuota.test(outcome);
+        return HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                + (quotaSpent ? SPENT_QUOTA : "") + "\r\n" + McpObjectMapper.INSTANCE.writeValueAsString(envelope));
     }
 
     private JsonNode argument(JsonNode message) {

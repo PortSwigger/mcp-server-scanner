@@ -11,6 +11,7 @@ import com.mcpscanner.checks.issue.IssueRating;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 final class SessionLifecycleIssues {
 
@@ -25,6 +26,7 @@ final class SessionLifecycleIssues {
                 .findings(guessable.ids())
                 .paragraph("They are guessable:")
                 .findings(guessable.weaknesses());
+        attachedHandshakes(guessable.handshakes().size()).ifPresent(detail::paragraph);
         if (guessable.liveSessionReissued()) {
             detail.paragraph("The server issued the scanner's own live session ID to new sessions made with the "
                     + "same credentials. A server that keys one session per credential does this; an attacker "
@@ -33,20 +35,22 @@ final class SessionLifecycleIssues {
         guessable.bareUse().ifPresentOrElse(
                 bare -> detail.paragraph("The server also answered a ping that carried only one of these session "
                         + "IDs, without credentials, while the same ping without a session ID was refused with HTTP "
-                        + bare.refusedWithoutSession().response().statusCode() + " and an initialize without "
-                        + "credentials was refused with HTTP " + bare.anonymousInitializeRefused().response()
-                        .statusCode() + ", so an anonymous client cannot open a session of its own. The session ID alone "
+                        + bare.refusedWithoutSession().response().statusCode() + " (not attached) and an "
+                        + "initialize without credentials was refused with HTTP "
+                        + bare.anonymousInitializeRefused().response().statusCode()
+                        + ", so an anonymous client cannot open a session of its own. The session ID alone "
                         + "authenticates a request, so a guessed ID acts as another client's credential. A ping with a "
                         + "never-issued session ID and no credentials was refused with HTTP "
                         + bare.unissuedIdRefused().response().statusCode() + ", so the server checks which ID "
                         + "it is given. The unauthenticated request execution check reports the same root cause "
                         + "on the scanner's own session as \"MCP session id accepted as credential\"; this issue "
-                        + "adds that the IDs can be guessed, which lets an attacker reach other clients' sessions."),
+                        + "adds that the IDs can be guessed, which lets an attacker reach other clients' sessions. "
+                        + "The refused initialize, the refused never-issued ID and the answered ping are attached"
+                        + (guessable.handshakes().isEmpty() ? "." : " after the handshakes.")),
                 () -> detail.paragraph("The scanner did not show that a session ID alone authenticates a request; "
                         + "the impact depends on what else the server binds to a session."));
         List<HttpRequestResponse> evidence = new ArrayList<>(guessable.handshakes());
         guessable.bareUse().ifPresent(bare -> {
-            evidence.add(bare.refusedWithoutSession());
             evidence.add(bare.anonymousInitializeRefused());
             evidence.add(bare.unissuedIdRefused());
             evidence.add(bare.answeredWithSessionOnly());
@@ -60,8 +64,8 @@ final class SessionLifecycleIssues {
 
     AuditIssue deletedReuse(DeletedSessionReuse reuse, HttpRequestResponse base) {
         IssueBodyBuilder detail = new IssueBodyBuilder()
-                .paragraph("The scanner opened a new MCP session of its own and confirmed it answered ping, while a "
-                        + "ping with a never-issued session ID was refused with HTTP "
+                .paragraph("The scanner opened a new MCP session of its own; a ping with a never-issued session ID "
+                        + "was refused with HTTP "
                         + reuse.unissuedIdRefused().response().statusCode() + ". It then ended the session with "
                         + "DELETE, which the server accepted with HTTP "
                         + reuse.delete().response().statusCode() + ".");
@@ -75,8 +79,7 @@ final class SessionLifecycleIssues {
         detail.paragraph("A client that ends its session expects the ID to stop working; anyone who later "
                 + "obtains the ID can keep using the session. The scanner probed once, straight after "
                 + "DELETE; a server that ends sessions asynchronously may refuse the ID shortly afterwards.");
-        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(reuse.answeredBefore(), reuse.unissuedIdRefused(),
-                reuse.delete()));
+        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(reuse.unissuedIdRefused(), reuse.delete()));
         reuse.answeredAfter().ifPresent(evidence::add);
         reuse.streamAfter().ifPresent(stream -> {
             evidence.add(stream.openedAfterDelete());
@@ -84,6 +87,16 @@ final class SessionLifecycleIssues {
         });
         return issue(DELETED_REUSE, detail.build(), deletedReuseRemediation(),
                 new IssueRating(AuditIssueSeverity.LOW, AuditIssueConfidence.FIRM), base, evidence);
+    }
+
+    private static Optional<String> attachedHandshakes(int count) {
+        return switch (count) {
+            case 0 -> Optional.empty();
+            case 1 -> Optional.of("One of these session handshakes is attached, with the issued session ID "
+                    + "highlighted.");
+            default -> Optional.of("The first " + count + " of these session handshakes are attached, with the "
+                    + "issued session ID highlighted in each.");
+        };
     }
 
     private static boolean onlyTheLiveSession(GuessableIds guessable) {

@@ -1,6 +1,6 @@
 package com.mcpscanner.ui.identities;
 
-import com.mcpscanner.identity.Identity;
+import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.identity.IdentityRole;
 import com.mcpscanner.ui.widgets.SectionHeading;
 import com.mcpscanner.ui.widgets.ThemeColors;
@@ -10,75 +10,70 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 public final class UsersPanel extends JPanel {
 
     static final String INTRO = "Connect, discovery and Scan run as the primary user. Ticked compared users are "
             + "replayed against them to find what they should not reach.";
+    static final String PRIMARY_ONLY_INTRO = "Connect and discovery run as the primary user.";
     static final String PRIMARY_HEADING = "Primary user";
     static final String COMPARED_HEADING = "Compared users";
     static final String NO_COMPARED_USERS = "Add a user to find what one user can reach that another should not.";
-    static final String ANONYMOUS_NOTE = "Anonymous sends no credentials. Cross-identity checks always compare "
+    static final String ANONYMOUS_NOTE = Principal.ANONYMOUS_NAME + " sends no credentials. Check access always compares "
             + "against it.";
 
     private final IdentityUiServices services;
     private final IdentityCommands commands;
-    private final PrimaryUserChoice primaryChoice;
-    private final IdentityTableModel model;
-    private final IdentityTable table;
-    private final JScrollPane tableScroll;
-    private final IdentitiesToolbar toolbar;
+    private final UsersMode mode;
     private final IdentityEditor primaryEditor;
-    private final IdentityEditor comparedEditor;
-    private final WrappingText note = new WrappingText("").muted();
+    private final Optional<ComparedUsersSection> compared;
     private final WrappingText error = new WrappingText("");
-    private final List<SectionHeading> headings = List.of(new SectionHeading(PRIMARY_HEADING),
-            new SectionHeading(COMPARED_HEADING));
+    private final SectionHeading primaryHeading = new SectionHeading(PRIMARY_HEADING);
     private final Runnable unsubscribe;
-    private boolean reloading;
 
     public UsersPanel(IdentityUiServices services, GrantCredentialForms grantForms, Runnable openOAuthClient) {
+        this(services, grantForms, openOAuthClient, UsersMode.PRIMARY_AND_COMPARED);
+    }
+
+    public UsersPanel(IdentityUiServices services, GrantCredentialForms grantForms, Runnable openOAuthClient,
+                      UsersMode mode) {
         super(new BorderLayout());
         this.services = services;
+        this.mode = mode;
         this.commands = new IdentityCommands(services, this::showError, this::select);
-        this.primaryChoice = new PrimaryUserChoice(services, () -> this);
-        this.model = new IdentityTableModel(services, commands);
-        this.table = new IdentityTable(model);
-        this.tableScroll = table.scrolled();
-        this.toolbar = new IdentitiesToolbar(services, commands, this::selectedIdentity, this::showAddMenu);
-        this.primaryEditor = new IdentityEditor(services, commands, primaryChoice, EditorRole.PRIMARY,
+        PrimaryUserChoice primaryChoice = new PrimaryUserChoice(services, () -> this);
+        this.compared = mode.comparesUsers()
+                ? Optional.of(new ComparedUsersSection(services, commands, primaryChoice, openOAuthClient,
+                this::revalidate))
+                : Optional.empty();
+        this.primaryEditor = new IdentityEditor(services, commands, primaryChoice, EditorRole.primaryIn(mode),
                 grantForms, openOAuthClient);
-        this.comparedEditor = new IdentityEditor(services, commands, primaryChoice, EditorRole.COMPARED,
-                GrantCredentialForms.NONE, openOAuthClient);
         setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
         error.setForeground(ThemeColors.error());
         error.setVisible(false);
-        add(new VerticalStack(8).add(new WrappingText(INTRO).muted()).add(error)
-                .add(headings.get(0)).add(primaryEditor)
-                .add(headings.get(1)).add(toolbar).add(tableScroll).add(note).add(comparedEditor),
-                BorderLayout.NORTH);
-        table.getSelectionModel().addListSelectionListener(event -> onSelectionChanged());
+        VerticalStack stack = new VerticalStack(8).add(new WrappingText(intro(mode)).muted()).add(error)
+                .add(primaryHeading).add(primaryEditor);
+        compared.ifPresent(section -> section.addTo(stack));
+        add(stack, BorderLayout.NORTH);
+        compared.ifPresent(ComparedUsersSection::listenForSelection);
         this.unsubscribe = services.onChange(() -> SwingUtilities.invokeLater(this::refresh));
         refresh();
     }
 
+    private static String intro(UsersMode mode) {
+        return mode.comparesUsers() ? INTRO : PRIMARY_ONLY_INTRO;
+    }
+
     public void refresh() {
-        Optional<String> previous = selectedIdentity().map(Identity::id);
-        reloading = true;
-        model.reload();
-        reloading = false;
-        previous.flatMap(model::rowOf).ifPresentOrElse(row -> table.setRowSelectionInterval(row, row),
-                table::clearSelection);
-        table.fitColumns();
-        table.fitHeight(tableScroll);
+        compared.ifPresent(ComparedUsersSection::reload);
         primaryEditor.show(services.registry().primaryUser());
-        onSelectionChanged();
+        compared.ifPresentOrElse(ComparedUsersSection::onSelectionChanged, this::revalidate);
     }
 
     public ScanAsChip scanAsChip() {
@@ -94,7 +89,7 @@ public final class UsersPanel extends JPanel {
     }
 
     public CredentialPrompt credentialPrompt(CredentialPrompt.Actions actions) {
-        return new CredentialPrompt(services, actions);
+        return new CredentialPrompt(services, actions, mode);
     }
 
     public void dispose() {
@@ -102,7 +97,7 @@ public final class UsersPanel extends JPanel {
     }
 
     public void focusPrimaryCredentials() {
-        table.clearSelection();
+        compared.ifPresent(ComparedUsersSection::clearSelection);
         primaryEditor.focusCredentials();
     }
 
@@ -112,15 +107,15 @@ public final class UsersPanel extends JPanel {
 
     public void select(String identityId) {
         refresh();
-        model.rowOf(identityId).ifPresent(row -> table.setRowSelectionInterval(row, row));
+        compared.ifPresent(section -> section.select(identityId));
     }
 
     JTable table() {
-        return table;
+        return comparedUsers().table();
     }
 
     JPopupMenu addMenu() {
-        return new AddIdentityMenu(selectedIdentity(), commands);
+        return comparedUsers().addMenu();
     }
 
     IdentityEditor primaryEditor() {
@@ -128,19 +123,20 @@ public final class UsersPanel extends JPanel {
     }
 
     IdentityEditor comparedEditor() {
-        return comparedEditor;
+        return comparedUsers().editor();
     }
 
     boolean showingComparedEditor() {
-        return comparedEditor.isVisible();
+        return comparedEditor().isVisible();
     }
 
     String noteText() {
-        return note.isVisible() ? note.getText() : "";
+        return comparedUsers().noteText();
     }
 
     List<String> headings() {
-        return headings.stream().map(SectionHeading::title).toList();
+        return Stream.concat(Stream.of(primaryHeading), compared.map(ComparedUsersSection::heading).stream())
+                .map(SectionHeading::title).toList();
     }
 
     String errorText() {
@@ -148,48 +144,19 @@ public final class UsersPanel extends JPanel {
     }
 
     JButton addButton() {
-        return toolbar.addButton();
+        return comparedUsers().toolbar().addButton();
     }
 
     JButton removeButton() {
-        return toolbar.removeButton();
+        return comparedUsers().toolbar().removeButton();
     }
 
     JButton signInAllButton() {
-        return toolbar.signInAllButton();
+        return comparedUsers().toolbar().signInAllButton();
     }
 
-    private void onSelectionChanged() {
-        if (reloading) {
-            return;
-        }
-        Optional<Identity> identity = selectedIdentity();
-        toolbar.refresh(identity);
-        identity.ifPresentOrElse(comparedEditor::show, comparedEditor::release);
-        comparedEditor.setVisible(identity.isPresent());
-        note.setText(anonymousSelected() ? ANONYMOUS_NOTE
-                : services.registry().otherUsers().isEmpty() ? NO_COMPARED_USERS : "");
-        note.setVisible(identity.isEmpty() && !note.getText().isEmpty());
-        revalidate();
-    }
-
-    private boolean anonymousSelected() {
-        int row = table.getSelectedRow();
-        return row >= 0 && row < model.getRowCount() && model.rowAt(row).identity().isEmpty();
-    }
-
-    private Optional<Identity> selectedIdentity() {
-        int row = table.getSelectedRow();
-        if (row < 0 || row >= model.getRowCount()) {
-            return Optional.empty();
-        }
-        return model.rowAt(row).identity().flatMap(identity -> services.registry().find(identity.id()))
-                .filter(identity -> !services.registry().isPrimary(identity.id()));
-    }
-
-    private void showAddMenu() {
-        JButton anchor = toolbar.addButton();
-        addMenu().show(anchor, 0, anchor.getHeight());
+    private ComparedUsersSection comparedUsers() {
+        return compared.orElseThrow();
     }
 
     private void showError(String message) {

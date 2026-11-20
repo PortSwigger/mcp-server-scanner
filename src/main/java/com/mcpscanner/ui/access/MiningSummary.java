@@ -1,5 +1,6 @@
 package com.mcpscanner.ui.access;
 
+import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.ui.widgets.SwingHtmlGuard;
 import com.mcpscanner.ui.widgets.WrappingText;
 
@@ -16,7 +17,7 @@ import java.util.List;
 final class MiningSummary {
 
     static final String LIVE_SERVER_WARNING = "Collecting IDs calls the server's tools as every configured user and "
-            + "Anonymous, gathers the IDs in the replies and feeds those real IDs back into the tools. Run it only "
+            + Principal.ANONYMOUS_NAME + ", gathers the IDs in the replies and feeds those real IDs back into the tools. Run it only "
             + "against a server you may test.";
     static final String OTHER_CALLS = "resource reads, resources/list and prompts";
     static final int TEXT_WIDTH = 440;

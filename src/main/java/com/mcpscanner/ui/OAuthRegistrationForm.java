@@ -1,13 +1,15 @@
 package com.mcpscanner.ui;
 
 import com.mcpscanner.auth.oauth.OAuthClientHints;
+import com.mcpscanner.auth.oauth.ScopeSelection;
 import com.mcpscanner.core.oauth.RegistrationMode;
 
 import java.net.URI;
 import java.util.List;
 
-record OAuthRegistrationForm(String issuer, List<String> scopes, RegistrationMode mode, String clientId,
-                             String clientSecret, String clientIssuer, String metadataUrl, int redirectPort) {
+record OAuthRegistrationForm(String issuer, List<String> scopes, ScopeSelection scopeSelection, RegistrationMode mode,
+                             String clientId, String clientSecret, String clientIssuer, String metadataUrl,
+                             int redirectPort) {
 
     static boolean usesClient(RegistrationMode mode) {
         return mode == RegistrationMode.AUTO || mode == RegistrationMode.PRE_REGISTERED;
@@ -26,7 +28,7 @@ record OAuthRegistrationForm(String issuer, List<String> scopes, RegistrationMod
         requireModeInputs(boundClientId);
         return new OAuthClientHints(issuerUri(), scopes, boundClientId, secretFor(boundClientId),
                 mode == RegistrationMode.AUTO || mode == RegistrationMode.DCR,
-                redirectPort, OAuthClientHints.DEFAULT_TIMEOUT, mode, metadataUri());
+                redirectPort, OAuthClientHints.DEFAULT_TIMEOUT, mode, metadataUri(), scopeSelection);
     }
 
     private String boundClientId() {

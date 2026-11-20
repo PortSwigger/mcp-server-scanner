@@ -51,7 +51,8 @@ class StreamedAuditTest {
 
         assertThat(check.calls).singleElement().extracting(RecordingChecks.Call::base).isSameAs(streamedBase);
         verify(http).sendRequest(org.mockito.ArgumentMatchers.any(HttpRequest.class));
-        assertThat(infos()).contains("Scan check: streamed — started");
+        assertThat(eventLog.snapshot()).extracting(McpEventLog.LogEntry::message)
+                .contains("Scan check: streamed — started");
         assertThat(infos()).anyMatch(line -> line.contains("without its reply"));
     }
 

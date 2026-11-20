@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import com.mcpscanner.testutil.ManualReadScheduler;
 import com.mcpscanner.config.AuthTypeNames;
 import com.mcpscanner.ui.identities.ReconnectPrompt;
@@ -110,6 +111,7 @@ final class McpScannerTabFixture {
                 }
             };
     final ToolCallRefusals toolCallRefusals = new ToolCallRefusals(identities);
+    boolean professional = true;
     BiFunction<URI, OptionalGrantSettings, AuthStrategy> optionalGrants = ConnectCoordinator.NO_OPTIONAL_GRANTS;
     Map<String, String> scanOwnerArguments = Map.of();
     java.util.Set<String> scanMinedArguments = java.util.Set.of();
@@ -137,7 +139,7 @@ final class McpScannerTabFixture {
     McpScannerTabFixture() {
         MontoyaTestFactory.install();
         when(store.getBoolean(anyString())).thenReturn(null);
-        configStore = new ExtensionConfigStore(store, logging);
+        configStore = new ExtensionConfigStore(store, new InMemoryPreferences(), logging);
         generationSettings = new ScanGenerationSettings(InMemoryPersistedObject.configStore());
         when(session.scannerHeaders()).thenReturn(Map.of());
         when(session.resolvedEndpoint()).thenReturn(ENDPOINT);
@@ -167,11 +169,20 @@ final class McpScannerTabFixture {
     }
 
     McpScannerTab newTab(ServerConfigPanel serverConfigPanel) {
-        return new McpScannerTab(new McpScannerTabDependencies(clientManager, scanLauncher, logging, configStore,
-                checkRegistry, checkSettings, eventLog, authHolder, generationSettings, scanModeSetting,
+        return new McpScannerTab(new McpScannerTabDependencies(clientManager, logging, configStore, eventLog,
+                authHolder,
                 new ScanRequestRenderer(new McpHttpRequestFactory(() -> 1L, PlainFraming.framer())::build,
                         new ClientRegistrationRequestFactory()), serverConfigPanel,
                 () -> ScanConnection.unbound(ignored -> Map.of()), optionalGrants,
+                parent -> burpNetworkingPrompt.offerToTurnOff(parent),
+                new IdentityDependencies(identities, identityListings, comparedDiscovery, toolCallRefusals, this::identityCredentials,
+                        (parent, user, previous) -> reconnectPrompt.confirm(parent, user, previous)),
+                ManualReadScheduler.immediateReads(), TestDialogOwners.withoutSuiteFrame(),
+                professional ? Optional.of(scanServices()) : Optional.empty()));
+    }
+
+    private ScanServices scanServices() {
+        return new ScanServices(scanLauncher, checkRegistry, checkSettings, generationSettings, scanModeSetting,
                 new DestructiveScanPrompt() {
                     @Override
                     public DestructiveScanConfirmation.Result ask(java.awt.Component parent,
@@ -185,9 +196,6 @@ final class McpScannerTabFixture {
                         return minedWritePrompt.ask(parent, lines);
                     }
                 },
-                parent -> burpNetworkingPrompt.offerToTurnOff(parent),
-                new IdentityDependencies(identities, identityListings, comparedDiscovery, toolCallRefusals, this::identityCredentials,
-                        (parent, user, previous) -> reconnectPrompt.confirm(parent, user, previous)),
                 new com.mcpscanner.scan.OwnerArgumentSource() {
                     @Override
                     public Map<String, String> forTool(com.mcpscanner.mcp.McpToolDefinition tool) {
@@ -198,7 +206,7 @@ final class McpScannerTabFixture {
                     public java.util.Set<String> minedArgumentsFor(com.mcpscanner.mcp.McpToolDefinition tool) {
                         return scanMinedArguments;
                     }
-                }, ManualReadScheduler.immediateReads(), TestDialogOwners.withoutSuiteFrame()));
+                }, new com.mcpscanner.config.SignedInConsentSetting(configStore));
     }
 
     private IdentityCredentialServices identityCredentials(SharedAuthSettings sharedClient,

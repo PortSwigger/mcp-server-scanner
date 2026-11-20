@@ -50,11 +50,11 @@ final class SseSessionHandshake {
             throws IOException, InterruptedException {
         long id = requestIds.getAsLong();
         String replyId = String.valueOf(id);
-        CompletableFuture<String> reply = replies.expect(replyId);
+        CompletableFuture<StreamedReply> reply = replies.expect(replyId);
         try {
             ProxyResponse rejection = checked(poster.post(initializeBody(id, protocolVersion), headers), "initialize");
             if (rejection == null) {
-                requireMatchingReply(replies.await(reply, timeout), id);
+                requireMatchingReply(replies.await(reply, timeout).json(), id);
             }
             return rejection;
         } catch (TimeoutException te) {

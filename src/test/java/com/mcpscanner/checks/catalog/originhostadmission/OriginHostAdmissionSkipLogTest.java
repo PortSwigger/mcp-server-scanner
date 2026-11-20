@@ -10,6 +10,7 @@ import com.mcpscanner.checks.shared.stream.EventStreams;
 import com.mcpscanner.checks.shared.stream.ScriptedEventStreams;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.MontoyaTestFactory;
+import com.mcpscanner.testutil.OwnedLoopbackPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -98,16 +99,20 @@ class OriginHostAdmissionSkipLogTest {
     }
 
     @Test
-    void logsThatAStreamedReplyStopsTheRequestTest() {
+    void logsThatAStreamedReplyStopsTheRequestTest() throws Exception {
         AdmissionServers.Server streaming = new AdmissionServers.Server(request -> {
             throw new IllegalStateException("Streaming response received");
         });
 
-        check(ScriptedEventStreams.none()).audit(captured(toolsList(LOOPBACK_URL)), streaming.http);
+        try (OwnedLoopbackPort target = OwnedLoopbackPort.closingEveryConnection()) {
+            String url = target.url("/mcp");
+            check(ScriptedEventStreams.none()).audit(captured(toolsList(url)), streaming.http);
 
-        assertThat(messages()).anySatisfy(message -> assertThat(message)
-                .startsWith(PREFIX + "stopped " + REQUEST_TEST + " (streamed reply withheld by Burp: ")
-                .contains("text/event-stream"));
+            assertThat(messages()).anySatisfy(message -> assertThat(message)
+                    .startsWith(PREFIX + "stopped the Origin/Host request test on tools/list at " + url
+                            + " (streamed reply withheld by Burp: ")
+                    .contains("text/event-stream"));
+        }
     }
 
     @Test

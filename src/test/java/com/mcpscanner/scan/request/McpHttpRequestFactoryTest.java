@@ -1,5 +1,7 @@
 package com.mcpscanner.scan.request;
 
+import com.mcpscanner.mcp.FramedOperation;
+import com.mcpscanner.mcp.ScannerSentinels;
 import com.mcpscanner.testutil.PlainFraming;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -72,6 +74,14 @@ class McpHttpRequestFactoryTest {
 
         assertThat(raw).contains("\r\nMcp-Session-Id: sess-9\r\n", "\r\nMCP-Protocol-Version: 2025-06-18\r\n",
                 "\r\nX-Api-Key: k\r\n").doesNotContainIgnoringCase("authorization");
+    }
+
+    @Test
+    void aScannerLaunchedRequestRecordsWhatItFramedSoTheProxyCanTellAFuzzedOperationHeader() {
+        String raw = factory.raw(ENDPOINT, ProtocolMessages.ping(), Map.of("MCP-Protocol-Version", "2025-06-18"));
+
+        assertThat(raw).contains("\r\n" + ScannerSentinels.FRAMED_OPERATION_HEADER + ": "
+                + FramedOperation.encode(Map.of("MCP-Protocol-Version", "2025-06-18")) + "\r\n");
     }
 
     @Test

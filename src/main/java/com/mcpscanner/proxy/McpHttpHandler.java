@@ -73,9 +73,7 @@ public class McpHttpHandler implements HttpHandler {
         if (isBoundForProxy(request.httpService())) {
             return RequestToBeSentAction.continueWith(keyedUnlessFromBurpProxy(request));
         }
-        var capabilityHeaders = headersNamed(request, ScannerSentinels.AUDIT_CAPABILITY_HEADER);
-        return RequestToBeSentAction.continueWith(capabilityHeaders.isEmpty()
-                ? request : request.withRemovedHeaders(capabilityHeaders));
+        return RequestToBeSentAction.continueWith(withoutUpstreamOnlySentinels(request));
     }
 
     private HttpRequest keyedUnlessFromBurpProxy(HttpRequestToBeSent request) {
@@ -94,8 +92,14 @@ public class McpHttpHandler implements HttpHandler {
     }
 
     private static HttpRequest directDelivery(HttpRequest request) {
-        return request.withRemovedHeader(ScannerSentinels.DIRECT_DELIVERY_HEADER)
-                .withRemovedHeader(ScannerSentinels.AUDIT_CAPABILITY_HEADER);
+        return withoutUpstreamOnlySentinels(request.withRemovedHeader(ScannerSentinels.DIRECT_DELIVERY_HEADER));
+    }
+
+    private static HttpRequest withoutUpstreamOnlySentinels(HttpRequest request) {
+        List<HttpHeader> sentinels = request.headers().stream()
+                .filter(header -> ScannerSentinels.STRIPPED_BEFORE_UPSTREAM.contains(header.name()))
+                .toList();
+        return sentinels.isEmpty() ? request : request.withRemovedHeaders(sentinels);
     }
 
     @Override
@@ -123,7 +127,4 @@ public class McpHttpHandler implements HttpHandler {
         return LOOPBACK_HOST.equals(service.host()) && service.port() == proxy.port();
     }
 
-    private static List<HttpHeader> headersNamed(HttpRequest request, String name) {
-        return request.headers().stream().filter(header -> header.name().equalsIgnoreCase(name)).toList();
-    }
 }

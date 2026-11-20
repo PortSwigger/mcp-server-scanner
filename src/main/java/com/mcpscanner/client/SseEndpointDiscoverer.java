@@ -33,7 +33,7 @@ public final class SseEndpointDiscoverer {
     private static final SseFrameReader.Limits ENDPOINT_EVENT_LIMITS = SseFrameReader.Limits.perFrame(
             MAX_ENDPOINT_EVENT_BYTES, "SSE endpoint event exceeded response bound");
 
-    public record DiscoveryResult(URI messageUrl, InputStream sseStream) {}
+    public record DiscoveryResult(URI messageUrl, InputStream sseStream, SseStreamOpening opening) {}
 
     // SSE keeps JDK HttpClient: api.http() is synchronous and cannot consume an open
     // text/event-stream; Montoya exposes no proxy-listener endpoint.
@@ -130,14 +130,15 @@ public final class SseEndpointDiscoverer {
                 throw new SseStreamRejectedException("SSE stream was not established");
             }
             URI reachedEndpoint = response.uri() != null ? response.uri() : sseEndpoint;
-            return readEndpointEvent(reachedEndpoint, body);
+            return readEndpointEvent(reachedEndpoint, body, new SseStreamOpening(response));
         } catch (IOException | IllegalArgumentException e) {
             closeQuietly(body);
             throw new IllegalStateException("SSE endpoint discovery failed: " + e.getMessage(), e);
         }
     }
 
-    private DiscoveryResult readEndpointEvent(URI reachedEndpoint, InputStream body) throws IOException {
+    private DiscoveryResult readEndpointEvent(URI reachedEndpoint, InputStream body, SseStreamOpening opening)
+            throws IOException {
         SseFrameReader events = SseFrameReader.over(body, ENDPOINT_EVENT_LIMITS);
         for (int i = 0; i < MAX_ENDPOINT_EVENTS; i++) {
             String event = events.nextFrame();
@@ -145,10 +146,11 @@ public final class SseEndpointDiscoverer {
                 throw new SseStreamRejectedException("SSE stream closed before endpoint event");
             }
             if (McpSse.isEndpoint(event, MAX_ENDPOINT_EVENT_BYTES)) {
-                return new DiscoveryResult(sameOriginEndpoint(reachedEndpoint, event), events.remainder(body));
+                return new DiscoveryResult(sameOriginEndpoint(reachedEndpoint, event), events.remainder(body),
+                        opening);
             }
         }
-        return fallback(reachedEndpoint, events.remainder(body));
+        return fallback(reachedEndpoint, events.remainder(body), opening);
     }
 
     private static URI sameOriginEndpoint(URI reachedEndpoint, String event) throws IOException {
@@ -160,7 +162,7 @@ public final class SseEndpointDiscoverer {
         return resolved;
     }
 
-    private DiscoveryResult fallback(URI sseEndpoint, InputStream liveStream) {
+    private DiscoveryResult fallback(URI sseEndpoint, InputStream liveStream, SseStreamOpening opening) {
         String path = sseEndpoint.getPath();
         String messagePath = path.endsWith("/sse")
                 ? path.substring(0, path.length() - 3) + "message"
@@ -169,7 +171,7 @@ public final class SseEndpointDiscoverer {
             URI messageUrl = new URI(sseEndpoint.getScheme(), sseEndpoint.getUserInfo(),
                     sseEndpoint.getHost(), sseEndpoint.getPort(), messagePath, sseEndpoint.getQuery(), null);
             eventLog.info("Using fallback SSE message endpoint: " + LogRedaction.redactQuery(messageUrl.toString()));
-            return new DiscoveryResult(messageUrl, liveStream);
+            return new DiscoveryResult(messageUrl, liveStream, opening);
         } catch (URISyntaxException e) {
             throw new IllegalStateException("Invalid SSE fallback URL", e);
         }

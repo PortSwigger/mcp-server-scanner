@@ -4,6 +4,7 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
+import com.mcpscanner.testutil.SpentRateLimitQuota;
 import com.mcpscanner.scan.field.McpFieldGenerator;
 
 import java.util.LinkedHashMap;
@@ -79,6 +80,11 @@ final class OutboundFixtures {
     static HttpResponse okResponse() {
         return HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
                 + "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{}}");
+    }
+
+    static HttpResponse quotaSpent() {
+        return HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                + SpentRateLimitQuota.HEADER_LINES + "\r\n{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{}}");
     }
 
     static HttpResponse tooManyRequests() {

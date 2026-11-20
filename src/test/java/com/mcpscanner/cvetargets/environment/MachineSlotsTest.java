@@ -115,6 +115,24 @@ class MachineSlotsTest {
     }
 
     @Test
+    void aWaitingLargerFootprintIsNotOvertakenByALaterSmallerOneInTheSameRun() {
+        MachineSlots slots = slots(2, duration -> Thread.yield());
+        ArmSlot held = slots.acquire("check/target/vulnerable");
+        CompletableFuture<ArmSlot> heavy = CompletableFuture.supplyAsync(() -> slots.acquire("check/heavy/fixed", 2));
+        await().atMost(Duration.ofSeconds(5)).until(() -> !log.isEmpty());
+
+        CompletableFuture<ArmSlot> light = CompletableFuture.supplyAsync(() -> slots.acquire("check/light/fixed"));
+        await().during(Duration.ofMillis(300)).atMost(Duration.ofSeconds(2)).until(() -> !light.isDone());
+        held.close();
+        await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(20)).until(heavy::isDone);
+        assertThat(light).isNotDone();
+
+        heavy.join().close();
+        await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(20)).until(light::isDone);
+        light.join().close();
+    }
+
+    @Test
     void refusesFewerThanOneSlot() {
         assertThatThrownBy(() -> slots(0, Pause.sleeping())).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("at least one slot");

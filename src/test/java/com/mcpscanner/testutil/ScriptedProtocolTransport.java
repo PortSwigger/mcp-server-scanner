@@ -29,7 +29,7 @@ public final class ScriptedProtocolTransport implements ProtocolHttpTransport {
         requests.add(request);
         timeouts.add(timeout);
         try {
-            return script.apply(request);
+            return ScriptedWire.attached(request, script.apply(request));
         } catch (ScriptedIoFailure scripted) {
             throw scripted.failure();
         }

@@ -34,6 +34,13 @@ class TokenVerifier:
         self._signer = signer
         self._weaknesses = weaknesses
 
+    def accepts(self, token: str) -> bool:
+        try:
+            self.verify(token)
+        except InvalidToken:
+            return False
+        return True
+
     def verify(self, token: str) -> dict[str, Any]:
         header, claims, signing_input, signature = _split(token)
         self._verify_signature(header, signing_input, signature)

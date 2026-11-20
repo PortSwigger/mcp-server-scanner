@@ -23,20 +23,25 @@ public final class SessionHeaders {
         return legacySseSessionOf(request.url());
     }
 
+    public static Optional<String> sentLegacySseSessionOf(HttpRequest request) {
+        return SseSessionIds.sentFrom(request.url()).or(() -> lastPathSegmentOf(request.url()));
+    }
+
     static Optional<String> legacySseSessionOf(String messageUrl) {
-        return SseSessionIds.from(messageUrl).or(() -> lastPathSegment(URI.create(messageUrl).getRawPath()));
+        return SseSessionIds.from(messageUrl).or(() -> lastPathSegmentOf(messageUrl));
     }
 
     static Optional<String> legacySseSessionOf(String messageUrl, String liveMessageUrl) {
         return SseSessionIds.from(messageUrl).or(() -> samePath(messageUrl, liveMessageUrl)
-                ? Optional.empty() : lastPathSegment(URI.create(messageUrl).getRawPath()));
+                ? Optional.empty() : lastPathSegmentOf(messageUrl));
     }
 
     private static boolean samePath(String messageUrl, String otherMessageUrl) {
         return URI.create(messageUrl).getRawPath().equals(URI.create(otherMessageUrl).getRawPath());
     }
 
-    private static Optional<String> lastPathSegment(String path) {
+    private static Optional<String> lastPathSegmentOf(String url) {
+        String path = URI.create(url).getRawPath();
         String trimmed = path == null ? "" : path.replaceAll("/+$", "");
         String segment = trimmed.substring(trimmed.lastIndexOf('/') + 1);
         return segment.isEmpty() ? Optional.empty() : Optional.of(segment);

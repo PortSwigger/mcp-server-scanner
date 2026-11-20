@@ -7,6 +7,7 @@ import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import com.mcpscanner.checks.api.InsertionPointCheck;
 import com.mcpscanner.checks.shared.scancontext.ScanNotices;
 import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.ScanQueueBypass;
 import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 
@@ -44,8 +45,16 @@ public final class InsertionPointCheckAdapter extends McpCheckAdapter<InsertionP
                 CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
                 ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices,
                 ProbeCalls probeCalls) {
+        this(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                auditNotices, probeCalls, ScanQueueBypass.NONE);
+    }
+
+    public InsertionPointCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, InsertionPointCheck check,
+                CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
+                ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices,
+                ProbeCalls probeCalls, ScanQueueBypass scanQueueBypass) {
         super(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
-                auditNotices, probeCalls);
+                auditNotices, probeCalls, scanQueueBypass);
     }
 
     @Override

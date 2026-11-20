@@ -3,6 +3,7 @@ package com.mcpscanner.http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -29,6 +30,23 @@ public final class ThreadTallies implements ExchangeCounter {
         } finally {
             restore(outer);
             summary.accept(tally.summary(operation));
+        }
+    }
+
+    public Executor carrying(Executor executor) {
+        return task -> {
+            RequestTally handedOver = measuring.get();
+            executor.execute(() -> within(handedOver, task));
+        };
+    }
+
+    private void within(RequestTally handedOver, Runnable task) {
+        RequestTally outer = measuring.get();
+        measuring.set(handedOver);
+        try {
+            task.run();
+        } finally {
+            restore(outer);
         }
     }
 

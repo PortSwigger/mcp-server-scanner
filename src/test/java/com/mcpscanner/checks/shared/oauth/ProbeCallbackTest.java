@@ -5,6 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,6 +16,23 @@ class ProbeCallbackTest {
     @Test
     void mintsLoopbackCallbacksOnTheScannerPort() {
         assertThat(CALLBACK).isEqualTo(URI.create("http://127.0.0.1:49151/scancheck-test"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://127.0.0.1:4000/callback", "http://127.0.0.1/callback"})
+    void aScannerOnTheIpv4LoopbackPutsTheProbesOnTheIpv6LoopbackLiteral(String scannerRedirect) {
+        assertThat(ProbeCallback.hostUnrelatedTo(Optional.of(URI.create(scannerRedirect)))).isEqualTo("[::1]");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://LocalHost:4000/callback", "http://[::1]:4000/callback"})
+    void anyOtherScannerHostPutsTheProbesOnTheIpv4LoopbackLiteral(String scannerRedirect) {
+        assertThat(ProbeCallback.hostUnrelatedTo(Optional.of(URI.create(scannerRedirect)))).isEqualTo("127.0.0.1");
+    }
+
+    @Test
+    void anUnknownScannerRedirectPutsTheProbesOnTheIpv6LoopbackLiteral() {
+        assertThat(ProbeCallback.hostUnrelatedTo(Optional.empty())).isEqualTo("[::1]");
     }
 
     @Test
@@ -57,5 +75,11 @@ class ProbeCallbackTest {
         assertThat(ProbeCallback.response(registered, URI.create(registered + "&code=c&state=s"), "s")).isPresent();
         assertThat(ProbeCallback.response(registered, URI.create("http://127.0.0.1:49151/cb?code=c&state=s"), "s"))
                 .isEmpty();
+    }
+
+    @Test
+    void mintsLoopbackCallbacksOnAGivenHost() {
+        assertThat(ProbeCallback.loopback("localhost", "scancheck-test"))
+                .isEqualTo(URI.create("http://localhost:49151/scancheck-test"));
     }
 }

@@ -22,6 +22,10 @@ final class ShutdownHooks implements ExtensionUnloadingHandler {
         hooks.add(new Hook(Objects.requireNonNull(name), Objects.requireNonNull(action)));
     }
 
+    List<String> names() {
+        return hooks.stream().map(Hook::name).toList();
+    }
+
     @Override
     public void extensionUnloaded() {
         hooks.forEach(this::runGuarded);

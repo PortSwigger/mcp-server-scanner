@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 
 final class IdentityFindings {
 
@@ -33,7 +34,7 @@ final class IdentityFindings {
     private final Outcomes outcomes;
 
     IdentityFindings(OperationSeed seed, Principal owner, OperationReply ownerReply, AnonymousReply anonymous,
-                     ComparisonContext context, DecisionLog log, Outcomes outcomes) {
+                     ComparisonContext context, DecisionLog log, Outcomes outcomes, Executor arms) {
         this.outcomes = outcomes;
         this.seed = seed;
         this.owner = owner;
@@ -41,7 +42,7 @@ final class IdentityFindings {
         this.anonymous = anonymous;
         this.context = context;
         this.kit = ProbeKit.of(seed, owner, context.requests(), new ProbeTransport(context.transport().http(), log),
-                new AbsentValues(), log, context.sessions().opened());
+                new AbsentValues(), log, context.sessions().opened()).armsOn(arms);
         this.expectation = context.ports().expectations().expectationFor(seed.item());
     }
 
@@ -77,7 +78,7 @@ final class IdentityFindings {
             return false;
         }
         outcomes.record(probe.principal(), Outcomes.compared(reach.finalReply(), ownerReply));
-        return new VerticalProbe(probe, context.ports().listings()).runRefusedAtCapturedVersion(reach);
+        return new VerticalProbe(probe, context.ports().listings()).runRefusedAtCapturedVersion(reach, replay.reply());
     }
 
     private boolean advertisedResource(PrincipalProbe probe) {

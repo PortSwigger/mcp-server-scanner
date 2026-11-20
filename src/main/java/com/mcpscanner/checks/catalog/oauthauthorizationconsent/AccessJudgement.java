@@ -7,7 +7,7 @@ import java.util.List;
 record AccessJudgement(Access access, HttpRequestResponse anonymous, HttpRequestResponse withToken) {
 
     List<HttpRequestResponse> evidence() {
-        return List.of(anonymous, withToken);
+        return access == Access.ALREADY_OPEN ? List.of(anonymous) : List.of(anonymous, withToken);
     }
 
     String anonymousStatus() {

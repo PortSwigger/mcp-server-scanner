@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class InBandShellProbeTest {
 
     private static final ArithmeticCanary CANARY = new ArithmeticCanary(200_000_000L, 300_000_000L);
+    private static final String BASE = SimulatedToolServer.BASE_VALUE;
     private static final ArithmeticCanary FRESH = new ArithmeticCanary(400_000_000L, 500_000_000L);
 
     @BeforeEach
@@ -28,7 +29,6 @@ class InBandShellProbeTest {
 
         assertThat(result.finding()).hasValueSatisfying(finding -> {
             assertThat(finding.kind()).isEqualTo(FindingKind.SHELL_COMPUTED_RESULT);
-            assertThat(finding.evidence()).hasSize(5);
         });
         assertThat(server.probeCount()).isEqualTo(5);
         assertThat(server.receivedValues()).anyMatch(value -> value.contains(FRESH.command()));
@@ -111,6 +111,51 @@ class InBandShellProbeTest {
                 ? ToolReply.toolError("Error: quotes") : allowlisted.apply(value);
 
         assertThat(probe(server(rejectingQuotes)).finding()).isEmpty();
+    }
+
+    @Test
+    void aShellComputedResultAttachesTheBaselineTheInjectedValueAndTheFirstBareCommandThatDidNotCompute() {
+        SimulatedToolServer server = server(ToolBehaviours.shellCommandLine());
+
+        Finding finding = probe(server).finding().orElseThrow();
+
+        assertThat(finding.kind()).isEqualTo(FindingKind.SHELL_COMPUTED_RESULT);
+        assertThat(server.valuesSentIn(finding.evidence()))
+                .containsExactly(BASE, BASE + "$(" + CANARY.command() + ")", CANARY.command());
+    }
+
+    @Test
+    void aQuotedControlFindingAttachesTheBareCommandAndTheQuotedControlButNotTheRejectedMatchedControl() {
+        SimulatedToolServer server = server(ToolBehaviours.shellCommandLineAllowingFirstToken(BASE));
+
+        Finding finding = probe(server).finding().orElseThrow();
+
+        assertThat(finding.kind()).isEqualTo(FindingKind.SHELL_COMPUTED_RESULT_QUOTED_CONTROL);
+        assertThat(server.valuesSentIn(finding.evidence())).containsExactly(BASE,
+                BASE + "$(" + CANARY.command() + ")", CANARY.command(), BASE + "$(" + CANARY.quotedCommand() + ")");
+    }
+
+    @Test
+    void anIntendedCommandFoundDirectlyAttachesTheBareCommandThatComputed() {
+        SimulatedToolServer server = server(ToolBehaviours.commandRunner());
+
+        Finding finding = probe(server).finding().orElseThrow();
+
+        assertThat(server.valuesSentIn(finding.evidence()))
+                .containsExactly(BASE, BASE + "$(" + CANARY.command() + ")", CANARY.command());
+    }
+
+    @Test
+    void anIntendedCommandFoundOnTheRepeatAttachesOnlyTheBareCommandThatComputed() {
+        Function<String, ToolReply> runner = ToolBehaviours.commandRunner();
+        SimulatedToolServer server = server(value -> value.equals(CANARY.command())
+                ? ToolReply.ok("I could not run that") : runner.apply(value));
+
+        Finding finding = probe(server).finding().orElseThrow();
+
+        assertThat(finding.kind()).isEqualTo(FindingKind.INTENDED_COMMAND);
+        assertThat(server.valuesSentIn(finding.evidence()))
+                .containsExactly(BASE, BASE + "$(" + CANARY.command() + ")", FRESH.command());
     }
 
     private static SimulatedToolServer server(Function<String, ToolReply> behaviour) {

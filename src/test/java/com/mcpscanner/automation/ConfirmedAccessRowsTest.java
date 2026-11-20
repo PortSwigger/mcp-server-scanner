@@ -1,5 +1,6 @@
 package com.mcpscanner.automation;
 
+import com.mcpscanner.checks.api.crossidentity.SyntheticPrincipals;
 import com.mcpscanner.access.AccessFixtures;
 import com.mcpscanner.access.AccessMatrix;
 import com.mcpscanner.access.AccessRow;
@@ -37,7 +38,8 @@ class ConfirmedAccessRowsTest {
     private final AccessMatrix matrix = new AccessMatrix(new IdentityRosterSource(NoAuthStrategy::new, registry),
             () -> Map.of(Principal.PRIMARY_ID, new DiscoveryOutcome.Listed(IdentityListing.of(new ConnectResult(
                     List.of(SEARCH, DELETE_DOCUMENT, CREATE_LIST), List.of(NOTES), List.of(), List.of(), null)))),
-            new PersistedAccessExpectations(InMemoryPersistedObject.configStore(), () -> "http://target/mcp"));
+            new PersistedAccessExpectations(InMemoryPersistedObject.configStore(), () -> "http://target/mcp"),
+            new SyntheticPrincipals(NoAuthStrategy::new).all());
 
     @Test
     void keepsEveryReadAndOnlyTheWritesTheCommandConfirmed() {

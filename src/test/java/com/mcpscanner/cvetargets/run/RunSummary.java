@@ -42,11 +42,11 @@ public final class RunSummary {
     }
 
     record SummaryArm(String check, String target, String arm, Outcome expected, Outcome observed, boolean passed,
-                      String verdict, Map<String, List<String>> otherCheckIssues, String notRunnable, String result) {
+                      String verdict, long durationMillis, Map<String, List<String>> otherCheckIssues, String notRunnable, String result) {
 
         static SummaryArm of(ArmResult result) {
             return new SummaryArm(result.check(), result.target(), result.arm(), result.expected().outcome(),
-                    result.observed(), result.passed(), result.verdict(), issueNames(result.otherCheckIssues()),
+                    result.observed(), result.passed(), result.verdict(), result.durationMillis(), issueNames(result.otherCheckIssues()),
                     result.notRunnable(), ResultWriter.relativeFile(result).toString());
         }
 

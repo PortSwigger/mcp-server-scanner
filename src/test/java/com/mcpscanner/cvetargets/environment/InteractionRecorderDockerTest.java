@@ -49,6 +49,7 @@ class InteractionRecorderDockerTest {
         children.forEach(Process::destroyForcibly);
         docker("rm", "--force", identity.container());
         docker("image", "rm", identity.image());
+        docker("volume", "rm", identity.trustVolume());
     }
 
     @Test

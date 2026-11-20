@@ -25,14 +25,14 @@ final class OptionInjectionProbe {
         if (leads.isEmpty()) {
             return ProbeOutcome.inconclusive();
         }
-        InjectionReply undashed = field.send(option.undashed());
+        InjectionReply undashed = field.confirm(option.undashed());
         List<Lead> confirmed = narrowed(leads, undashed, option, false);
         if (confirmed.isEmpty()) {
             return ProbeOutcome.inconclusive();
         }
-        InjectionReply repeated = field.send(option.flag());
+        InjectionReply repeated = field.confirm(option.flag());
         return narrowed(confirmed, repeated, option, true).stream().findFirst()
-                .map(lead -> found(field, option, lead, baseline, optioned, undashed, repeated))
+                .map(lead -> found(field, option, lead, baseline, optioned, undashed))
                 .orElseGet(ProbeOutcome::inconclusive);
     }
 

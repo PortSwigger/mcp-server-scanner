@@ -1,5 +1,6 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
@@ -63,13 +64,16 @@ class EngineWiringTest {
         MontoyaTestFactory.install();
         PersistedObject savedSettings = InMemoryPersistedObject.create();
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         foundation = ExtensionFoundation.create(api);
         ConnectionWiring connection = ConnectionWiring.create(api, foundation);
         AccessWiring access = AccessWiring.create(foundation, connection, new IdentityListings());
-        ScanFieldWiring fields = ScanFieldWiring.create(api, foundation);
-        engine = EngineWiring.create(api, foundation, connection.burpHttp(), fields.everyField());
-        scanning = ScanningWiring.create(api, foundation, connection, access, fields, engine,
-                CheckInstrumentation.NONE, UnaryOperator.identity());
+        ScanFoundation scan = ScanFoundation.create(api, foundation, connection);
+        engine = scan.engine();
+        scanning = ScanningWiring.create(api, foundation, connection,
+                RequestBuildingWiring.create(foundation, connection, access.authHolder()), access, scan,
+                CheckInstrumentation.NONE, UnaryOperator.identity(),
+                com.mcpscanner.checks.api.SignedInConsent.OPTED_OUT);
         EngineWiring.registerChecks(engine, scanning.checkRegistry(), shutdown);
     }
 

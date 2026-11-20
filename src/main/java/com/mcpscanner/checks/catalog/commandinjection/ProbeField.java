@@ -5,10 +5,11 @@ import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPointType;
+import com.mcpscanner.checks.api.RateLimitedSends;
 import com.mcpscanner.checks.api.SkipSubject;
 import com.mcpscanner.checks.shared.evidence.PayloadHighlights;
 
-import com.mcpscanner.mcp.TooManyRequests;
+import com.mcpscanner.mcp.RateLimitStop;
 import java.util.Arrays;
 import java.util.List;
 
@@ -19,15 +20,19 @@ final class ProbeField {
 
     private final HttpRequestResponse base;
     private final AuditInsertionPoint insertionPoint;
-    private final Http http;
+    private final Http probes;
+    private final Http confirmations;
     private final FieldSubject subject;
     private int consecutiveUnanswered;
     private boolean rateLimited;
+    private boolean quotaSpent;
 
-    ProbeField(HttpRequestResponse base, AuditInsertionPoint insertionPoint, String fieldName, Http http) {
+    ProbeField(HttpRequestResponse base, AuditInsertionPoint insertionPoint, String fieldName,
+               RateLimitedSends sends) {
         this.base = base;
         this.insertionPoint = insertionPoint;
-        this.http = http;
+        this.probes = sends.probes();
+        this.confirmations = sends.confirmations();
         this.subject = FieldSubject.of(base.request(), fieldName);
     }
 
@@ -51,18 +56,35 @@ final class ProbeField {
     }
 
     InjectionReply baseline() {
-        return InjectionReply.of(base.response() != null ? base : http.sendRequest(base.request()));
+        return InjectionReply.of(base.response() != null ? base : noted(probes.sendRequest(base.request())));
     }
 
     InjectionReply send(String payload) {
+        return quotaSpent ? InjectionReply.of(null) : send(probes, payload);
+    }
+
+    InjectionReply confirm(String payload) {
+        return send(confirmations, payload);
+    }
+
+    private InjectionReply send(Http http, String payload) {
         if (gaveUp()) {
             return InjectionReply.of(null);
         }
         HttpRequestResponse exchange = http.sendRequest(
                 insertionPoint.buildHttpRequestWithPayload(ByteArray.byteArray(payload)));
         consecutiveUnanswered = exchange == null || exchange.response() == null ? consecutiveUnanswered + 1 : 0;
-        rateLimited |= TooManyRequests.answered(exchange);
-        return InjectionReply.of(PayloadHighlights.ofPayload(exchange, insertionPoint, payload));
+        return InjectionReply.of(PayloadHighlights.ofPayload(noted(exchange), insertionPoint, payload));
+    }
+
+    private HttpRequestResponse noted(HttpRequestResponse exchange) {
+        RateLimitStop.of(exchange).ifPresent(this::stoppedBy);
+        return exchange;
+    }
+
+    private void stoppedBy(RateLimitStop stop) {
+        rateLimited = true;
+        quotaSpent |= stop == RateLimitStop.QUOTA_SPENT;
     }
 
     boolean gaveUp() {
@@ -74,6 +96,6 @@ final class ProbeField {
     }
 
     InjectionReply sendMatchedControl() {
-        return send(original() + MATCHED_CONTROL_SUFFIX);
+        return confirm(original() + MATCHED_CONTROL_SUFFIX);
     }
 }

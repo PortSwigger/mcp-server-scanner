@@ -1,6 +1,8 @@
 package com.mcpscanner.client;
 
 import com.mcpscanner.http.FlatHeaders;
+import com.mcpscanner.http.evidence.BodyCapture;
+import com.mcpscanner.mcp.BoundedBodyReader;
 import com.mcpscanner.mcp.McpHeaders;
 import com.mcpscanner.mcp.ServerPings;
 import com.mcpscanner.core.protocol.McpFlow;
@@ -16,6 +18,11 @@ import java.util.Map;
 final class ProtocolHttpExchange {
 
     record Exchange(McpFlow.HttpResponse response, URI reachedUri) {}
+
+    @FunctionalInterface
+    private interface Send<T> {
+        T run() throws IOException, InterruptedException;
+    }
 
     private final ProtocolHttpTransport transport;
     private final Duration timeout;
@@ -33,17 +40,30 @@ final class ProtocolHttpExchange {
         return bodyReader.replyReader(sseStream);
     }
 
-    McpFlow.HttpResponse post(URI target, McpRequests.Request request) {
-        return exchange(target, request).response();
+    Exchange exchange(URI target, McpRequests.Request request) {
+        return unchecked(() -> read(target, request, send(target, request)));
     }
 
-    Exchange exchange(URI target, McpRequests.Request request) {
+    SseMessagePost recordedPost(URI target, McpRequests.Request request) {
+        return unchecked(() -> {
+            ProtocolHttpResponse sent = send(target, request);
+            BodyCapture body = new BodyCapture(sent.body(), BoundedBodyReader.MAX_RESPONSE_BYTES);
+            Exchange exchange = read(target, request, sent.withBody(body));
+            return new SseMessagePost(exchange.response(), sent.wire().map(body::completing));
+        });
+    }
+
+    private Exchange read(URI target, McpRequests.Request request, ProtocolHttpResponse response)
+            throws IOException, InterruptedException {
+        String body = bodyReader.read(response, request.body(),
+                serverPings.answerer(request.headers(), reply -> postDiscardingResponse(target, reply)));
+        return new Exchange(new McpFlow.HttpResponse(response.status(), flowHeaders(response), body, true),
+                response.uri());
+    }
+
+    private <T> T unchecked(Send<T> send) {
         try {
-            ProtocolHttpResponse response = send(target, request);
-            String body = bodyReader.read(response, request.body(),
-                    serverPings.answerer(request.headers(), reply -> postDiscardingResponse(target, reply)));
-            return new Exchange(new McpFlow.HttpResponse(response.status(), flowHeaders(response), body, true),
-                    response.uri());
+            return send.run();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("MCP request interrupted", e);
