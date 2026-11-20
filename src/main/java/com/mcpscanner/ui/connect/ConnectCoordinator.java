@@ -51,6 +51,7 @@ public final class ConnectCoordinator {
     public ConnectionAttemptResult connect(ConnectAttempt attempt,
                                            ProgressReporter progress,
                                            Runnable terminalFailureCallback) {
+        clientManager.beginConnectAttempt();
         support.beginSignInAttempt();
         if (AuthTypeNames.AUTO.equals(attempt.authType())) {
             return connectAutomatically(attempt, progress, terminalFailureCallback);

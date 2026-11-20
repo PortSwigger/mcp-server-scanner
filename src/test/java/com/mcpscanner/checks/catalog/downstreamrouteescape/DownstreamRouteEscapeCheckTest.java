@@ -1,5 +1,6 @@
 package com.mcpscanner.checks.catalog.downstreamrouteescape;
 
+import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -121,6 +123,24 @@ class DownstreamRouteEscapeCheckTest {
     }
 
     @Test
+    void aRouteEscapeWhoseRepliesSayTheRateLimitQuotaIsSpentIsStillConfirmedAndReported() {
+        HttpRequestResponse base = probedBase();
+        answerByValue(value -> Replies.spentQuota(routeEscapeReply(value)));
+
+        assertThat(check.audit(base, insertionPoint, http)).hasSize(1);
+    }
+
+    @Test
+    void aSpentRateLimitQuotaOnAReplyWithoutAHitStopsFurtherProbes() {
+        HttpRequestResponse base = probedBase();
+        answerByValue(value -> Replies.spentQuota(Replies.toolError("invalid id")));
+
+        assertThat(check.audit(base, insertionPoint, http)).isEmpty();
+
+        verify(http, times(1)).sendRequest(any());
+    }
+
+    @Test
     void issuesForDifferentFieldsAreBothKeptAndRepeatsOfOneFieldAreMerged() {
         AuditIssue first = issue("field a");
         AuditIssue second = issue("field b");
@@ -137,6 +157,31 @@ class DownstreamRouteEscapeCheckTest {
                 .filter(message -> message.startsWith(prefix))
                 .map(message -> message.substring(prefix.length()))
                 .toList();
+    }
+
+    private HttpRequestResponse probedBase() {
+        HttpRequestResponse base = base(TOOLS_CALL, Replies.toolText("ok"));
+        HttpRequest request = base.request();
+        when(request.url()).thenReturn("http://target.test/mcp");
+        when(insertionPoint.name()).thenReturn("MCP field: params.arguments.id");
+        when(insertionPoint.baseValue()).thenReturn("A1");
+        return base;
+    }
+
+    private void answerByValue(Function<String, HttpRequestResponse> replyTo) {
+        when(insertionPoint.buildHttpRequestWithPayload(any())).thenAnswer(invocation -> {
+            String value = invocation.<ByteArray>getArgument(0).toString();
+            HttpRequest request = mock(HttpRequest.class);
+            when(request.bodyToString()).thenReturn(value);
+            return request;
+        });
+        when(http.sendRequest(any())).thenAnswer(invocation ->
+                replyTo.apply(invocation.<HttpRequest>getArgument(0).bodyToString()));
+    }
+
+    private static HttpRequestResponse routeEscapeReply(String value) {
+        return value.startsWith("../") ? Replies.toolText("{\"service\":\"index\"}")
+                : Replies.toolText("{\"error\":\"not found\"}");
     }
 
     private static AuditIssue issue(String detail) {

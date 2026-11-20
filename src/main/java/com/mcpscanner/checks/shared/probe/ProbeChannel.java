@@ -4,12 +4,12 @@ import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 
-import com.mcpscanner.mcp.TooManyRequests;
+import com.mcpscanner.mcp.RateLimitStop;
 import java.util.Optional;
 
 public final class ProbeChannel {
 
-    public enum Exhaustion { RATE_LIMITED, BUDGET_SPENT }
+    public enum Exhaustion { RATE_LIMITED, QUOTA_SPENT, BUDGET_SPENT }
 
     private final Http http;
     private final SendBudget budget;
@@ -27,7 +27,7 @@ public final class ProbeChannel {
     }
 
     public void record(HttpRequestResponse sentElsewhere) {
-        budget.record(TooManyRequests.answered(sentElsewhere));
+        budget.record(RateLimitStop.of(sentElsewhere));
     }
 
     public boolean exhausted() {
@@ -35,11 +35,21 @@ public final class ProbeChannel {
         return budget.exhausted();
     }
 
+    public boolean barsConfirmation() {
+        return exhausted()
+                && (budget.limitReached() || budget.answeredTooManyRequests());
+    }
+
     public Optional<Exhaustion> exhaustion() {
-        if (budget.rateLimited()) {
-            return Optional.of(Exhaustion.RATE_LIMITED);
+        Optional<Exhaustion> rateLimit = budget.rateLimitStop().map(ProbeChannel::exhaustionOf);
+        if (rateLimit.isPresent()) {
+            return rateLimit;
         }
         return budgetRefusedAProbe ? Optional.of(Exhaustion.BUDGET_SPENT) : Optional.empty();
+    }
+
+    private static Exhaustion exhaustionOf(RateLimitStop stop) {
+        return stop == RateLimitStop.QUOTA_SPENT ? Exhaustion.QUOTA_SPENT : Exhaustion.RATE_LIMITED;
     }
 
     public int budget() {

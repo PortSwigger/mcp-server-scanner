@@ -1,5 +1,6 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.persistence.PersistedObject;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -57,13 +58,15 @@ class MiningWiringTest {
         MontoyaTestFactory.install();
         PersistedObject savedSettings = InMemoryPersistedObject.create();
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         foundation = ExtensionFoundation.create(api);
         ConnectionWiring connection = ConnectionWiring.create(api, foundation);
         AccessWiring access = AccessWiring.create(foundation, connection, new IdentityListings());
-        ScanFieldWiring fields = ScanFieldWiring.create(api, foundation);
-        scanning = ScanningWiring.create(api, foundation, connection, access, fields,
-                EngineWiring.create(api, foundation, connection.burpHttp(), fields.everyField()),
-                CheckInstrumentation.NONE, java.util.function.UnaryOperator.identity());
+        scanning = ScanningWiring.create(api, foundation, connection,
+                RequestBuildingWiring.create(foundation, connection, access.authHolder()), access,
+                ScanFoundation.create(api, foundation, connection),
+                CheckInstrumentation.NONE, java.util.function.UnaryOperator.identity(),
+                com.mcpscanner.checks.api.SignedInConsent.OPTED_OUT);
         mining = MiningWiring.withSender(foundation, access, inventory, (identity, call) ->
                 MiningReply.of(200, structured(Principal.PRIMARY_ID.equals(identity.id())
                         ? "{\"documents\":[{\"doc_id\":\"d-alice-0001\"}]}" : "{}")));

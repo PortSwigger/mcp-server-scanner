@@ -82,10 +82,44 @@ class ChunkedBodyTest {
     }
 
     @Test
-    void leavesFramingWithoutTerminatingChunkUnchanged() {
-        String truncated = "5\r\nhello\r\n";
+    void decodesTheCompleteChunksOfABodyCutBeforeItsTerminatingChunk() {
+        assertThat(unframe(CHUNKED, "5\r\nhello\r\n")).isEqualTo("hello");
+    }
 
-        assertThat(unframe(CHUNKED, truncated)).isEqualTo(truncated);
+    @Test
+    void decodesTheCompleteChunksOfABodyCutStraightAfterChunkData() {
+        assertThat(unframe(CHUNKED, "5\r\nhello\r\n6\r\n world")).isEqualTo("hello world");
+    }
+
+    @Test
+    void decodesUpToTheLastCompleteChunkWhenTheNextChunkIsCutShort() {
+        assertThat(unframe(CHUNKED, "5\r\nhello\r\na\r\n wor")).isEqualTo("hello");
+        assertThat(unframe(CHUNKED, "5\r\nhello\r\n1")).isEqualTo("hello");
+        assertThat(unframe(CHUNKED, "5\r\nhello\r")).isEqualTo("hello");
+    }
+
+    @Test
+    void decodesChunkLinesEndedByABareLineFeedAsTheWireReaderDoes() {
+        assertThat(unframe(CHUNKED, "5\nhello\n6\r\n world\n0\n\n")).isEqualTo("hello world");
+    }
+
+    @Test
+    void leavesADecodedBodyThatOnlyLooksLikeTheLastChunkUnchanged() {
+        assertThat(unframe(CHUNKED, "0\nabc")).isEqualTo("0\nabc");
+        assertThat(unframe(CHUNKED, "0\n")).isEqualTo("0\n");
+    }
+
+    @Test
+    void leavesADecodedTextBodyThatStartsWithAHexWordUnchanged() {
+        assertThat(unframe(CHUNKED, "a\n0123456789xyz")).isEqualTo("a\n0123456789xyz");
+        assertThat(unframe(CHUNKED, "5\r\nhello\r\nnot")).isEqualTo("5\r\nhello\r\nnot");
+    }
+
+    @Test
+    void leavesFramingWithGarbageAfterACompleteChunkUnchanged() {
+        String garbled = "5\r\nhello\r\nnot a size\r\nmore";
+
+        assertThat(unframe(CHUNKED, garbled)).isEqualTo(garbled);
     }
 
     @Test
@@ -96,10 +130,9 @@ class ChunkedBodyTest {
     }
 
     @Test
-    void leavesFramingMissingFinalCrlfUnchanged() {
-        String truncated = "5\r\nhello\r\n0\r\n";
-
-        assertThat(unframe(CHUNKED, truncated)).isEqualTo(truncated);
+    void decodesABodyCutBeforeTheFinalCrlf() {
+        assertThat(unframe(CHUNKED, "5\r\nhello\r\n0\r\n")).isEqualTo("hello");
+        assertThat(unframe(CHUNKED, "5\r\nhello\r\n0\r\nExpires: never\r\n")).isEqualTo("hello");
     }
 
     @Test

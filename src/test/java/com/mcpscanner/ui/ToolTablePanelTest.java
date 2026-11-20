@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.mcp.McpToolDefinition;
@@ -228,7 +229,7 @@ class ToolTablePanelTest {
         PersistedObject persistedStore = mock(PersistedObject.class);
         when(persistedStore.getBoolean(anyString())).thenReturn(null);
         Logging logging = mock(Logging.class);
-        ExtensionConfigStore store = new ExtensionConfigStore(persistedStore, logging);
+        ExtensionConfigStore store = new ExtensionConfigStore(persistedStore, new InMemoryPreferences(), logging);
         store.setToolSelected("https://mcp.example.com/mcp", "destroy", true);
         when(persistedStore.getBoolean(anyString())).thenAnswer(invocation -> {
             String key = invocation.getArgument(0);
@@ -378,6 +379,6 @@ class ToolTablePanelTest {
         PersistedObject persistedStore = mock(PersistedObject.class);
         when(persistedStore.getBoolean(anyString())).thenReturn(null);
         Logging logging = mock(Logging.class);
-        return new ExtensionConfigStore(persistedStore, logging);
+        return new ExtensionConfigStore(persistedStore, new InMemoryPreferences(), logging);
     }
 }

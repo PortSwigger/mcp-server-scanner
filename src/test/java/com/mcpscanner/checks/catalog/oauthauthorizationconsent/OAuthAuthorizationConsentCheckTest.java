@@ -64,6 +64,23 @@ class OAuthAuthorizationConsentCheckTest {
         return issues.stream().filter(issue -> issue.name().equals(name)).findFirst().orElseThrow();
     }
 
+    private static List<String> evidence(AuditIssue issue) {
+        return issue.requestResponses().stream().map(OAuthAuthorizationConsentCheckTest::exchange).toList();
+    }
+
+    private static String exchange(HttpRequestResponse exchange) {
+        HttpRequest request = exchange.request();
+        String endpoint = request.method() + " " + request.url().replaceAll("\\?.*", "");
+        if (request.url().equals(ConsentServer.TOKEN)) {
+            return endpoint + " " + request.bodyToString().replaceAll(".*\\bcode=([^&]*).*", "$1");
+        }
+        if (request.url().equals(MCP)) {
+            return endpoint + " " + (request.hasHeader("Authorization") ? request.headerValue("Authorization")
+                    : "anonymous");
+        }
+        return endpoint;
+    }
+
     @Test
     void describesAHostCheckWithItsCatalogId() {
         assertThat(check.descriptor()).isSameAs(OAuthAuthorizationConsentDescriptor.DESCRIPTOR);
@@ -103,6 +120,43 @@ class OAuthAuthorizationConsentCheckTest {
                     .hasSize(2)
                     .allSatisfy(initialize -> assertThat(initialize.headerValue("Authorization"))
                             .isNotEqualTo(ConsentServer.SCANNER_CREDENTIAL));
+        }
+
+        @Test
+        void aWorkingTokenAttachesTheTrailTheRedemptionAndBothToolsListCalls() {
+            assertThat(evidence(single(audit(), AUTHORIZATION_ISSUE))).containsExactly(
+                    "GET " + AUTHORIZE, "POST " + ConsentServer.TOKEN + " code-1", "POST " + MCP + " anonymous",
+                    "POST " + MCP + " Bearer token-code-1-1");
+        }
+
+        @Test
+        void aCodeThatDoesNotRedeemAttachesOnlyTheTrail() {
+            server.route("POST", ConsentServer.TOKEN, request -> json(400, "{\"error\":\"invalid_client\"}"));
+
+            assertThat(evidence(single(audit(), AUTHORIZATION_ISSUE))).containsExactly("GET " + AUTHORIZE);
+        }
+
+        @Test
+        void aTokenThatDoesNotOpenTheEndpointAttachesOnlyTheTrail() {
+            server.rejectIssuedTokens();
+
+            assertThat(evidence(single(audit(), AUTHORIZATION_ISSUE))).containsExactly("GET " + AUTHORIZE);
+        }
+
+        @Test
+        void aCodeIssuedToAnAnonymousSessionAttachesOnlyTheTrail() {
+            server.signInAnonymousVisitors();
+
+            assertThat(evidence(single(audit(), AUTHORIZATION_ISSUE))).containsExactly(
+                    "GET " + AUTHORIZE, "GET " + ORIGIN + "/login", "GET " + AUTHORIZE);
+        }
+
+        @Test
+        void anAlreadyOpenEndpointAttachesTheTrailTheRedemptionAndTheAnonymousCall() {
+            server.openEndpoint();
+
+            assertThat(evidence(single(audit(), AUTHORIZATION_ISSUE))).containsExactly(
+                    "GET " + AUTHORIZE, "POST " + ConsentServer.TOKEN + " code-1", "POST " + MCP + " anonymous");
         }
 
         @Test
@@ -186,6 +240,7 @@ class OAuthAuthorizationConsentCheckTest {
             assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.MEDIUM);
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
             assertThat(issue.detail()).contains("advertises no token endpoint");
+            assertThat(evidence(issue)).containsExactly("GET " + AUTHORIZE);
         }
 
         @Test
@@ -249,6 +304,44 @@ class OAuthAuthorizationConsentCheckTest {
     }
 
     @Nested
+    class ConfidentialClients {
+
+        private static final String BASIC = "Basic " + java.util.Base64.getEncoder()
+                .encodeToString((ConsentServer.CLIENT_ID + ":" + ConsentServer.CLIENT_SECRET)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        @Test
+        void aSecretIssuedDespiteThePublicRegistrationRedeemsCodesInTheForm() {
+            server.issueConfidentialClients("none", request -> request.bodyToString()
+                    .contains("client_secret=" + ConsentServer.CLIENT_SECRET)).redeemLaterCodesUpTo(2);
+
+            List<AuditIssue> issues = audit();
+
+            assertThat(single(issues, AUTHORIZATION_ISSUE).severity()).isEqualTo(AuditIssueSeverity.HIGH);
+            assertThat(issues).extracting(AuditIssue::name).contains(REUSE_ISSUE);
+        }
+
+        @Test
+        void revokesTheTokensOfAConfidentialClientWithItsSecret() {
+            server.issueConfidentialClients("none", request -> request.bodyToString()
+                    .contains("client_secret=" + ConsentServer.CLIENT_SECRET));
+
+            audit();
+
+            assertThat(server.http().sentTo(ConsentServer.REVOKE)).isNotEmpty().allSatisfy(request ->
+                    assertThat(request.bodyToString()).contains("client_secret=" + ConsentServer.CLIENT_SECRET));
+        }
+
+        @Test
+        void aSecretIssuedForBasicAuthenticationRedeemsCodesWithTheAuthorizationHeaderOnly() {
+            server.issueConfidentialClients("client_secret_basic", request -> BASIC.equals(
+                    request.headerValue("Authorization")) && !request.bodyToString().contains("client_id="));
+
+            assertThat(single(audit(), AUTHORIZATION_ISSUE).severity()).isEqualTo(AuditIssueSeverity.HIGH);
+        }
+    }
+
+    @Nested
     class CodeReuse {
 
         @Test
@@ -260,6 +353,15 @@ class OAuthAuthorizationConsentCheckTest {
             assertThat(issue.detail()).contains("sequential");
             assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.MEDIUM);
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.CERTAIN);
+        }
+
+        @Test
+        void aSequentialReuseAttachesBothRedemptionsOfTheCodeAndTheReplayedTokensToolsListCalls() {
+            server.redeemEveryCodeUpTo(2);
+
+            assertThat(evidence(single(audit(), REUSE_ISSUE))).containsExactly(
+                    "POST " + ConsentServer.TOKEN + " code-1", "POST " + ConsentServer.TOKEN + " code-1",
+                    "POST " + MCP + " anonymous", "POST " + MCP + " Bearer token-code-1-2");
         }
 
         @Test

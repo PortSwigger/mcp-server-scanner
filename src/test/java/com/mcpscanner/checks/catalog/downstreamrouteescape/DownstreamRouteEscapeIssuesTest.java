@@ -20,24 +20,26 @@ class DownstreamRouteEscapeIssuesTest {
 
     private final DownstreamRouteEscapeIssues issues =
             new DownstreamRouteEscapeIssues(DownstreamRouteEscapeDescriptor.DESCRIPTOR);
+    private final HttpRequestResponse base = mock(HttpRequestResponse.class);
+    private final AuditInsertionPoint insertionPoint = mock(AuditInsertionPoint.class);
 
     @BeforeEach
     void setUp() {
         MontoyaTestFactory.install();
-    }
-
-    @Test
-    void issueNamesTheFieldTheValuesAndTheLimitsOfTheEvidence() {
-        HttpRequestResponse base = mock(HttpRequestResponse.class);
         HttpRequest request = mock(HttpRequest.class);
         when(request.url()).thenReturn("http://target.test/mcp");
         when(request.bodyToString()).thenReturn("{\"method\":\"tools/call\",\"params\":{\"name\":\"get_item\"}}");
         when(base.request()).thenReturn(request);
-        AuditInsertionPoint insertionPoint = mock(AuditInsertionPoint.class);
         when(insertionPoint.name()).thenReturn("MCP field: params.arguments.id");
-        HttpRequestResponse probe = mock(HttpRequestResponse.class);
+    }
+
+    @Test
+    void issueNamesTheFieldTheValuesAndTheLimitsOfTheEvidence() {
+        HttpRequestResponse traversal = mock(HttpRequestResponse.class);
+        HttpRequestResponse control = mock(HttpRequestResponse.class);
         RouteDifference difference = new RouteDifference(
-                new RouteProbe(List.of("../", ".././"), List.of(".../", "..././"), List.of()), List.of(probe, probe));
+                new RouteProbe(List.of("../", ".././"), List.of(".../", "..././"), List.of()),
+                List.of(new SentValue("../", traversal), new SentValue(".../", control)), "control");
 
         AuditIssue issue = issues.issueFor(base, insertionPoint, difference);
 
@@ -46,8 +48,23 @@ class DownstreamRouteEscapeIssuesTest {
         assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
         assertThat(issue.detail()).contains("tools/call get_item").contains("MCP field: params.arguments.id")
                 .contains("&quot;../&quot;").contains("&quot;.././&quot;")
-                .contains("&quot;.../&quot;").contains("does not show");
+                .contains("&quot;.../&quot;").contains("does not show")
+                .contains("repeat").contains("attached requests show the traversal value &quot;../&quot; "
+                        + "and the non-traversal value &quot;.../&quot;");
         assertThat(issue.remediation()).isNotBlank();
-        assertThat(issue.requestResponses()).containsExactly(base, probe, probe);
+        assertThat(issue.requestResponses()).containsExactly(base, traversal, control);
+    }
+
+    @Test
+    void detailNamesTheAttachedContrastValue() {
+        HttpRequestResponse exchange = mock(HttpRequestResponse.class);
+        RouteDifference difference = new RouteDifference(
+                new RouteProbe(List.of("..", ".."), List.of("...", "...."), List.of(".")),
+                List.of(new SentValue("..", exchange), new SentValue("...", exchange), new SentValue(".", exchange)), "control");
+
+        AuditIssue issue = issues.issueFor(base, insertionPoint, difference);
+
+        assertThat(issue.detail()).contains("and the current-segment value &quot;.&quot;");
+        assertThat(issue.requestResponses()).hasSize(4);
     }
 }

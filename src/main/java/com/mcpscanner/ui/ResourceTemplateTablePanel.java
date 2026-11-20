@@ -8,6 +8,14 @@ import java.util.List;
 public class ResourceTemplateTablePanel extends AbstractInventoryTablePanel<McpResourceTemplateDefinition,
         ResourceTemplateDetailPanel> {
 
+    public ResourceTemplateTablePanel() {
+        this(InventoryTicks.SCAN_SELECTION);
+    }
+
+    ResourceTemplateTablePanel(InventoryTicks ticks) {
+        super(ticks, List.of());
+    }
+
     @Override
     protected SelectableInventoryTableModel<McpResourceTemplateDefinition> createTableModel() {
         return new ResourceTemplateTableModel();
@@ -29,9 +37,10 @@ public class ResourceTemplateTablePanel extends AbstractInventoryTablePanel<McpR
     }
 
     @Override
-    protected ResourceTemplateDetailPanel createDetailPanel() {
+    protected ResourceTemplateDetailPanel createDetailPanel(InventoryTicks ticks) {
         return new ResourceTemplateDetailPanel(new DetailSubject<>(itemNoun(), McpResourceTemplateDefinition::name,
-                McpResourceTemplateDefinition::description, McpResourceTemplateDefinition::raw, listMethod()));
+                McpResourceTemplateDefinition::description, McpResourceTemplateDefinition::raw, listMethod()),
+                ticks);
     }
 
     public List<McpResourceTemplateDefinition> selectedResourceTemplates() {

@@ -6,7 +6,7 @@ from starlette.routing import BaseRoute
 
 from mcp_test_server.files.sandbox import FileSandbox
 from mcp_test_server.http.gates import AdmissionGate
-from mcp_test_server.identity.users import UserDirectory
+from mcp_test_server.identity.users import IdentityWeakness, UserDirectory
 from mcp_test_server.oauth.consent import ConsentReflections
 from mcp_test_server.oauth.credential_gate import AuthWeakness
 from mcp_test_server.oauth.grants import CodeWeakness
@@ -46,3 +46,4 @@ class ServerSurface:
     refresh_weaknesses: WeaknessSet[RefreshWeakness] = field(default_factory=WeaknessSet)
     session_weaknesses: WeaknessSet[SessionWeakness] = field(default_factory=WeaknessSet)
     code_weaknesses: WeaknessSet[CodeWeakness] = field(default_factory=WeaknessSet)
+    identity_weaknesses: WeaknessSet[IdentityWeakness] = field(default_factory=WeaknessSet)

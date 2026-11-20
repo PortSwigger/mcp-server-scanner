@@ -1,11 +1,33 @@
 from __future__ import annotations
 
 import secrets
+import string
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 PUBLIC_AUTH_METHOD = "none"
+SOFTWARE_ID_TAIL_LENGTH = 16
+_ALPHANUMERIC = string.ascii_letters + string.digits
+
+
+class ClientIdIssuer(Protocol):
+    def issue(self, metadata: Mapping[str, Any]) -> str: ...
+
+
+class RandomClientIds:
+    def issue(self, metadata: Mapping[str, Any]) -> str:
+        return f"dcr-{secrets.token_hex(8)}"
+
+
+class SoftwareIdPrefixedClientIds:
+    def issue(self, metadata: Mapping[str, Any]) -> str:
+        software_id = metadata.get("software_id")
+        if not isinstance(software_id, str) or not software_id:
+            return secrets.token_hex(16)
+        tail = "".join(secrets.choice(_ALPHANUMERIC) for _ in range(SOFTWARE_ID_TAIL_LENGTH))
+        return f"{software_id}_{tail}"
 
 
 @dataclass(frozen=True)
@@ -53,7 +75,8 @@ PRECONFIGURED_CLIENTS = (
 
 
 class ClientRegistry:
-    def __init__(self) -> None:
+    def __init__(self, client_ids: ClientIdIssuer | None = None) -> None:
+        self._client_ids = client_ids or RandomClientIds()
         self._clients = {client.client_id: client for client in PRECONFIGURED_CLIENTS}
         self._lock = threading.Lock()
 
@@ -64,7 +87,7 @@ class ClientRegistry:
     def register(self, metadata: dict[str, Any], redirect_uris: list[str]) -> RegisteredClient:
         auth_method = str(metadata.get("token_endpoint_auth_method") or PUBLIC_AUTH_METHOD)
         client = RegisteredClient(
-            client_id=f"dcr-{secrets.token_hex(8)}",
+            client_id=self._client_ids.issue(metadata),
             client_name=str(metadata.get("client_name") or "Unnamed client"),
             redirect_uris=tuple(redirect_uris),
             auth_method=auth_method,

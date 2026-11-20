@@ -29,8 +29,7 @@ final class AnonymousExecutionTier {
         if (!reported(methodClass) || !oracle.judgeUncontrolled(subject.baseline(), anonymous.last()).isHit()) {
             return Optional.empty();
         }
-        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(subject.baseline()));
-        evidence.addAll(anonymous.exchanges());
+        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(subject.baseline(), anonymous.answer()));
         if (methodClass == McpMethodClass.CATALOG) {
             return Optional.of(new Finding(FindingKind.ANONYMOUS_CATALOG, subject, VARIANT_NAME, "", evidence));
         }

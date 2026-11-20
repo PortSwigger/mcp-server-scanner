@@ -6,6 +6,7 @@ import com.mcpscanner.checks.api.McpCheck;
 import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.shared.scancontext.ScanNotices;
 import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.ScanQueueBypass;
 import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 
@@ -50,10 +51,18 @@ public final class ScanCheckRegistry {
                              CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
                              ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop,
                              ProbeCalls probeCalls) {
+        this(catalog, settings, eventLog, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                probeCalls, ScanQueueBypass.NONE);
+    }
+
+    public ScanCheckRegistry(CheckCatalog catalog, ScanCheckSettings settings, McpEventLog eventLog,
+                             CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
+                             ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop,
+                             ProbeCalls probeCalls, ScanQueueBypass scanQueueBypass) {
         Objects.requireNonNull(catalog, "catalog must not be null");
         this.settings = Objects.requireNonNull(settings, "settings must not be null");
         McpCheckAdapters adapters = new McpCheckAdapters(settings, eventLog, instrumentation, upstreamExchanges,
-                connectionReuse, issuesBurpWouldDrop, auditNotices, probeCalls);
+                connectionReuse, issuesBurpWouldDrop, auditNotices, probeCalls, scanQueueBypass);
         this.checks = catalog.all().stream().<McpCheckAdapter<?>>map(adapters::adapt).toList();
     }
 

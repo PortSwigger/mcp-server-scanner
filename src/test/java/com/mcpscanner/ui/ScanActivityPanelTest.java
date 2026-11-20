@@ -107,7 +107,7 @@ class ScanActivityPanelTest {
         ScanActivityPanel background = new ScanActivityPanel(() -> {
             readOnEdt.compareAndSet(null, SwingUtilities.isEventDispatchThread());
             return ScanActivity.burpAudit(3, 1);
-        }, () -> {}, UiReads.background(scheduler, line -> { }));
+        }, () -> {}, UiReads.background(scheduler, (message, failure) -> { }));
         try {
             SwingUtilities.invokeAndWait(background::refresh);
 

@@ -54,8 +54,11 @@ class CorsReadTest {
         AuditIssue issue = corsIssue(check(NoAuthStrategy::new).audit(captured(toolsList(LOOPBACK_URL)), server.http));
 
         assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.HIGH);
-        assertThat(issue.requestResponses()).hasSize(4);
+        assertThat(issue.requestResponses()).hasSize(2);
         assertThat(issue.requestResponses().get(0).request().method()).isEqualTo("OPTIONS");
+        assertThat(issue.requestResponses().get(1).request().headerValue("Origin"))
+                .isEqualTo(CorsProbe.FOREIGN_ORIGIN);
+        assertThat(issue.detail()).contains("final control", "the foreign-origin reply are attached");
         assertThat(issue.detail()).contains("Access-Control-Allow-Origin: *");
     }
 

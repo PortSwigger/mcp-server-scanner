@@ -58,8 +58,7 @@ public final class OAuthIdentitySignIn implements IdentitySignIn {
             throw new OAuthException(NO_ISSUER_OR_ENDPOINT);
         }
         DiscoveredMetadata discovered = issuerDiscovery.discover(resource);
-        OAuthClientHints withIssuer = hints.withIssuer(discovered.issuer(),
-                hints.scopes().isEmpty() ? discovered.selectedScopes() : hints.scopes());
+        OAuthClientHints withIssuer = hints.withIssuer(discovered.issuer(), discovered.selectedScopes());
         return signIn(identity, resource, withIssuer, flow.connect(resource, withIssuer, discovered.asMetadata()));
     }
 

@@ -7,6 +7,7 @@ import com.mcpscanner.access.mining.MiningReport;
 import com.mcpscanner.access.mining.MiningSettings;
 import com.mcpscanner.access.mining.MiningStep;
 import com.mcpscanner.access.mining.WriteCallApproval;
+import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.identity.Identity;
 import com.mcpscanner.identity.OwnedValueStore;
 import com.mcpscanner.ui.widgets.Edt;
@@ -33,7 +34,7 @@ final class MineIdsControl extends JPanel {
 
     static final String MINE = "Collect IDs";
     static final String MINED_IN_WRITE_TOOLS = "Use collected IDs in write tools";
-    static final String TOOLTIP = "Call the server's tools as every compared user and Anonymous and collect the "
+    static final String TOOLTIP = "Call the server's tools as every compared user and " + Principal.ANONYMOUS_NAME + " and collect the "
             + "IDs each one sees. Collecting sends real requests with real IDs to the server.";
 
     private final AccessMining mining;

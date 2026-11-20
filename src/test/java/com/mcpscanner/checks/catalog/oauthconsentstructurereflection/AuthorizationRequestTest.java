@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 import static com.mcpscanner.checks.shared.oauth.ScriptedHttp.queryParameter;
@@ -16,7 +17,8 @@ class AuthorizationRequestTest {
 
     private static final AuthorizationServer SERVER = new AuthorizationServer(URI.create("https://as.example"),
             URI.create("https://as.example/authorize?tenant=t1"), Optional.of(URI.create("https://as.example/register")),
-            Optional.empty(), Optional.empty(), URI.create("https://mcp.example/mcp"), Optional.of("read write"));
+            Optional.empty(), Optional.empty(), URI.create("https://mcp.example/mcp"), Optional.of("read write"),
+            List.of());
 
     @BeforeEach
     void installMontoya() {
@@ -42,7 +44,8 @@ class AuthorizationRequestTest {
     @Test
     void scopeIsOmittedWhenNoneWasDiscovered() {
         AuthorizationServer noScope = new AuthorizationServer(SERVER.issuer(), URI.create("https://as.example/authorize"),
-                SERVER.registrationEndpoint(), SERVER.tokenEndpoint(), SERVER.revocationEndpoint(), SERVER.resource(), Optional.empty());
+                SERVER.registrationEndpoint(), SERVER.tokenEndpoint(), SERVER.revocationEndpoint(), SERVER.resource(), Optional.empty(),
+                List.of());
 
         URI uri = new AuthorizationRequest(noScope, "c", URI.create("http://127.0.0.1/cb"), "s").uri();
 

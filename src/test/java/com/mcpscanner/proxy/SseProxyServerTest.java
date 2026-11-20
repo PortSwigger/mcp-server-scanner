@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.time.Duration;
 
+import static com.mcpscanner.testutil.OpenedStreams.openedByAGet;
 import static com.mcpscanner.testutil.AwaitedFutures.doneWithin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -209,7 +210,7 @@ class SseProxyServerTest {
         when(scannerSession.sseUrl()).thenReturn("http://upstream/sse");
         when(scannerSession.transportType()).thenReturn(TransportType.SSE);
         SseScanSessionTest.QueueInputStream stream = new SseScanSessionTest.QueueInputStream();
-        HttpResponse<InputStream> response = mock(HttpResponse.class);
+        HttpResponse<InputStream> response = openedByAGet(mock(HttpResponse.class));
         when(response.body()).thenReturn(stream);
         CompletableFuture<HttpRequest> opened = new CompletableFuture<>();
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
@@ -1865,6 +1866,6 @@ class SseProxyServerTest {
         lenient().when(response.headers()).thenReturn(headers);
         lenient().when(response.statusCode()).thenReturn(statusCode);
         lenient().when(response.body()).thenReturn(new ByteArrayInputStream(body.getBytes()));
-        return response;
+        return openedByAGet(response);
     }
 }

@@ -39,6 +39,11 @@ final class JwtValidationIssues {
                 + "result content was identical to the valid token's. The forged tokens reuse the valid token's "
                 + "subject; this shows the server accepts tokens it did not sign, which lets an attacker choose "
                 + "any claims, but the scanner did not try other identities.");
+        body.paragraph("Attached are the valid token's request, the malformed bearer token's refusal, then the "
+                + "first forged token listed above (followed, where its forgery names a specific secret, by the "
+                + "same claims signed with a random key, which was not accepted), then one request per "
+                + "unvalidated claim. The no-credential refusal, the other forged tokens and the repeated refusal "
+                + "controls are not attached.");
         return body.build();
     }
 
@@ -61,13 +66,12 @@ final class JwtValidationIssues {
     }
 
     private static List<HttpRequestResponse> evidence(ForgedTokenFindings findings) {
+        AcceptedForgery first = findings.firstAcceptedForgery();
         List<HttpRequestResponse> evidence = new ArrayList<>();
         evidence.add(findings.baseline());
-        evidence.addAll(findings.refusalControls());
-        for (AcceptedForgery forgery : findings.acceptedForgeries()) {
-            evidence.add(forgery.candidate());
-            evidence.addAll(forgery.refusedControls());
-        }
+        evidence.add(findings.malformedBearerRefusal());
+        evidence.add(first.candidate());
+        first.refusedWrongKeyControl().ifPresent(evidence::add);
         findings.claimProbes().stream().filter(ClaimProbe::accepted).map(ClaimProbe::exchange).forEach(evidence::add);
         return evidence;
     }

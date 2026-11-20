@@ -46,7 +46,7 @@ final class BurpSessionPorts {
         HttpRequestResponse exchange = streaming.send(http,
                 messages.toRequest(endpoint, method, BurpMessages.multiValued(directDelivery(headers)), body), options);
         if (exchange != null) {
-            exchanges.accept(exchange);
+            exchanges.accept(ScannerSentinelRemoval.from(exchange));
         }
         return exchange == null || exchange.response() == null ? null : toFlowResponse(exchange.response());
     }

@@ -11,7 +11,7 @@ record TraversalReply(boolean answered, boolean failed, boolean methodNotFound, 
     private static final TraversalReply UNANSWERED = new TraversalReply(false, false, false, List.of());
 
     static TraversalReply of(HttpRequestResponse exchange) {
-        return exchange == null ? UNANSWERED : of(McpReply.in(exchange.response()));
+        return exchange == null ? UNANSWERED : of(McpReply.of(exchange));
     }
 
     private static TraversalReply of(McpReply reply) {

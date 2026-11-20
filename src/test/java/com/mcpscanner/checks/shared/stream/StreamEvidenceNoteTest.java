@@ -38,6 +38,14 @@ class StreamEvidenceNoteTest {
     }
 
     @Test
+    void saysTheEvidenceIsTheEventStreamAsReceived() {
+        assertThat(StreamEvidenceNote.sentOutsideBurp(List.of("the probe"), 1))
+                .hasValueSatisfying(note -> assertThat(note)
+                        .contains("the evidence response is the event stream exactly as received, up to the "
+                                + "JSON-RPC reply the scanner read from it."));
+    }
+
+    @Test
     void saysNothingWhenNoRequestWentOutsideBurp() {
         assertThat(StreamEvidenceNote.sentOutsideBurp(List.of(), 3)).isEmpty();
     }

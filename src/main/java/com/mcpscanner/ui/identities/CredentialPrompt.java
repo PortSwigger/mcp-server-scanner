@@ -38,6 +38,7 @@ public final class CredentialPrompt extends JPanel {
     private final IdentityUiServices services;
     private final PrimaryCredentialSave save;
     private final Actions actions;
+    private final UsersMode mode;
     private final JLabel title = SwingHtmlGuard.disableHtml(new JLabel());
     private final SecretField token = new SecretField("token");
     private final PrimaryActionButton saveAndConnect = new PrimaryActionButton("Save and connect");
@@ -48,9 +49,14 @@ public final class CredentialPrompt extends JPanel {
     private Optional<CredentialNeed> dismissed = Optional.empty();
 
     CredentialPrompt(IdentityUiServices services, Actions actions) {
+        this(services, actions, UsersMode.PRIMARY_AND_COMPARED);
+    }
+
+    CredentialPrompt(IdentityUiServices services, Actions actions, UsersMode mode) {
         this.services = services;
         this.save = new PrimaryCredentialSave(services);
         this.actions = actions;
+        this.mode = mode;
         setLayout(new BoxLayout(this, BoxLayout.LINE_AXIS));
         setBackground(WarningBanner.tint());
         setBorder(BorderFactory.createCompoundBorder(
@@ -115,7 +121,7 @@ public final class CredentialPrompt extends JPanel {
 
     private void retitle(CredentialNeed need) {
         shown = Optional.of(need);
-        CredentialPromptText text = CredentialPromptText.of(need, primaryName());
+        CredentialPromptText text = CredentialPromptText.of(need, primaryName(), mode);
         title.setText(text.title());
         title.setForeground(UIManager.getColor("Label.foreground"));
         setToolTipText(SwingHtmlGuard.escapeHtml(text.detail()));

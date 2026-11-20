@@ -98,6 +98,61 @@ class SiblingRouteAuthParityCheckTest {
     }
 
     @Test
+    void evidenceIsTheBaselineTheMainRouteRefusalAndTheSiblingsAnswerWithoutItsSessionPlumbing() {
+        SimulatedMcpServer server = SimulatedMcpServer.enforcing().requiringSessions().withUnguardedPath("/messages/");
+        Map<String, String> headers = new HashMap<>(AUTHENTICATED);
+        headers.put("Mcp-Session-Id", server.openAuthenticatedSession());
+        HttpRequestResponse base = server.exchange(request(toolsList(), headers));
+
+        assertThat(check(Optional.empty()).audit(base, server.http())).singleElement().satisfies(issue -> {
+            List<HttpRequest> evidence = issue.requestResponses().stream().map(HttpRequestResponse::request).toList();
+            assertThat(evidence).extracting(HttpRequest::pathWithoutQuery).containsExactly("/mcp", "/mcp", "/messages/");
+            assertThat(evidence).extracting(request -> request.headerValue("Authorization"))
+                    .containsExactly(SimulatedMcpServer.VALID_TOKEN, null, null);
+            assertThat(evidence.get(2).bodyToString()).contains("tools/list");
+        });
+        assertThat(server.received()).filteredOn(SiblingRouteAuthParityCheckTest::anonymousMainRouteListing)
+                .hasSize(2);
+    }
+
+    @Test
+    void theAttachedMainRouteRefusalIsTheListingNotTheRefusedFreshSessionHandshake() {
+        assertThat(audit(SimulatedMcpServer.enforcing().withUnguardedPath("/messages"), Optional.empty()))
+                .singleElement().satisfies(issue -> assertThat(issue.requestResponses().get(1).request().bodyToString())
+                        .contains("tools/list").doesNotContain("initialize"));
+    }
+
+    @Test
+    void evidenceEndsWithTheRouteControlWhenTheSiblingIsOneUnauthenticatedExecutionSweeps() {
+        SimulatedMcpServer server = SimulatedMcpServer.enforcing().withUnguardedPath("/mcp_message")
+                .answeringUnknownPathsWithAnAppPage();
+
+        assertThat(audit(server, Optional.empty())).singleElement().satisfies(issue -> {
+            List<String> paths = issue.requestResponses().stream()
+                    .map(exchange -> exchange.request().pathWithoutQuery()).toList();
+            assertThat(paths).hasSize(4);
+            assertThat(paths.subList(0, 3)).containsExactly("/mcp", "/mcp", "/mcp_message");
+            assertThat(paths.get(3)).startsWith("/mcp/__mcp_");
+        });
+        assertThat(server.received()).filteredOn(SiblingRouteAuthParityCheckTest::anonymousMainRouteListing)
+                .hasSize(2);
+    }
+
+    @Test
+    void detailPointsAtTheSecondRequestAsTheMainRouteRefusalAndSaysTheRepeatIsNotAttached() {
+        assertThat(audit(SimulatedMcpServer.enforcing().withUnguardedPath("/messages"), Optional.empty()))
+                .singleElement().satisfies(issue -> assertThat(issue.detail())
+                        .contains("refused before and after it")
+                        .contains("the second request in the evidence is that refusal")
+                        .contains("the repeat after it is not attached"));
+    }
+
+    private static boolean anonymousMainRouteListing(HttpRequest request) {
+        return request.pathWithoutQuery().equals("/mcp") && request.headerValue("Authorization") == null
+                && request.bodyToString().contains("tools/list");
+    }
+
+    @Test
     void triesTheRoutesUnauthenticatedRequestExecutionSweepsOnSseWhereThatCheckDoesNotRun() {
         SimulatedMcpServer server = SimulatedMcpServer.enforcing().withUnguardedPath("/mcp_message");
 
@@ -181,6 +236,15 @@ class SiblingRouteAuthParityCheckTest {
 
         assertThat(audit(server, Optional.empty())).isEmpty();
         assertThat(server.received()).extracting(HttpRequest::pathWithoutQuery).contains("/messages");
+    }
+
+    @Test
+    void stillConfirmsAndReportsASiblingRouteHitWhoseAnswerSaysTheRateLimitQuotaIsSpent() {
+        SimulatedMcpServer server = SimulatedMcpServer.enforcing().withUnguardedPath("/messages")
+                .advertisingASpentRateLimitQuotaOn("/messages");
+
+        assertThat(audit(server, Optional.empty())).singleElement().satisfies(issue ->
+                assertThat(issue.detail()).contains("/messages"));
     }
 
     @Test

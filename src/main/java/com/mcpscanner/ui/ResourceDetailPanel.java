@@ -13,8 +13,8 @@ final class ResourceDetailPanel extends AbstractDetailPanel<McpResourceDefinitio
 
     private JComponent overview = new JPanel();
 
-    ResourceDetailPanel(DetailSubject<McpResourceDefinition> subject) {
-        super(subject);
+    ResourceDetailPanel(DetailSubject<McpResourceDefinition> subject, InventoryTicks ticks) {
+        super(subject, ticks);
         installDetailCard();
     }
 

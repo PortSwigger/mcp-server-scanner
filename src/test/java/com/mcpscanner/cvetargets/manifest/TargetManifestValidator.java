@@ -15,6 +15,7 @@ public final class TargetManifestValidator {
 
     private final IdentitySetupValidator identitySetupValidator = new IdentitySetupValidator();
     private final DownloadsValidator downloadsValidator = new DownloadsValidator();
+    private final SignedInSessionValidator signedInSessionValidator = new SignedInSessionValidator();
 
     public List<String> violations(LoadedTarget target) {
         List<String> violations = new ArrayList<>();
@@ -27,6 +28,7 @@ public final class TargetManifestValidator {
         checkReadTimeout(manifest, violations);
         checkArms(manifest, violations);
         identitySetupValidator.check(target, violations);
+        signedInSessionValidator.check(target, violations);
         downloadsValidator.check(manifest.downloads(), violations);
         return violations;
     }
@@ -173,6 +175,16 @@ public final class TargetManifestValidator {
             checkKnownMiss(arm, prefix, violations);
             checkKnownFlaky(arm, prefix, violations);
             checkSeverityFloor(arm.expected(), prefix, violations);
+            checkDeclaredIssues(arm.expected(), prefix, violations);
+        }
+    }
+
+    private static void checkDeclaredIssues(ExpectedOutcome expected, String prefix, List<String> violations) {
+        if (expected.alsoReports().stream().anyMatch(name -> name == null || name.isBlank())) {
+            violations.add(prefix + "alsoReports names must not be blank");
+        }
+        if (expected.issueName() != null && expected.declares(expected.issueName())) {
+            violations.add(prefix + "alsoReports must not repeat expected.issueName " + expected.issueName());
         }
     }
 

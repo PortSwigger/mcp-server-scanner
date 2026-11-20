@@ -1,10 +1,12 @@
 package com.mcpscanner.access;
 
+import com.mcpscanner.auth.NoAuthStrategy;
 import com.mcpscanner.checks.api.AccessExpectation;
 import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.checks.api.PrincipalRole;
 import com.mcpscanner.checks.api.PrincipalRoster;
+import com.mcpscanner.checks.api.crossidentity.SyntheticPrincipals;
 import com.mcpscanner.identity.discovery.DiscoveryOutcome;
 import com.mcpscanner.identity.discovery.IdentityListing;
 import com.mcpscanner.mcp.McpResourceDefinition;
@@ -26,6 +28,7 @@ public final class AccessFixtures {
     public static final Principal BOB = identity("bob", PrincipalRole.PEER);
     public static final Principal CAROL = identity("carol", PrincipalRole.LOWER);
     public static final Principal DAVE = identity("dave", PrincipalRole.HIGHER);
+    private static final List<Principal> SYNTHETIC = new SyntheticPrincipals(NoAuthStrategy::new).all();
 
     private final List<Principal> compared = new ArrayList<>();
     private Principal primary = ALICE;
@@ -99,7 +102,11 @@ public final class AccessFixtures {
     }
 
     public AccessMatrix matrix(AccessExpectations stored) {
-        return new AccessMatrix(this::roster, () -> Map.copyOf(outcomes), stored);
+        return new AccessMatrix(this::roster, () -> Map.copyOf(outcomes), stored, SYNTHETIC);
+    }
+
+    public AccessMatrix matrix(List<Principal> synthetic) {
+        return new AccessMatrix(this::roster, () -> Map.copyOf(outcomes), expectations, synthetic);
     }
 
     public static final class InMemoryExpectations implements AccessExpectations {

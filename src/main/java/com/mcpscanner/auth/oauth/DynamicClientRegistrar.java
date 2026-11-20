@@ -37,10 +37,10 @@ final class DynamicClientRegistrar {
             eventLog.warn("DCR registration failed: authorization server does not advertise a registration endpoint");
             throw new DcrUnsupportedException("Authorization server does not advertise a registration endpoint");
         }
-        Registered registered = send(new ClientRegistrationRequest(
-                registrationEndpoint, clientMetadata(hints, callback), null));
+        ClientMetadata requested = clientMetadata(hints, callback);
+        Registered registered = send(new ClientRegistrationRequest(registrationEndpoint, requested, null));
         eventLog.info("DCR registered new client_id=" + registered.client().getID().getValue());
-        return toRegistration(registered);
+        return toRegistration(registered, requested.getName());
     }
 
     private Registered send(ClientRegistrationRequest request) {
@@ -63,14 +63,20 @@ final class DynamicClientRegistrar {
         }
     }
 
-    private static ClientRegistration toRegistration(Registered registration) {
+    private static ClientRegistration toRegistration(Registered registration, String requestedName) {
         ClientInformation registered = registration.client();
         return new ClientRegistration(
                 registered.getID().getValue(),
                 registered.getSecret() != null ? registered.getSecret().getValue() : null,
                 Optional.ofNullable(registered.getRegistrationAccessToken()).map(token -> token.getValue()),
                 Optional.ofNullable(registered.getRegistrationURI()).map(URI::toString),
-                RegistrationMode.DCR, Optional.ofNullable(registration.responseBody()));
+                RegistrationMode.DCR, Optional.ofNullable(registration.responseBody()),
+                registeredName(registered, requestedName));
+    }
+
+    private static Optional<String> registeredName(ClientInformation registered, String requestedName) {
+        return Optional.ofNullable(registered.getMetadata().getName()).or(() -> Optional.ofNullable(requestedName))
+                .filter(name -> !name.isBlank());
     }
 
     private record Registered(ClientInformation client, String responseBody) {

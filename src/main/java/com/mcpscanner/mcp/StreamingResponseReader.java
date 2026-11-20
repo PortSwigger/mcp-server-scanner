@@ -23,29 +23,37 @@ public final class StreamingResponseReader {
 
     public UnstreamedReply read(int status, String contentType, InputStream body, String requestBody,
                        ServerPingAnswerer serverRequests) throws IOException {
+        String reply = withinDeadline(body, bounded -> replyBody(contentType, bounded, requestBody, serverRequests));
+        return new UnstreamedReply(status, isEventStream(contentType) ? "application/json" : contentType, reply);
+    }
+
+    public void awaitReply(String contentType, InputStream body, String requestBody) throws IOException {
+        withinDeadline(body, bounded -> replyBody(contentType, bounded, requestBody, ServerPingAnswerer.ignoring()));
+    }
+
+    private String withinDeadline(InputStream body, BodyRead read) throws IOException {
         ScheduledExecutorService deadline = Executors.newSingleThreadScheduledExecutor(StreamingResponseReader::daemon);
         AtomicBoolean timedOut = new AtomicBoolean();
         var timeout = deadline.schedule(() -> expire(body, timedOut), responseTimeout.toNanos(), TimeUnit.NANOSECONDS);
         try {
-            UnstreamedReply response = readBounded(status, contentType, new BoundedResponseStream(body), requestBody,
-                    serverRequests);
+            String reply = read.from(new BoundedResponseStream(body));
             if (timedOut.get()) throw new IOException("HTTP response read timed out");
-            return response;
+            return reply;
         } finally {
             timeout.cancel(false);
             deadline.shutdownNow();
         }
     }
 
-    private static UnstreamedReply readBounded(int status, String contentType, InputStream body, String requestBody,
-                                             ServerPingAnswerer serverRequests) throws IOException {
+    private static String replyBody(String contentType, InputStream body, String requestBody,
+                                    ServerPingAnswerer serverRequests) throws IOException {
         if (!isEventStream(contentType)) {
-            return new UnstreamedReply(status, contentType, BoundedBodyReader.readUtf8(body));
+            return BoundedBodyReader.readUtf8(body);
         }
         var reader = new BufferedReader(new InputStreamReader(body, StandardCharsets.UTF_8));
         String reply = SseResponseParser.extractJsonRpcResponse(reader, SseResponseParser.expectedReplyId(requestBody),
                 serverRequests);
-        return new UnstreamedReply(status, "application/json", reply == null ? "" : reply);
+        return reply == null ? "" : reply;
     }
 
     private static boolean isEventStream(String contentType) {
@@ -64,6 +72,10 @@ public final class StreamingResponseReader {
         Thread thread = new Thread(task, "mcp-http-response-deadline");
         thread.setDaemon(true);
         return thread;
+    }
+
+    private interface BodyRead {
+        String from(InputStream body) throws IOException;
     }
 
     private static final class BoundedResponseStream extends FilterInputStream {

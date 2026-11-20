@@ -56,7 +56,7 @@ class ScopeTablePanelTest {
         assertThat(panel.removeButton().isEnabled()).isTrue();
         panel.removeButton().doClick();
 
-        assertThat(panel.customScopesSnapshot()).isEmpty();
+        assertThat(panel.scopesSnapshot()).extracting(PersistedScope::source).containsOnly("discovered");
         assertThat(panel.table().getRowCount()).isEqualTo(1);
     }
 }

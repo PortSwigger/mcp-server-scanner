@@ -5,6 +5,7 @@ import burp.api.montoya.http.Http;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPointProvider;
 import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.registry.ScanCheckRegistry;
+import com.mcpscanner.checks.shared.collaborator.CollaboratorWatch;
 import com.mcpscanner.engine.EngineEnvironment;
 import com.mcpscanner.config.ExtensionConfigStore;
 import com.mcpscanner.engine.EngineWorkers;
@@ -22,12 +23,12 @@ final class EngineWiring {
     private EngineWiring() {
     }
 
-    static McpScanEngine create(MontoyaApi api, ExtensionFoundation foundation, Http http,
-                                AuditInsertionPointProvider insertionPoints) {
+    static McpScanEngine create(MontoyaApi api, ExtensionFoundation foundation, CollaboratorWatch collaboratorWatch,
+                                Http http, AuditInsertionPointProvider insertionPoints) {
         return new McpScanEngine(http, insertionPoints, api.siteMap(),
                 extensionScanWorkers(foundation.configStore(), "mcp-scan-engine-"),
                 new EngineEnvironment(foundation.eventLog(), Clock.systemUTC(), new EngineInstrumentation(),
-                        new McpRequestNames()::nameOf, foundation.collaboratorWatch()::watchedCount));
+                        new McpRequestNames()::nameOf, collaboratorWatch::watchedCount));
     }
 
     static void registerChecks(McpScanEngine engine, ScanCheckRegistry checks, ShutdownHooks shutdown) {

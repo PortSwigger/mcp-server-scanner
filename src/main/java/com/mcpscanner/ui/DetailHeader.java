@@ -21,10 +21,12 @@ import java.util.function.Supplier;
 import java.awt.Font;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 final class DetailHeader<T> extends JPanel {
 
     private static final int GAP = 8;
+    private static final String UNSCANNABLE = " It cannot be scanned.";
 
     private final JLabel heading = SwingHtmlGuard.disableHtml(headingLabel());
     private final JLabel nameBesideTitle = SwingHtmlGuard.disableHtml(mutedMonospaceLabel());
@@ -32,11 +34,11 @@ final class DetailHeader<T> extends JPanel {
     private final JPanel extraLine = flowRow();
     private final JLabel problemsLine = SwingHtmlGuard.disableHtml(warningLabel());
     private final SendToHeader<T> sendTo = new SendToHeader<>();
-    private final ScanItemButton<T> scan;
+    private final Optional<ScanItemButton<T>> scan;
 
-    DetailHeader(String noun) {
+    DetailHeader(String noun, InventoryTicks ticks) {
         this.nounChip = Chip.neutral(noun);
-        this.scan = new ScanItemButton<>(noun);
+        this.scan = ticks.ifScanning(() -> new ScanItemButton<>(noun));
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setOpaque(false);
         setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -52,7 +54,7 @@ final class DetailHeader<T> extends JPanel {
         nameBesideTitle.setVisible(title.isPresent());
         showExtraLine(extraLineContent);
         sendTo.show(item);
-        scan.show(item);
+        scan.ifPresent(button -> button.show(item));
     }
 
     void bindSendTo(SendToBinding<T> binding) {
@@ -60,16 +62,16 @@ final class DetailHeader<T> extends JPanel {
     }
 
     void bindScan(ScanItemBinding<T> binding, Supplier<ScanMode> mode) {
-        scan.bind(binding, mode);
+        scan.ifPresent(button -> button.bind(binding, mode));
     }
 
     void refresh() {
         sendTo.refresh();
-        scan.refresh();
+        scan.ifPresent(ScanItemButton::refresh);
     }
 
     JButton scanButton() {
-        return scan.button();
+        return scan.orElseThrow().button();
     }
 
     JLabel heading() {
@@ -94,7 +96,7 @@ final class DetailHeader<T> extends JPanel {
 
     private void showProblems(List<String> problems) {
         problemsLine.setText(problems.isEmpty() ? ""
-                : "Malformed: " + String.join("; ", problems) + ". It cannot be scanned.");
+                : "Malformed: " + String.join("; ", problems) + "." + (scan.isPresent() ? UNSCANNABLE : ""));
         problemsLine.setVisible(!problems.isEmpty());
     }
 
@@ -108,13 +110,17 @@ final class DetailHeader<T> extends JPanel {
     private JPanel titleRow() {
         JPanel identity = fill(flowRow(), List.of(heading, nounChip));
         identity.add(nameBesideTitle, 1);
-        JPanel actions = fill(flowRow(), List.of(scan.button(), sendTo));
+        JPanel actions = fill(flowRow(), actions());
         JPanel row = new JPanel(new BorderLayout(GAP, 0));
         row.setOpaque(false);
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         row.add(identity, BorderLayout.CENTER);
         row.add(actions, BorderLayout.EAST);
         return row;
+    }
+
+    private List<JComponent> actions() {
+        return Stream.<JComponent>concat(scan.map(ScanItemButton::button).stream(), Stream.of(sendTo)).toList();
     }
 
     private static JPanel fill(JPanel row, List<? extends JComponent> components) {

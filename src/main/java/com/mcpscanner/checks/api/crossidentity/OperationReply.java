@@ -4,6 +4,7 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mcpscanner.checks.shared.jsonrpc.McpReply;
+import com.mcpscanner.checks.shared.jsonrpc.ReplyBody;
 
 import java.util.Objects;
 
@@ -42,7 +43,7 @@ public record OperationReply(HttpRequestResponse exchange, boolean success, Json
     }
 
     public boolean contains(String marker) {
-        return success && !marker.isEmpty() && exchange.response().bodyToString().contains(marker);
+        return success && !marker.isEmpty() && ReplyBody.text(exchange.response()).contains(marker);
     }
 
     public boolean substantive() {
@@ -63,6 +64,6 @@ public record OperationReply(HttpRequestResponse exchange, boolean success, Json
         if (result != null) {
             return status + result;
         }
-        return reply.answered() ? status + reply.error() : status + exchange.response().bodyToString();
+        return reply.answered() ? status + reply.error() : status + ReplyBody.text(exchange.response());
     }
 }

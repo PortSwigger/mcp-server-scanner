@@ -13,4 +13,12 @@ public interface ProbeCalls {
     default boolean fuzzesAddedLeaf(HttpRequestResponse base, AuditInsertionPoint insertionPoint) {
         return true;
     }
+
+    default boolean isPassengerMetaEnvelopePoint(HttpRequestResponse base, AuditInsertionPoint insertionPoint) {
+        return false;
+    }
+
+    default boolean fuzzesOnlyWhatTheProxyDrops(HttpRequestResponse base, AuditInsertionPoint insertionPoint) {
+        return false;
+    }
 }

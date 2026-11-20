@@ -3,6 +3,7 @@ package com.mcpscanner.engine;
 import burp.api.montoya.collaborator.CollaboratorPayload;
 import burp.api.montoya.collaborator.InteractionType;
 import burp.api.montoya.http.Http;
+import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
@@ -30,7 +31,9 @@ import com.mcpscanner.checks.shared.collaborator.ManualTicker;
 import com.mcpscanner.checks.shared.collaborator.WatchDecision;
 import com.mcpscanner.checks.shared.collaborator.WatchTiming;
 import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.TempFileCopies;
 import com.mcpscanner.http.UpstreamExchanges;
+import com.mcpscanner.http.WireResolvingCopies;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.ImmutableHttpRequest;
 import com.mcpscanner.testutil.InMemoryPersistedObject;
@@ -39,6 +42,7 @@ import com.mcpscanner.testutil.MutableClock;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -72,8 +76,9 @@ class LateCollaboratorIssueTest {
     private final FakeCollaborator collaborator = new FakeCollaborator();
     private final ManualTicker ticker = new ManualTicker();
     private final McpEventLog eventLog = new McpEventLog(null);
+    private final WatchTiming timing = new WatchTiming(clock, clock::advance, InteractionWindow.standard());
     private final CollaboratorWatch watch = new CollaboratorWatch(() -> Optional.of(collaborator), eventLog, ticker,
-            new WatchTiming(clock, clock::advance, InteractionWindow.standard()));
+            timing);
     private final FakeSiteMap siteMap = new FakeSiteMap();
     private final List<AuditIssue> instrumented = new ArrayList<>();
     private HttpRequestResponse proxied;
@@ -202,19 +207,47 @@ class LateCollaboratorIssueTest {
         assertThat(engine.history().snapshots()).isEmpty();
     }
 
+    @Test
+    void aLateIssueOnAStreamableHttpBaseSentThroughTheProxyIsFiledUnderTheTargetUrl() {
+        UpstreamExchanges stored = upstreamOfProxied().proxiedThrough(() -> HttpService.httpService("127.0.0.1", 40123, false));
+        CollaboratorWatch resolvingWatch = new CollaboratorWatch(() -> Optional.of(collaborator), eventLog, ticker,
+                timing, new WireResolvingCopies(TempFileCopies.IN_MEMORY, stored));
+        List<CollaboratorPayload> sent = new ArrayList<>();
+        startScan(sent, resolvingWatch, stored,
+                (base, kept) -> issueFiledUnder(base.request().url(), kept)).completion().join();
+
+        collaborator.interact(sent.get(0), InteractionType.HTTP);
+        ticker.tick();
+
+        assertThat(siteMap.added()).singleElement().satisfies(issue -> {
+            assertThat(URI.create(issue.baseUrl())).extracting(URI::getScheme, URI::getHost, URI::getPath)
+                    .containsExactly("https", "mcp.example.test", "/mcp");
+            assertThat(issue.requestResponses()).singleElement()
+                    .satisfies(evidence -> assertThat(evidence.request().url()).isEqualTo(issue.baseUrl()));
+        });
+    }
+
+    private UpstreamExchanges upstreamOfProxied() {
+        return candidate -> candidate == proxied ? List.of(upstream) : List.of();
+    }
+
     private ScanProgress scanWith(List<CollaboratorPayload> sent) {
         return startScan(sent).completion().join();
     }
 
     private EngineScan startScan(List<CollaboratorPayload> sent) {
+        return startScan(sent, watch, upstreamOfProxied(), (base, kept) -> issueWith(base));
+    }
+
+    private EngineScan startScan(List<CollaboratorPayload> sent, CollaboratorWatch scanWatch,
+                                 UpstreamExchanges upstreamExchanges, LateIssueFiling filing) {
         LateIssueRouter router = new LateIssueRouter(EngineFixtures.siteMapOf(engine));
-        CheckServices services = CheckServices.standalone().reportingLateIssues(watch, router);
+        CheckServices services = CheckServices.standalone().reportingLateIssues(scanWatch, router);
         CheckCatalog catalog = CheckCatalog.of(List.of((CheckFactory) granted ->
-                new WatchingCheck(granted.collaboratorWatch(), granted.lateIssues(), sent)), services);
+                new WatchingCheck(granted.collaboratorWatch(), granted.lateIssues(), sent, filing)), services);
         ScanCheckRegistry registry = new ScanCheckRegistry(catalog,
                 new ScanCheckSettings(InMemoryPersistedObject.configStore()), eventLog, recordingInstrumentation(),
-                candidate -> candidate == proxied ? Optional.of(upstream) : Optional.empty(),
-                ConnectionReuse.withoutLocalAnswers(), EngineFixtures.siteMapOf(engine));
+                upstreamExchanges, ConnectionReuse.withoutLocalAnswers(), EngineFixtures.siteMapOf(engine));
         router.routeThrough(registry);
         registry.registerWith(engine::register);
         return engine.scan(List.of(proxied), LABEL);
@@ -244,11 +277,14 @@ class LateCollaboratorIssueTest {
         private final CollaboratorWatch checkWatch;
         private final LateIssueSink lateIssues;
         private final List<CollaboratorPayload> sent;
+        private final LateIssueFiling filing;
 
-        WatchingCheck(CollaboratorWatch checkWatch, LateIssueSink lateIssues, List<CollaboratorPayload> sent) {
+        WatchingCheck(CollaboratorWatch checkWatch, LateIssueSink lateIssues, List<CollaboratorPayload> sent,
+                      LateIssueFiling filing) {
             this.checkWatch = checkWatch;
             this.lateIssues = lateIssues;
             this.sent = sent;
+            this.filing = filing;
         }
 
         @Override
@@ -260,16 +296,26 @@ class LateCollaboratorIssueTest {
         public List<AuditIssue> audit(HttpRequestResponse base, Http http) {
             CollaboratorPayload payload = checkWatch.probing(source -> source.newPayload().orElseThrow());
             sent.add(payload);
+            HttpRequestResponse kept = checkWatch.kept(base);
             checkWatch.watch(List.of(payload), observed -> {
-                lateIssues.report(this, List.of(issueWith(base)));
+                lateIssues.report(this, List.of(filing.issue(base, kept)));
                 return WatchDecision.DONE;
             });
             return List.of();
         }
     }
 
+    @FunctionalInterface
+    private interface LateIssueFiling {
+        AuditIssue issue(HttpRequestResponse base, HttpRequestResponse kept);
+    }
+
     private static AuditIssue issueWith(HttpRequestResponse evidence) {
-        return AuditIssue.auditIssue("Late interaction", "Detail", "Fix", TARGET, AuditIssueSeverity.HIGH,
+        return issueFiledUnder(TARGET, evidence);
+    }
+
+    private static AuditIssue issueFiledUnder(String baseUrl, HttpRequestResponse evidence) {
+        return AuditIssue.auditIssue("Late interaction", "Detail", "Fix", baseUrl, AuditIssueSeverity.HIGH,
                 AuditIssueConfidence.FIRM, "Background", "Fix background", AuditIssueSeverity.HIGH,
                 List.of(evidence));
     }

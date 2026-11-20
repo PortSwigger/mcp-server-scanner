@@ -3,6 +3,7 @@ package com.mcpscanner.mcp;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PushbackInputStream;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
@@ -31,27 +32,59 @@ public final class SseFrameReader {
         String text();
     }
 
+    private interface FrameRecorder {
+        FrameRecorder NONE = new FrameRecorder() {
+        };
+
+        default void restart() {
+        }
+
+        default void dropLeadingLineFeed() {
+        }
+
+        default boolean absorbedLineFeed() throws IOException {
+            return false;
+        }
+
+        default byte[] bytes() {
+            return new byte[0];
+        }
+    }
+
     private final UnitSource source;
     private final Supplier<FrameBuffer> buffers;
     private final Limits limits;
+    private final FrameRecorder recorder;
     private boolean skipLineFeed;
     private long totalUnits;
 
-    private SseFrameReader(UnitSource source, Supplier<FrameBuffer> buffers, Limits limits) {
+    private SseFrameReader(UnitSource source, Supplier<FrameBuffer> buffers, Limits limits, FrameRecorder recorder) {
         this.source = source;
         this.buffers = buffers;
         this.limits = Objects.requireNonNull(limits, "limits");
+        this.recorder = recorder;
     }
 
     public static SseFrameReader over(InputStream stream, Limits limits) {
-        return new SseFrameReader(stream::read, ByteFrameBuffer::new, limits);
+        return new SseFrameReader(stream::read, ByteFrameBuffer::new, limits, FrameRecorder.NONE);
     }
 
     public static SseFrameReader over(Reader reader, Limits limits) {
-        return new SseFrameReader(reader::read, CharFrameBuffer::new, limits);
+        return new SseFrameReader(reader::read, CharFrameBuffer::new, limits, FrameRecorder.NONE);
+    }
+
+    public static SseFrameReader capturing(InputStream stream, Limits limits) {
+        RecordedBytes recorded = new RecordedBytes(new PushbackInputStream(stream));
+        return new SseFrameReader(recorded, ByteFrameBuffer::new, limits, recorded);
+    }
+
+    public RawSseFrame nextRawFrame() throws IOException {
+        String text = nextFrame();
+        return text == null ? null : new RawSseFrame(text, recorder.bytes());
     }
 
     public String nextFrame() throws IOException {
+        recorder.restart();
         FrameBuffer frame = buffers.get();
         long frameUnits = 0;
         long lineUnits = 0;
@@ -63,6 +96,7 @@ public final class SseFrameReader {
             if (lineEnd) {
                 skipLineFeed = unit == '\r';
                 if (lineUnits == 0) {
+                    skipLineFeed = skipLineFeed && !recorder.absorbedLineFeed();
                     return frame.text();
                 }
                 lineUnits = 0;
@@ -80,6 +114,7 @@ public final class SseFrameReader {
         if (skipLineFeed) {
             skipLineFeed = false;
             if (unit == '\n') {
+                recorder.dropLeadingLineFeed();
                 unit = source.read();
             }
         }
@@ -125,8 +160,64 @@ public final class SseFrameReader {
         }
 
         @Override
+        public int available() throws IOException {
+            return original.available();
+        }
+
+        @Override
         public void close() throws IOException {
             original.close();
+        }
+    }
+
+    private static final class RecordedBytes implements UnitSource, FrameRecorder {
+        private final PushbackInputStream stream;
+        private final ByteArrayOutputStream recorded = new ByteArrayOutputStream();
+
+        private RecordedBytes(PushbackInputStream stream) {
+            this.stream = stream;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int unit = stream.read();
+            if (unit != -1) {
+                recorded.write(unit);
+            }
+            return unit;
+        }
+
+        @Override
+        public void restart() {
+            recorded.reset();
+        }
+
+        @Override
+        public void dropLeadingLineFeed() {
+            if (recorded.size() == 1) {
+                recorded.reset();
+            }
+        }
+
+        @Override
+        public boolean absorbedLineFeed() throws IOException {
+            if (stream.available() == 0) {
+                return false;
+            }
+            int next = stream.read();
+            if (next == '\n') {
+                recorded.write(next);
+                return true;
+            }
+            if (next != -1) {
+                stream.unread(next);
+            }
+            return false;
+        }
+
+        @Override
+        public byte[] bytes() {
+            return recorded.toByteArray();
         }
     }
 

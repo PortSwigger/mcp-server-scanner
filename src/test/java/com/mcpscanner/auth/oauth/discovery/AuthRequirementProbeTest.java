@@ -4,12 +4,13 @@ import com.mcpscanner.auth.oauth.safety.SuspiciousDestinationGate;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.AuthenticatedMcpServer;
 import com.mcpscanner.testutil.MontoyaTestFactory;
-import com.mcpscanner.testutil.RecordingRealHttp;
+import com.mcpscanner.testutil.ClientCertificateBurpHttp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.net.URI;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,12 +21,12 @@ class AuthRequirementProbeTest {
     private AuthRequirementProbe probe;
 
     @BeforeEach
-    void startServer() throws IOException {
+    void startServer() throws IOException, GeneralSecurityException {
         MontoyaTestFactory.install();
         server = AuthenticatedMcpServer.start();
-        RecordingRealHttp http = new RecordingRealHttp();
+        ClientCertificateBurpHttp http = ClientCertificateBurpHttp.withoutClientCertificate();
         OAuthMetadataDiscoverer discoverer = OAuthMetadataDiscoverer.defaultInstance(http, McpEventLog.noop(),
-                (url, purpose) -> SuspiciousDestinationGate.Decision.allow());
+                (url, purpose) -> SuspiciousDestinationGate.Decision.allow(), () -> true);
         probe = new AuthRequirementProbe(http, discoverer);
     }
 

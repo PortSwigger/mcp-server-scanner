@@ -23,7 +23,11 @@ class AutomationServerTest {
     private final LaunchedAudit audit = mock(LaunchedAudit.class);
     private final HeadlessCheckAccess checkAccess = mock(HeadlessCheckAccess.class);
     private final SendCanary sendCanary = mock(SendCanary.class);
-    private final AutomationServer server = new AutomationServer(0, scanAll, audit, checkAccess, sendCanary).start();
+    private final SignedInSessionSeed signedInSession = mock(SignedInSessionSeed.class);
+    private final AuthProbe authProbe = mock(AuthProbe.class);
+    private final AuditPathCanary auditPathCanary = mock(AuditPathCanary.class);
+    private final AutomationServer server = new AutomationServer(0, scanAll, audit, checkAccess, sendCanary,
+            signedInSession, authProbe, auditPathCanary).start();
     private final HttpClient client = HttpClient.newHttpClient();
 
     @AfterEach
@@ -192,6 +196,47 @@ class AutomationServerTest {
                 .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
         assertThat(plainText.statusCode()).isEqualTo(415);
         org.mockito.Mockito.verifyNoInteractions(sendCanary);
+    }
+
+    @Test
+    void signedInSessionSeedsTheCookieJarAndOptsIn() throws Exception {
+        when(signedInSession.apply(new SignedInSessionCommand(
+                List.of(new CommandCookie("auth.example.test", "/", "sid", "abc")), true)))
+                .thenReturn(new SignedInSessionSeeded(1, true));
+
+        HttpResponse<String> response = post("/signed-in-session",
+                "{\"cookies\":[{\"domain\":\"auth.example.test\",\"path\":\"/\",\"name\":\"sid\","
+                        + "\"value\":\"abc\"}],\"optIn\":true}");
+
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo("{\"cookies\":1,\"optedIn\":true}");
+    }
+
+    @Test
+    void signedInSessionAcceptsOnlyJsonPosts() throws Exception {
+        assertThat(get("/signed-in-session").statusCode()).isEqualTo(405);
+        org.mockito.Mockito.verifyNoInteractions(signedInSession);
+    }
+
+    @Test
+    void authProbeReturnsTheTimedClassification() throws Exception {
+        when(authProbe.run(new AuthProbeCommand("http://127.0.0.1:9/mcp", true)))
+                .thenReturn(new AuthProbeReport("NotRequired", "NotRequired[]", 12L));
+
+        HttpResponse<String> response = post("/auth-probe",
+                "{\"url\":\"http://127.0.0.1:9/mcp\",\"useBurpNetworking\":true}");
+
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(response.body())
+                .isEqualTo("{\"requirement\":\"NotRequired\",\"detail\":\"NotRequired[]\",\"elapsedMillis\":12}");
+    }
+
+    @Test
+    void authProbeAcceptsOnlyJsonPosts() throws Exception {
+        assertThat(get("/auth-probe").statusCode()).isEqualTo(405);
+        assertThat(post("/auth-probe", "{\"url\":\"file:///etc/passwd\",\"useBurpNetworking\":true}")
+                .statusCode()).isEqualTo(500);
+        org.mockito.Mockito.verifyNoInteractions(authProbe);
     }
 
     @Test

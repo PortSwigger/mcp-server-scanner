@@ -2,6 +2,7 @@ package com.mcpscanner.checks.shared.stream;
 
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import com.mcpscanner.http.evidence.WireRecord;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.HeaderMutation;
 import com.mcpscanner.mcp.ScannerSentinels;
@@ -46,23 +47,31 @@ public final class JdkStreamOpener implements StreamOpener {
     @Override
     public StreamOpening open(HttpRequest request) {
         HttpRequest sent = HeaderMutation.apply(request, ScannerSentinels.ALL, Map.of());
+        byte[] body = bodyOf(sent);
+        try {
+            return open(sent, toJdk(sent, body), body);
+        } catch (IllegalArgumentException unsendable) {
+            return StreamOpening.unsent(sent);
+        }
+    }
+
+    private StreamOpening open(HttpRequest sent, java.net.http.HttpRequest jdk, byte[] body) {
         StreamPrefix prefix = new StreamPrefix(limits.maxPrefixBytes());
         CompletableFuture<HttpResponse<StreamPrefix>> pending = null;
         try {
-            pending = client.sendAsync(toJdk(sent), info -> prefix);
+            pending = client.sendAsync(jdk, info -> prefix);
             HttpResponse<StreamPrefix> response = pending.get(headerWait(), TimeUnit.MILLISECONDS);
             StreamPrefix.Read read = prefix.await(limits.holdWindow());
-            return StreamOpening.answered(sent, StreamEvidence.response(response.statusCode(), response.headers().map(), read.bytes()), !read.ended());
+            return StreamOpening.answered(WireRecord.ofJdk(jdk, body, response).withBody(read.bytes(), read.capped()),
+                    !read.ended());
         } catch (ExecutionException failed) {
             warnings.note(sent, failed.getCause());
-            return StreamOpening.unanswered(sent);
-        } catch (IllegalArgumentException unsendable) {
-            return StreamOpening.unsent(sent);
+            return unanswered(jdk, body);
         } catch (TimeoutException unanswered) {
-            return StreamOpening.unanswered(sent);
+            return unanswered(jdk, body);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            return StreamOpening.unanswered(sent);
+            return unanswered(jdk, body);
         } finally {
             prefix.cancel();
             if (pending != null) {
@@ -71,22 +80,30 @@ public final class JdkStreamOpener implements StreamOpener {
         }
     }
 
+    private static StreamOpening unanswered(java.net.http.HttpRequest jdk, byte[] body) {
+        return StreamOpening.unanswered(WireRecord.unansweredJdk(jdk, body));
+    }
+
     private long headerWait() {
         return limits.headerTimeout().plus(GRACE).toMillis();
     }
 
-    private java.net.http.HttpRequest toJdk(HttpRequest request) {
+    private java.net.http.HttpRequest toJdk(HttpRequest request, byte[] body) {
         java.net.http.HttpRequest.Builder builder = java.net.http.HttpRequest.newBuilder(URI.create(request.url()))
                 .timeout(limits.headerTimeout())
-                .method(request.method(), bodyOf(request));
+                .method(request.method(), publisherOf(body));
         request.headers().forEach(header -> addPermitted(builder, header));
         return builder.build();
     }
 
-    private static java.net.http.HttpRequest.BodyPublisher bodyOf(HttpRequest request) {
+    private static byte[] bodyOf(HttpRequest request) {
         String body = request.bodyToString();
-        return body == null || body.isEmpty() ? java.net.http.HttpRequest.BodyPublishers.noBody()
-                : java.net.http.HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8);
+        return body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static java.net.http.HttpRequest.BodyPublisher publisherOf(byte[] body) {
+        return body.length == 0 ? java.net.http.HttpRequest.BodyPublishers.noBody()
+                : java.net.http.HttpRequest.BodyPublishers.ofByteArray(body);
     }
 
     private static void addPermitted(java.net.http.HttpRequest.Builder builder, HttpHeader header) {

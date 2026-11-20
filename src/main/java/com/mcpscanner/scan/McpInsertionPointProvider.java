@@ -8,6 +8,7 @@ import com.mcpscanner.mcp.McpRequestDetector;
 import com.mcpscanner.scan.field.ClientMetadataFieldGenerator;
 import com.mcpscanner.scan.field.AddedArgumentRegistry;
 import com.mcpscanner.scan.field.McpFieldGenerator;
+import com.mcpscanner.scan.field.MetaEnvelopeRegistry;
 import com.mcpscanner.scan.field.TemplateExpansionRegistry;
 
 import java.util.List;
@@ -33,8 +34,14 @@ public class McpInsertionPointProvider implements AuditInsertionPointProvider {
 
     public McpInsertionPointProvider(BooleanSupplier headerFieldsEnabled, TemplateExpansionRegistry templateExpansions,
                                      BurpNativeJsonRpcFields burpNativeFields, AddedArgumentRegistry addedArguments) {
+        this(headerFieldsEnabled, templateExpansions, burpNativeFields, addedArguments, new MetaEnvelopeRegistry());
+    }
+
+    public McpInsertionPointProvider(BooleanSupplier headerFieldsEnabled, TemplateExpansionRegistry templateExpansions,
+                                     BurpNativeJsonRpcFields burpNativeFields, AddedArgumentRegistry addedArguments,
+                                     MetaEnvelopeRegistry metaEnvelopes) {
         this.fieldGenerator = new McpFieldGenerator(headerFieldsEnabled, templateExpansions, burpNativeFields,
-                addedArguments);
+                addedArguments, metaEnvelopes);
     }
 
     @Override

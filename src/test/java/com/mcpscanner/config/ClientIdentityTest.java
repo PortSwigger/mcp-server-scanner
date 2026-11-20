@@ -26,6 +26,20 @@ class ClientIdentityTest {
     }
 
     @Test
+    void theDefaultSoftwareIdIsTheExtensionsStableSoftwareId() {
+        assertThat(ClientIdentity.defaults().value(ClientIdentityField.SOFTWARE_ID))
+                .isEqualTo(ExtensionMetadata.SOFTWARE_ID)
+                .isEqualTo("8d0f3c5e-2a71-4b9e-a6d4-5f1c9e7b3a20");
+    }
+
+    @Test
+    void anEnteredSoftwareIdIsKept() {
+        ClientIdentity identity = with(Map.of(ClientIdentityField.SOFTWARE_ID, "acme-id"));
+
+        assertThat(identity.value(ClientIdentityField.SOFTWARE_ID)).isEqualTo("acme-id");
+    }
+
+    @Test
     void configuredFieldsReachTheClientInfo() {
         ClientIdentity identity = with(Map.of(
                 ClientIdentityField.NAME, "acme-scanner",

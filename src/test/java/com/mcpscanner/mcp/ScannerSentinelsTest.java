@@ -19,7 +19,7 @@ class ScannerSentinelsTest {
         assertThat(ScannerSentinels.STRIPPED_BEFORE_UPSTREAM).containsExactlyInAnyOrder(
                 ScannerSentinels.AUDIT_CAPABILITY_HEADER, ScannerSentinels.STRIP_AUTH_HEADER,
                 ScannerSentinels.IDENTITY_HEADER, ScannerSentinels.KEEP_SESSION_HEADER,
-                ScannerSentinels.ROUTED_HEADER);
+                ScannerSentinels.ROUTED_HEADER, ScannerSentinels.FRAMED_OPERATION_HEADER);
     }
 
     @Test

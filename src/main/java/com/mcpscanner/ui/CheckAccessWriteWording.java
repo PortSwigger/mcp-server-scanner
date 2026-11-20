@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.checks.api.crossidentity.SyntheticLabel;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.scan.MinedArguments;
 
@@ -9,7 +10,7 @@ import java.util.List;
 final class CheckAccessWriteWording implements WriteToolWording {
 
     private static final String REPLAY = "Check access will replay the owner's own calls to these tools as every "
-            + "compared user and Anonymous";
+            + "compared user, " + SyntheticLabel.ALWAYS_COMPARED;
     private static final String EFFECT = "Each replay repeats the call's effect: it can modify, create, or delete "
             + "data on the target — irreversible.";
 

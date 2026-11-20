@@ -8,6 +8,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.intruder.Intruder;
 import burp.api.montoya.organizer.Organizer;
 import burp.api.montoya.repeater.Repeater;
+import com.mcpscanner.mcp.ScannerSentinels;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,6 +30,9 @@ class MontoyaSendToDestinationsTest {
     private final Decoder decoder = mock(Decoder.class);
     private final HttpRequest request = mock(HttpRequest.class);
     private final ByteArray requestBytes = mock(ByteArray.class);
+    private final HttpRequest scannerFramed = mock(HttpRequest.class);
+    private final HttpRequest unframed = mock(HttpRequest.class);
+    private final ByteArray unframedBytes = mock(ByteArray.class);
     private List<SendToDestination> destinations;
 
     @BeforeEach
@@ -39,6 +43,9 @@ class MontoyaSendToDestinationsTest {
         when(api.comparer()).thenReturn(comparer);
         when(api.decoder()).thenReturn(decoder);
         when(request.toByteArray()).thenReturn(requestBytes);
+        when(scannerFramed.hasHeader(ScannerSentinels.FRAMED_OPERATION_HEADER)).thenReturn(true);
+        when(scannerFramed.withRemovedHeader(ScannerSentinels.FRAMED_OPERATION_HEADER)).thenReturn(unframed);
+        when(unframed.toByteArray()).thenReturn(unframedBytes);
         destinations = MontoyaSendToDestinations.create(api);
     }
 
@@ -82,6 +89,31 @@ class MontoyaSendToDestinationsTest {
 
         verify(decoder).sendToDecoder(requestBytes);
         verifyNoMoreInteractions(repeater, intruder, organizer);
+    }
+
+    @Test
+    void repeaterItemsCarryNoScannerFramingSentinelThatAResendWithoutTheExtensionWouldLeak() {
+        destination("Repeater").send(scannerFramed, "Tool: echo");
+
+        verify(repeater).sendToRepeater(unframed, "Tool: echo");
+    }
+
+    @Test
+    void organizerItemsCarryNoScannerFramingSentinel() {
+        destination("Organizer").send(scannerFramed, "Tool: echo");
+
+        verify(organizer).sendToOrganizer(unframed);
+    }
+
+    @Test
+    void intruderComparerAndDecoderReceiveNoScannerFramingSentinel() {
+        destination("Intruder").send(scannerFramed, "Tool: echo");
+        destination("Comparer").send(scannerFramed, "Tool: echo");
+        destination("Decoder").send(scannerFramed, "Tool: echo");
+
+        verify(intruder).sendToIntruder(unframed, "Tool: echo");
+        verify(comparer).sendToComparer(unframedBytes);
+        verify(decoder).sendToDecoder(unframedBytes);
     }
 
     private SendToDestination destination(String name) {

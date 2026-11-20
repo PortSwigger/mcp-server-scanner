@@ -24,6 +24,9 @@ class InvalidCredentialTierTest {
     private static final Map<String, String> MALFORMED = Map.of("Authorization", "Bearer not_a_real_token_12345");
 
     private final BaselineEquivalenceOracle oracle = BaselineEquivalenceOracle.defaultOracle();
+    private ProbeExchange anonymous;
+    private ProbeExchange malformed;
+    private int sentBeforeJudging;
 
     @BeforeEach
     void installMontoya() {
@@ -37,14 +40,42 @@ class InvalidCredentialTierTest {
         HttpRequestResponse baseline = server.exchange(SimulatedMcpServer.request(body, AUTHENTICATED));
         AuditSubject subject = new AuditSubject(baseline, SeedMessage.of(baseline.request()).orElseThrow(),
                 credentialsConfigured);
-        ProbeExchange anonymous = ProbeExchange.of(server.exchange(SimulatedMcpServer.request(body, Map.of())));
-        ProbeExchange malformed = ProbeExchange.of(server.exchange(SimulatedMcpServer.request(body, MALFORMED)));
+        anonymous = twice(server, body, Map.of());
+        malformed = twice(server, body, MALFORMED);
         AnonymousRecheck recheck = new AnonymousRecheck(suite, sender, new ControlRefusal(channel, oracle));
+        sentBeforeJudging = server.received().size();
         return new InvalidCredentialTier(suite, sender, recheck, oracle).judge(subject, anonymous, malformed);
     }
 
+    private static ProbeExchange twice(SimulatedMcpServer server, String body, Map<String, String> headers) {
+        return ProbeExchange.of(server.exchange(SimulatedMcpServer.request(body, headers)),
+                server.exchange(SimulatedMcpServer.request(body, headers)));
+    }
+
     @Test
-    void reportsBothFabricatedCredentialsAndRecordsTheRepeatedAnonymousRefusal() {
+    void attachesTheBaselineTheFinalAnonymousRefusalAndTheFinalMalformedReplyOnly() {
+        SimulatedMcpServer server = SimulatedMcpServer.enforcing().acceptingAnyCredential();
+
+        Finding finding = judge(server, SimulatedMcpServer.toolCall(), true).orElseThrow();
+
+        assertThat(finding.evidence()).hasSize(3).endsWith(anonymous.last(), malformed.last());
+        assertThat(finding.evidence().get(0).request().headerValue("Authorization"))
+                .isEqualTo(SimulatedMcpServer.VALID_TOKEN);
+    }
+
+    @Test
+    void theSecondFabricatedCredentialAndTheAnonymousRecheckAreStillSent() {
+        SimulatedMcpServer server = SimulatedMcpServer.enforcing().acceptingAnyCredential();
+
+        assertThat(judge(server, SimulatedMcpServer.toolCall(), true)).isPresent();
+
+        assertThat(server.received()).anyMatch(request ->
+                "Bearer invalid_canary".equals(request.headerValue("Authorization")));
+        assertThat(server.received().get(server.received().size() - 1).headerValue("Authorization")).isNull();
+    }
+
+    @Test
+    void reportsBothFabricatedCredentials() {
         Optional<Finding> finding = judge(SimulatedMcpServer.enforcing().acceptingAnyCredential(),
                 SimulatedMcpServer.toolCall(), true);
 
@@ -54,7 +85,6 @@ class InvalidCredentialTierTest {
             assertThat(hit.variantValue()).isEqualTo("Bearer not_a_real_token_12345, Bearer invalid_canary");
             assertThat(hit.evidence().get(0).request().headerValue("Authorization"))
                     .isEqualTo(SimulatedMcpServer.VALID_TOKEN);
-            assertThat(hit.evidence().get(hit.evidence().size() - 1).response().statusCode()).isEqualTo((short) 401);
         });
     }
 
@@ -81,6 +111,6 @@ class InvalidCredentialTierTest {
                 .answeringOperationsWith("{\"data\":\"{\\\"error\\\":\\\"No object ID provided\\\"}\"}");
 
         assertThat(judge(server, SimulatedMcpServer.toolCall(), true)).isEmpty();
-        assertThat(server.received()).hasSize(3);
+        assertThat(server.received()).hasSize(sentBeforeJudging);
     }
 }

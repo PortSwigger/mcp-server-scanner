@@ -1,10 +1,13 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.auth.oauth.ScopeSelection;
 import com.mcpscanner.config.ExtensionConfigStore.PersistedScope;
 
 import javax.swing.table.AbstractTableModel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public final class ScopeTableModel extends AbstractTableModel {
 
@@ -85,6 +88,18 @@ public final class ScopeTableModel extends AbstractTableModel {
         return rows.stream().filter(PersistedScope::enabled).map(PersistedScope::name).toList();
     }
 
+    public ScopeSelection scopeSelection() {
+        return new ScopeSelection(declinedScopes(), tickedCustomScopes());
+    }
+
+    private Set<String> declinedScopes() {
+        return rows.stream().filter(scope -> !scope.enabled()).map(PersistedScope::name).collect(Collectors.toSet());
+    }
+
+    private List<String> tickedCustomScopes() {
+        return rows.stream().filter(scope -> isCustom(scope) && scope.enabled()).map(PersistedScope::name).toList();
+    }
+
     public void addCustomScope(String name) {
         if (name == null) {
             return;
@@ -117,20 +132,24 @@ public final class ScopeTableModel extends AbstractTableModel {
     }
 
     public void replaceDiscovered(List<String> discoveredScopeNames) {
-        rows.removeIf(scope -> SOURCE_DISCOVERED.equals(scope.source()));
-        List<PersistedScope> retainedCustom = new ArrayList<>(rows);
+        List<PersistedScope> custom = rows.stream().filter(this::isCustom).toList();
+        List<PersistedScope> discovered = discoveredScopeNames.stream().distinct()
+                .filter(name -> custom.stream().noneMatch(scope -> scope.name().equals(name)))
+                .map(this::discoveredRow)
+                .toList();
         rows.clear();
-        for (String name : discoveredScopeNames) {
-            if (retainedCustom.stream().noneMatch(scope -> scope.name().equals(name))) {
-                rows.add(new PersistedScope(name, true, SOURCE_DISCOVERED));
-            }
-        }
-        rows.addAll(retainedCustom);
+        rows.addAll(discovered);
+        rows.addAll(custom);
         fireTableDataChanged();
     }
 
+    private PersistedScope discoveredRow(String name) {
+        return rows.stream().filter(scope -> scope.name().equals(name)).findFirst()
+                .orElseGet(() -> new PersistedScope(name, true, SOURCE_DISCOVERED));
+    }
+
     public boolean removeDiscovered() {
-        boolean removed = rows.removeIf(scope -> SOURCE_DISCOVERED.equals(scope.source()));
+        boolean removed = rows.removeIf(scope -> !isCustom(scope));
         if (removed) {
             fireTableDataChanged();
         }
@@ -149,12 +168,16 @@ public final class ScopeTableModel extends AbstractTableModel {
         fireTableCellUpdated(row, COLUMN_ENABLED);
     }
 
-    public List<PersistedScope> customScopesSnapshot() {
-        return rows.stream().filter(scope -> SOURCE_CUSTOM.equals(scope.source())).toList();
+    public List<PersistedScope> scopesSnapshot() {
+        return List.copyOf(rows);
     }
 
     boolean isCustomRow(int row) {
-        return SOURCE_CUSTOM.equals(rows.get(row).source());
+        return isCustom(rows.get(row));
+    }
+
+    private boolean isCustom(PersistedScope scope) {
+        return SOURCE_CUSTOM.equals(scope.source());
     }
 
     private boolean containsName(String name) {

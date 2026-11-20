@@ -9,6 +9,8 @@ import com.mcpscanner.testutil.FakeMcpServer;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,6 +36,7 @@ final class FakeSseSessionServer implements SseProbeStreams {
     Supplier<String> ids;
     String messageUrl = QUERY_MESSAGE_URL;
     boolean fixedRoute;
+    boolean encodeIds;
 
     @Override
     public synchronized SseProbeStream open(Map<String, String> headers) {
@@ -45,7 +48,7 @@ final class FakeSseSessionServer implements SseProbeStreams {
         return new SseProbeStream() {
             @Override
             public String messageUrl() {
-                return fixedRoute ? messageUrl : messageUrl + id;
+                return fixedRoute ? messageUrl : messageUrl + (encodeIds ? URLEncoder.encode(id, StandardCharsets.UTF_8) : id);
             }
 
             @Override
@@ -73,7 +76,8 @@ final class FakeSseSessionServer implements SseProbeStreams {
     synchronized Optional<ProtocolHttpResponse> respond(ProtocolHttpRequest request) {
         posts.add(request);
         String url = request.uri().toString();
-        String session = url.substring(url.lastIndexOf(url.contains("session_id=") ? "=" : "/") + 1);
+        String session = URLDecoder.decode(url.substring(url.lastIndexOf(url.contains("session_id=") ? "=" : "/") + 1),
+                StandardCharsets.UTF_8);
         if (LIVE_SESSION.equals(session)) {
             return Optional.of(FakeMcpServer.respond(request));
         }

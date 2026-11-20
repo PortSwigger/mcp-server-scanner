@@ -4,7 +4,7 @@ from mcp_test_server.vulns import registry
 
 EXPECTED = {
     "unauthenticated_execution", "auth_forwarded_loopback_trust", "auth_session_credential",
-    "auth_presence_only_credential", "auth_sibling_route",
+    "auth_presence_only_credential", "auth_sibling_route", "auth_unknown_token_service_account",
     "jwt_forged_signature", "jwt_alg_none", "jwt_hs256_key_confusion", "jwt_empty_key_unknown_kid",
     "jwt_wrong_audience", "jwt_wrong_issuer", "jwt_expired",
     "origin_admission", "host_admission",

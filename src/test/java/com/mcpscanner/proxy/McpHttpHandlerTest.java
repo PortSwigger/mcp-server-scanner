@@ -207,6 +207,29 @@ class McpHttpHandlerTest {
     }
 
     @Test
+    void stripsEveryUpstreamOnlySentinelWhenARequestBypassesTheProxy() {
+        when(scannerSession.transportType()).thenReturn(TransportType.SSE);
+        when(scannerSession.resolvedEndpoint()).thenReturn("https://upstream/mcp");
+        stubRequest("upstream", 443, "/mcp/backup");
+        var capability = header(ScannerSentinels.AUDIT_CAPABILITY_HEADER);
+        var framed = header(ScannerSentinels.FRAMED_OPERATION_HEADER);
+        var stripAuth = header(ScannerSentinels.STRIP_AUTH_HEADER);
+        var custom = header("X-Custom");
+        when(request.headers()).thenReturn(java.util.List.of(capability, framed, stripAuth, custom));
+        when(request.withRemovedHeaders(java.util.List.of(capability, framed, stripAuth))).thenReturn(rewrittenRequest);
+
+        var action = handler.handleHttpRequestToBeSent(request);
+
+        assertThat(action.request()).isSameAs(rewrittenRequest);
+    }
+
+    private static burp.api.montoya.http.message.HttpHeader header(String name) {
+        var header = org.mockito.Mockito.mock(burp.api.montoya.http.message.HttpHeader.class);
+        when(header.name()).thenReturn(name);
+        return header;
+    }
+
+    @Test
     void rewritesSseTransportRequestsToProxy() {
         when(scannerSession.transportType()).thenReturn(TransportType.SSE);
         when(scannerSession.resolvedEndpoint()).thenReturn("http://localhost:3001/message");

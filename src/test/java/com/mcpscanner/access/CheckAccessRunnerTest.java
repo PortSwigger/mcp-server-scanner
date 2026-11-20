@@ -48,6 +48,7 @@ import static com.mcpscanner.access.AccessFixtures.readOnlyTool;
 import static com.mcpscanner.access.AccessFixtures.resource;
 import static com.mcpscanner.access.AccessFixtures.tool;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.Mockito.mock;
 
 class CheckAccessRunnerTest {
@@ -183,6 +184,17 @@ class CheckAccessRunnerTest {
     }
 
     @Test
+    void readItemsCompareTheirIdentitiesTogetherWhileWriteItemsCompareThemOneAtATime() throws Exception {
+        List<AccessRow> rows = rows(List.of(tool("delete"), readOnlyTool("search")), List.of(resource("notes://a")));
+
+        runner().start(rows, tools -> true, listener).orElseThrow();
+        awaitFinished();
+
+        assertThat(check.identitiesOffTheItemThread).containsOnly(
+                entry(body("search"), true), entry(body("notes://a"), true), entry(body("delete"), false));
+    }
+
+    @Test
     void writeToolsAreCheckedOneAtATime() throws Exception {
         List<AccessRow> rows = rows(List.of(tool("delete"), tool("update"), tool("send")), List.of());
         check.holdEveryCompare();
@@ -210,6 +222,71 @@ class CheckAccessRunnerTest {
         assertThat(summary.checked()).isEqualTo(4);
         assertThat(check.compared).hasSize(4);
         assertThat(check.closed).hasValue(1);
+    }
+
+    @Test
+    void listingAuditIssuesFollowTheRowsIntoTheSiteMapAndCountInTheSummary() throws Exception {
+        List<AccessRow> rows = rows(List.of(readOnlyTool("search")), List.of());
+        AuditIssue listingIssue = listingIssue();
+
+        runnerAuditing(() -> List.of(listingIssue)).start(rows, NEVER_ASKED, listener).orElseThrow();
+
+        AccessRunSummary summary = awaitFinished();
+        assertThat(siteMap).hasSize(2).last().isSameAs(listingIssue);
+        assertThat(summary.issues()).isEqualTo(2);
+    }
+
+    @Test
+    void aCancelledRunAuditsNoListings() throws Exception {
+        List<AccessRow> rows = rows(readOnlyTools("a", "b", "c", "d", "e", "f"), List.of());
+        AtomicInteger audits = new AtomicInteger();
+        check.holdEveryCompare();
+
+        AccessRun run = runnerAuditing(() -> {
+            audits.incrementAndGet();
+            return List.of(listingIssue());
+        }).start(rows, NEVER_ASKED, listener).orElseThrow();
+        within(WAIT).until(() -> check.inFlight.get() == 4);
+        run.cancel();
+        check.release();
+
+        assertThat(awaitFinished().cancelled()).isTrue();
+        assertThat(audits).hasValue(0);
+    }
+
+    @Test
+    void aFailingListingAuditIsLoggedAndTheRunStillFinishes() throws Exception {
+        List<AccessRow> rows = rows(List.of(readOnlyTool("search")), List.of());
+        McpEventLog eventLog = new McpEventLog(null);
+
+        new CheckAccessRunner(check, http, ownerRequests(), siteMap::add, writeReplays(), runs, eventLog,
+                CheckAccessOptions.DEFAULTS.withListingAudit(() -> {
+                    throw new IllegalStateException("listing gone");
+                })).start(rows, NEVER_ASKED, listener).orElseThrow();
+
+        assertThat(awaitFinished().issues()).isEqualTo(1);
+        assertThat(eventLog.snapshot()).extracting(McpEventLog.LogEntry::message)
+                .contains("Check access could not compare tool listings: listing gone");
+    }
+
+    @Test
+    void aRunThatCrashesIsLoggedAsAnErrorWithItsCauseAndStillFinishes() throws Exception {
+        List<AccessRow> rows = rows(List.of(readOnlyTool("search")), List.of());
+        McpEventLog eventLog = new McpEventLog(null);
+        IllegalStateException crash = new IllegalStateException("discovery broke");
+
+        new CheckAccessRunner(check, http, ownerRequests(), siteMap::add, writeReplays(), runs, eventLog,
+                CheckAccessOptions.DEFAULTS.withDiscovery(() -> {
+                    throw crash;
+                })).start(rows, NEVER_ASKED, listener).orElseThrow();
+
+        AccessRunSummary summary = awaitFinished();
+        assertThat(summary.checked()).isZero();
+        assertThat(summary.stopReason()).hasValueSatisfying(reason -> assertThat(reason).contains("discovery broke"));
+        assertThat(eventLog.snapshot()).anySatisfy(entry -> {
+            assertThat(entry.level()).isEqualTo(McpEventLog.Level.ERROR);
+            assertThat(entry.throwable()).isSameAs(crash);
+        });
     }
 
     @Test
@@ -264,8 +341,7 @@ class CheckAccessRunnerTest {
         List<AccessRow> rows = rows(readOnlyTools("search", "export"), List.of());
 
         new CheckAccessRunner(check, http, ownerRequests(), siteMap::add, writeReplays(), runs, McpEventLog.noop(),
-                UpstreamExchanges.NONE, () -> new AccessSnapshot(false, List.of(), List.of()),
-                () -> sentWhenDiscovering.add(http.sent.size())).start(rows, NEVER_ASKED, listener);
+                CheckAccessOptions.DEFAULTS.withDiscovery(() -> sentWhenDiscovering.add(http.sent.size()))).start(rows, NEVER_ASKED, listener);
 
         awaitFinished();
         assertThat(sentWhenDiscovering).containsExactly(0);
@@ -287,7 +363,7 @@ class CheckAccessRunnerTest {
                 new IdentityRequests(() -> PrincipalRoster.of(ALICE, List.of(BOB))));
 
         new CheckAccessRunner(check, http, requests, siteMap::add, replays, runs, McpEventLog.noop(),
-                UpstreamExchanges.NONE, results, () -> discovered.set(true)).start(beforeDiscovery, NEVER_ASKED,
+                CheckAccessOptions.DEFAULTS.withResults(results).withDiscovery(() -> discovered.set(true))).start(beforeDiscovery, NEVER_ASKED,
                 listener);
 
         awaitFinished();
@@ -312,7 +388,7 @@ class CheckAccessRunnerTest {
                 new IdentityRequests(() -> PrincipalRoster.of(ALICE, List.of(BOB))));
 
         new CheckAccessRunner(check, http, requests, siteMap::add, replays, runs, McpEventLog.noop(),
-                UpstreamExchanges.NONE, results, () -> discovered.set(true)).start(beforeDiscovery, NEVER_ASKED,
+                CheckAccessOptions.DEFAULTS.withResults(results).withDiscovery(() -> discovered.set(true))).start(beforeDiscovery, NEVER_ASKED,
                 listener);
 
         assertThat(awaitFinished().total()).isEqualTo(2);
@@ -339,7 +415,7 @@ class CheckAccessRunnerTest {
                 new IdentityRequests(() -> PrincipalRoster.of(ALICE, List.of(BOB))));
 
         new CheckAccessRunner(check, http, requests, siteMap::add, replays, runs, McpEventLog.noop(),
-                UpstreamExchanges.NONE, results, () -> discovered.set(true)).start(onlySearch, NEVER_ASKED,
+                CheckAccessOptions.DEFAULTS.withResults(results).withDiscovery(() -> discovered.set(true))).start(onlySearch, NEVER_ASKED,
                 listener);
 
         assertThat(awaitFinished().total()).isEqualTo(1);
@@ -371,7 +447,7 @@ class CheckAccessRunnerTest {
         McpEventLog eventLog = new McpEventLog(null);
 
         new CheckAccessRunner(check, http, ownerRequests(), siteMap::add, writeReplays(), runs, eventLog,
-                UpstreamExchanges.NONE, matrix::snapshot).start(matrix.snapshot().rows(), NEVER_ASKED, listener);
+                CheckAccessOptions.DEFAULTS.withResults(matrix::snapshot)).start(matrix.snapshot().rows(), NEVER_ASKED, listener);
 
         awaitFinished();
         assertThat(eventLog.snapshot()).filteredOn(entry -> entry.level() == McpEventLog.Level.INFO)
@@ -531,11 +607,49 @@ class CheckAccessRunnerTest {
                 new IdentityRequests(fixtures::roster));
 
         new CheckAccessRunner(check, http, requests, siteMap::add, writeReplays(), runs, McpEventLog.noop(),
-                proxied -> Optional.of(upstream)).start(rows, NEVER_ASKED, listener);
+                CheckAccessOptions.DEFAULTS.withUpstreamExchanges(proxied -> List.of(upstream))).start(rows, NEVER_ASKED, listener);
 
         awaitFinished();
         assertThat(siteMap).singleElement().satisfies(issue -> assertThat(issue.requestResponses())
                 .singleElement().extracting(HttpRequestResponse::request).isSameAs(upstream.request()));
+    }
+
+    @Test
+    void comparisonEvidenceWhoseUpstreamExchangeIsGoneReachesTheSiteMapWithoutRoutingSentinels() throws Exception {
+        List<AccessRow> rows = rows(List.of(readOnlyTool("search")), List.of());
+        check.citeBaseAsEvidence();
+        OwnerRequests routed = new OwnerRequests(target -> primaryRequest(target)
+                .withAddedHeader(ScannerSentinels.IDENTITY_HEADER, "alice")
+                .withAddedHeader(ScannerSentinels.DIRECT_DELIVERY_HEADER, ScannerSentinels.SENTINEL_VALUE),
+                new IdentityRequests(fixtures::roster));
+
+        new CheckAccessRunner(check, http, routed, siteMap::add, writeReplays(), runs, McpEventLog.noop())
+                .start(rows, NEVER_ASKED, listener);
+
+        awaitFinished();
+        assertThat(siteMap).singleElement().satisfies(issue -> assertThat(issue.requestResponses())
+                .singleElement().satisfies(CheckAccessRunnerTest::sentinelFreeWithCredential));
+    }
+
+    @Test
+    void listingEvidenceWhoseUpstreamExchangeIsGoneReachesTheSiteMapWithoutRoutingSentinels() throws Exception {
+        List<AccessRow> rows = rows(List.of(readOnlyTool("search")), List.of());
+        HttpRequest routed = ImmutableHttpRequest.post(ENDPOINT, Map.of("Authorization", "Bearer alice-token",
+                ScannerSentinels.IDENTITY_HEADER, "bob"), "{}");
+        AuditIssue listing = AuditIssue.auditIssue("listing", "detail", "fix", ENDPOINT, AuditIssueSeverity.HIGH,
+                AuditIssueConfidence.FIRM, "", "", AuditIssueSeverity.HIGH,
+                HttpRequestResponse.httpRequestResponse(routed, null));
+
+        runnerAuditing(() -> List.of(listing)).start(rows, NEVER_ASKED, listener).orElseThrow();
+
+        awaitFinished();
+        assertThat(siteMap.get(siteMap.size() - 1).requestResponses()).singleElement()
+                .satisfies(CheckAccessRunnerTest::sentinelFreeWithCredential);
+    }
+
+    private static void sentinelFreeWithCredential(HttpRequestResponse evidence) {
+        assertThat(evidence.request().headers()).noneMatch(header -> header.name().startsWith("X-Mcp-Scanner-"));
+        assertThat(evidence.request().headerValue("Authorization")).isEqualTo("Bearer alice-token");
     }
 
     private AccessRunSummary awaitFinished() {
@@ -553,6 +667,16 @@ class CheckAccessRunnerTest {
     private CheckAccessRunner runner() {
         return new CheckAccessRunner(check, http, ownerRequests(), siteMap::add, writeReplays(), runs,
                 McpEventLog.noop());
+    }
+
+    private CheckAccessRunner runnerAuditing(ListingAudit audit) {
+        return new CheckAccessRunner(check, http, ownerRequests(), siteMap::add, writeReplays(), runs,
+                McpEventLog.noop(), CheckAccessOptions.DEFAULTS.withListingAudit(audit));
+    }
+
+    private static AuditIssue listingIssue() {
+        return AuditIssue.auditIssue("listing", "detail", "fix", ENDPOINT, AuditIssueSeverity.HIGH,
+                AuditIssueConfidence.FIRM, "", "", AuditIssueSeverity.HIGH);
     }
 
     private OwnerRequests ownerRequests() {

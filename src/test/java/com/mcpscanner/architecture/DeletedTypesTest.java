@@ -387,4 +387,16 @@ public class DeletedTypesTest {
                             "com.mcpscanner.checks.catalog.crossclientresponseleak.HostClaim")
                     .because("Checks that probe each host until a conclusive trial are HOST checks with "
                             + "HostTrials; HostAudits owns the per-host claims and retry limits for every one.");
+
+    @ArchTest
+    static final ArchRule issue_evidence_redaction_must_not_return =
+            noClasses().that().resideOutsideOfPackages("com.mcpscanner.logging..", "com.mcpscanner.ui..")
+                    .should().haveSimpleNameContaining("Redact")
+                    .orShould().haveSimpleNameContaining("Scrub")
+                    .orShould().haveSimpleNameContaining("Masker")
+                    .orShould().haveFullyQualifiedName(
+                            "com.mcpscanner.checks.catalog.oauthrefreshgrant.SecretRecordingGrant")
+                    .because("Issue evidence is always the raw exchange: a tester reproduces a finding by sending "
+                            + "its evidence to Repeater, which masked credentials or tokens would break. Log "
+                            + "redaction lives in logging.LogRedaction and never touches issue evidence.");
 }

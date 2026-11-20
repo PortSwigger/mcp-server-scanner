@@ -5,6 +5,7 @@ import com.mcpscanner.logging.McpEventLog;
 
 import java.net.URI;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
 
 public final class AuthRequirementProbe {
@@ -19,17 +20,23 @@ public final class AuthRequirementProbe {
     private final OAuthMetadataDiscoverer discoverer;
 
     public AuthRequirementProbe(Http http, OAuthMetadataDiscoverer discoverer) {
-        this(http, discoverer, McpEventLog.noop());
+        this(http, discoverer, McpEventLog.noop(), () -> true);
     }
 
-    public AuthRequirementProbe(Http http, OAuthMetadataDiscoverer discoverer, McpEventLog eventLog) {
-        this(new PostChallengeSender(http, eventLog), new StreamGetChallengeSender(), discoverer);
+    public AuthRequirementProbe(Http http, OAuthMetadataDiscoverer discoverer, McpEventLog eventLog,
+                                BooleanSupplier useBurpNetworking) {
+        this(new PostChallengeSender(http, eventLog), streamGet(http, useBurpNetworking), discoverer);
     }
 
     AuthRequirementProbe(ChallengeSender post, ChallengeSender streamGet, OAuthMetadataDiscoverer discoverer) {
         this.post = post;
         this.streamGet = streamGet;
         this.discoverer = discoverer;
+    }
+
+    private static ChallengeSender streamGet(Http http, BooleanSupplier useBurpNetworking) {
+        return new NetworkingSelectedChallengeSender(useBurpNetworking,
+                new BurpStreamGetChallengeSender(http), new DirectStreamGetChallengeSender());
     }
 
     public AuthRequirement probe(URI mcpResource, ChallengeStrategy strategy) {

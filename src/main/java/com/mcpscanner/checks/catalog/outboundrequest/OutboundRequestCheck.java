@@ -66,8 +66,8 @@ public final class OutboundRequestCheck implements InsertionPointCheck, Connecti
             notRun(subject, skip.get());
             return List.of();
         }
-        return rateLimited.run(subject, http, guarded -> {
-            probe(baseRequestResponse, insertionPoint, field.get(), guarded);
+        return rateLimited.run(subject, http, sends -> {
+            probe(baseRequestResponse, insertionPoint, field.get(), sends.probes());
             return List.of();
         });
     }

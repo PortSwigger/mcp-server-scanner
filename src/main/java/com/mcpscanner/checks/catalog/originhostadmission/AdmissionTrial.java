@@ -43,7 +43,7 @@ final class AdmissionTrial {
         HttpRequestResponse control = http.sendRequest(deliveredSeed);
         TrialOutcome.TrialStatus status = matches(control, expected.get())
                 ? TrialOutcome.TrialStatus.CONCLUSIVE : TrialOutcome.TrialStatus.CONTROL_DIVERGED;
-        return new TrialOutcome(status, baseline, observations, Optional.of(control), outsideBurp.sent());
+        return new TrialOutcome(status, baseline, observations, outsideBurp.sent());
     }
 
     private TrialOutcome.TrialStatus unsuccessfulBaseline(HttpRequestResponse baseline, HttpRequest deliveredSeed) {

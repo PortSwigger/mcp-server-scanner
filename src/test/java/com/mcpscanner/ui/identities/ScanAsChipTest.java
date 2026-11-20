@@ -46,19 +46,21 @@ class ScanAsChipTest {
         ScanAsChip chip = chip();
 
         assertThat(fromEdt(chip::isVisible)).isTrue();
-        assertThat(fromEdt(chip::getText)).isEqualTo("Scan as User 1 · compare bob, carol + Anonymous ▾");
-        assertThat((String) fromEdt(chip::getToolTipText)).isEqualTo(ScanAsChip.COMPARING);
+        assertThat(fromEdt(chip::getText)).isEqualTo("Scan as User 1 · compare bob, carol + No credential + Fake token ▾");
+        assertThat((String) fromEdt(chip::getToolTipText)).isEqualTo(ScanAsChip.COMPARING)
+                .contains("No credential").contains("Fake token").doesNotContain("Anonymous");
     }
 
     @Test
-    void saysNoComparisonAndWhyWhenNobodyIsTicked() throws Exception {
+    void saysNoComparedUserAndThatCheckAccessStillComparesWithoutAndWithAFakeCredential() throws Exception {
         Identity bob = harness.add("bob", IdentityRole.PEER, IdentityAuthKind.BEARER);
         harness.registry.update(bob.withCompared(false));
         ScanAsChip chip = chip();
 
         assertThat(fromEdt(chip::getText)).isEqualTo("Scan as User 1 · no comparison ▾");
         assertThat((String) fromEdt(chip::getToolTipText))
-                .isEqualTo("Check access needs at least one compared user.");
+                .isEqualTo("Check access replays each item with No credential and a Fake token; "
+                        + "tick Compare on another user to compare signed-in users too.");
     }
 
     @Test
@@ -84,7 +86,7 @@ class ScanAsChipTest {
         onEdt(() -> { });
 
         assertThat(harness.identity(bob.id()).compared()).isFalse();
-        assertThat(fromEdt(chip::getText)).isEqualTo("Scan as User 1 · compare carol + Anonymous ▾");
+        assertThat(fromEdt(chip::getText)).isEqualTo("Scan as User 1 · compare carol + No credential + Fake token ▾");
     }
 
     @Test

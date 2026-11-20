@@ -63,6 +63,10 @@ public record SkipReason(Kind kind, String detail) {
         return new SkipReason(Kind.RATE_LIMITED, "the server answered HTTP 429");
     }
 
+    public static SkipReason quotaSpent() {
+        return new SkipReason(Kind.RATE_LIMITED, "the server said no requests remain in its rate limit");
+    }
+
     public static SkipReason budgetExhausted(String detail) {
         return new SkipReason(Kind.BUDGET_EXHAUSTED, detail);
     }

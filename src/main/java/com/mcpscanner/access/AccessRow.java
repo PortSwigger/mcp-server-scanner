@@ -10,12 +10,29 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 public record AccessRow(AccessItem item, Principal owner, AccessExpectation expectation, boolean inferred,
-                        Map<String, AccessCell> cells, AccessCell anonymous) {
+                        Map<String, AccessCell> cells, Map<String, AccessCell> synthetic) {
+
+    private static final AccessCell UNLISTED = AccessCell.of(ListingState.NO_LISTING, Optional.empty(), false);
 
     public AccessRow {
         cells = Collections.unmodifiableMap(new LinkedHashMap<>(cells));
+        synthetic = Collections.unmodifiableMap(new LinkedHashMap<>(synthetic));
+    }
+
+    public AccessRow(AccessItem item, Principal owner, AccessExpectation expectation, boolean inferred,
+                     Map<String, AccessCell> cells, AccessCell anonymous) {
+        this(item, owner, expectation, inferred, cells, Map.of(Principal.ANONYMOUS_ID, anonymous));
+    }
+
+    public AccessCell anonymous() {
+        return synthetic(Principal.ANONYMOUS_ID);
+    }
+
+    public AccessCell synthetic(String principalId) {
+        return synthetic.getOrDefault(principalId, UNLISTED);
     }
 
     public AccessCell cell(String principalId) {
@@ -37,7 +54,7 @@ public record AccessRow(AccessItem item, Principal owner, AccessExpectation expe
     }
 
     public long anomalies() {
-        return cells.values().stream().filter(AccessCell::anomaly).count() + (anonymous.anomaly() ? 1 : 0);
+        return allCells().filter(AccessCell::anomaly).count();
     }
 
     public long issues() {
@@ -49,7 +66,7 @@ public record AccessRow(AccessItem item, Principal owner, AccessExpectation expe
     }
 
     public boolean checked() {
-        return anonymous.checked() || cells.values().stream().anyMatch(AccessCell::checked);
+        return allCells().anyMatch(AccessCell::checked);
     }
 
     boolean differs() {
@@ -57,8 +74,12 @@ public record AccessRow(AccessItem item, Principal owner, AccessExpectation expe
     }
 
     private boolean listingsDiffer() {
-        return cells.values().stream().map(AccessCell::listing)
-                .filter(listing -> listing != ListingState.NOT_DISCOVERED)
+        return allCells().map(AccessCell::listing)
+                .filter(listing -> listing != ListingState.NOT_DISCOVERED && listing != ListingState.NO_LISTING)
                 .distinct().count() > 1;
+    }
+
+    private Stream<AccessCell> allCells() {
+        return Stream.concat(cells.values().stream(), synthetic.values().stream());
     }
 }

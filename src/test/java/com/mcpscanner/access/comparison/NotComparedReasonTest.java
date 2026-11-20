@@ -60,7 +60,7 @@ class NotComparedReasonTest {
         var run = withPeerB().run(FakeServers.open(), GET_NOTE);
 
         assertThat(run.ledger().notCompared()).hasValueSatisfying(reason ->
-                assertThat(reason).startsWith("Anonymous already gets ").endsWith("'s result, so anyone can reach it"));
+                assertThat(reason).startsWith("No credential already gets ").endsWith("'s result, so anyone can reach it"));
     }
 
     @Test

@@ -20,6 +20,14 @@ import java.util.List;
 public class PromptTablePanel
         extends AbstractInventoryTablePanel<McpPromptDefinition, PromptTablePanel.PromptDetailPanel> {
 
+    public PromptTablePanel() {
+        this(InventoryTicks.SCAN_SELECTION);
+    }
+
+    PromptTablePanel(InventoryTicks ticks) {
+        super(ticks, List.of());
+    }
+
     @Override
     protected SelectableInventoryTableModel<McpPromptDefinition> createTableModel() {
         return new PromptTableModel();
@@ -36,8 +44,8 @@ public class PromptTablePanel
     }
 
     @Override
-    protected PromptDetailPanel createDetailPanel() {
-        return new PromptDetailPanel();
+    protected PromptDetailPanel createDetailPanel(InventoryTicks ticks) {
+        return new PromptDetailPanel(ticks);
     }
 
     public List<McpPromptDefinition> selectedPrompts() {
@@ -48,8 +56,8 @@ public class PromptTablePanel
 
         private static final int SECTION_GAP = 10;
 
-        private final PromptArgumentsView argumentsView = new PromptArgumentsView();
-        private final JComponent argumentsTab = ScrollableForm.wrap(argumentsView);
+        private final PromptArgumentsView argumentsView;
+        private final JComponent argumentsTab;
         private final Box extras = Box.createVerticalBox();
         private final JPanel overview = new JPanel(new BorderLayout(0, SECTION_GAP));
         private final DetailSection iconsSection = new DetailSection("Icons");
@@ -57,8 +65,14 @@ public class PromptTablePanel
         private CompletionMenus completionMenus = CompletionMenus.none();
 
         PromptDetailPanel() {
+            this(InventoryTicks.SCAN_SELECTION);
+        }
+
+        PromptDetailPanel(InventoryTicks ticks) {
             super(new DetailSubject<>("prompt", McpPromptDefinition::name, McpPromptDefinition::description,
-                    McpPromptDefinition::raw, McpMethods.PROMPTS_LIST));
+                    McpPromptDefinition::raw, McpMethods.PROMPTS_LIST), ticks);
+            argumentsView = new PromptArgumentsView(ticks);
+            argumentsTab = ScrollableForm.wrap(argumentsView);
             for (DetailSection section : List.of(iconsSection, metaSection)) {
                 section.setAlignmentX(Component.LEFT_ALIGNMENT);
                 extras.add(section);

@@ -7,6 +7,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mcpscanner.checks.api.RateLimitedSends;
 import com.mcpscanner.mcp.McpObjectMapper;
 import com.mcpscanner.scan.McpInsertionPointProvider;
 
@@ -88,7 +89,8 @@ final class SimulatedToolServer {
 
     ProbeField probeField(HttpRequestResponse base) {
         AuditInsertionPoint field = argumentField(base);
-        return new ProbeField(base, field, field.name(), http());
+        Http http = http();
+        return new ProbeField(base, field, field.name(), new RateLimitedSends(http, http));
     }
 
     AuditInsertionPoint argumentField(HttpRequestResponse base) {
@@ -104,6 +106,15 @@ final class SimulatedToolServer {
 
     List<String> receivedValues() {
         return List.copyOf(receivedValues);
+    }
+
+    List<String> valuesSentIn(List<HttpRequestResponse> exchanges) {
+        return exchanges.stream().map(this::valueSentIn).toList();
+    }
+
+    private String valueSentIn(HttpRequestResponse exchange) {
+        JsonNode message = McpObjectMapper.INSTANCE.valueToTree(parse(exchange.request().bodyToString()));
+        return argumentNode(message.path("params").path("arguments"), argument).asText();
     }
 
     int probeCount() {

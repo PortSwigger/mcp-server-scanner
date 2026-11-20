@@ -73,7 +73,6 @@ public class OAuthConfigPanel extends JPanel implements OAuthConnectSupport {
     private DcrRegistrations dcrRegistrations;
     private boolean applyingDiscoveryUpdate;
     private boolean issuerAutoDiscovered;
-    private boolean scopesAutoDiscovered;
     private boolean loadingSettings;
     private String clientIssuer;
 
@@ -298,20 +297,24 @@ public class OAuthConfigPanel extends JPanel implements OAuthConnectSupport {
         Edt.run(this::doClearAutoDiscoveredOAuth);
     }
 
+    public void forgetPreviousServer() {
+        Edt.run(() -> {
+            doClearAutoDiscoveredOAuth();
+            scopeTablePanel.removeDiscovered();
+        });
+    }
+
     private void doClearAutoDiscoveredOAuth() {
+        if (!issuerAutoDiscovered) {
+            return;
+        }
         applyingDiscoveryUpdate = true;
         try {
-            if (issuerAutoDiscovered) {
-                oauthIssuerField.setText("");
-                if (configStore != null) {
-                    configStore.setOauthIssuer("");
-                }
-                issuerAutoDiscovered = false;
+            oauthIssuerField.setText("");
+            if (configStore != null) {
+                configStore.setOauthIssuer("");
             }
-            if (scopesAutoDiscovered) {
-                scopeTablePanel.removeDiscovered();
-                scopesAutoDiscovered = false;
-            }
+            issuerAutoDiscovered = false;
         } finally {
             applyingDiscoveryUpdate = false;
         }
@@ -368,12 +371,8 @@ public class OAuthConfigPanel extends JPanel implements OAuthConnectSupport {
     }
 
     private void onScopesChanged() {
-        if (applyingDiscoveryUpdate) {
-            scopesAutoDiscovered = true;
-            return;
-        }
         if (configStore != null) {
-            configStore.setScopes(scopeTablePanel.customScopesSnapshot());
+            configStore.setScopes(scopeTablePanel.scopesSnapshot());
         }
     }
 
@@ -493,8 +492,9 @@ public class OAuthConfigPanel extends JPanel implements OAuthConnectSupport {
 
     private OAuthRegistrationForm registrationForm() {
         return new OAuthRegistrationForm(oauthIssuerField.getText(), scopeTablePanel.enabledScopes(),
-                registrationMode(), oauthClientIdField.getText(), new String(oauthClientSecretField.getPassword()),
-                clientIssuer, clientMetadataUrlField.getText(), (Integer) oauthRedirectPortSpinner.getValue());
+                scopeTablePanel.scopeSelection(), registrationMode(), oauthClientIdField.getText(),
+                new String(oauthClientSecretField.getPassword()), clientIssuer, clientMetadataUrlField.getText(),
+                (Integer) oauthRedirectPortSpinner.getValue());
     }
 
     private RegistrationMode registrationMode() {

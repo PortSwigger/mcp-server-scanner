@@ -41,7 +41,7 @@ final class WildcardHostProbe implements RedirectProbe {
             if (unmatched.delivery() != Delivery.REJECTED) {
                 return Optional.empty();
             }
-            evidence.addAll(unmatched.exchanges());
+            unmatched.probe().ifPresent(evidence::add);
         }
         return Optional.of(new RedirectFinding(FindingKind.WILDCARD_EXPANSION, context.delivery().authorizationEndpoint(),
                 "authorization code delivered to " + wildcard.matchingHost() + " (matched only by "

@@ -45,6 +45,8 @@ import static org.mockito.Mockito.mock;
 
 class OAuthAuthorizationFlowTest {
 
+    private static final int CONFIGURED_CALLBACK_PORT = 12345;
+
     private HttpServer authServer;
     private int authPort;
 
@@ -112,15 +114,11 @@ class OAuthAuthorizationFlowTest {
     void connectsToCimdServerWithoutRegistrationEndpoint() throws Exception {
         String issuer = "http://127.0.0.1:" + authPort;
         URI documentUrl = URI.create("https://client.example/metadata.json");
-        int callbackPort;
-        try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) {
-            callbackPort = probe.getLocalPort();
-        }
-        String callback = "http://127.0.0.1:" + callbackPort + "/callback";
+        EphemeralCallbackListeners listeners = new EphemeralCallbackListeners();
         AtomicReference<URI> authorization = new AtomicReference<>();
         Map<String, String> tokenForm = new HashMap<>();
-        RecordingRealHttp http = cimdHttp(documentUrl,
-                "{\"client_id\":\"" + documentUrl + "\",\"client_name\":\"Test\",\"redirect_uris\":[\"" + callback + "\"]}");
+        RecordingRealHttp http = cimdHttp(documentUrl, () -> "{\"client_id\":\"" + documentUrl
+                + "\",\"client_name\":\"Test\",\"redirect_uris\":[\"" + callbackOn(listeners, "/callback") + "\"]}");
         registerTokenEndpoint(tokenForm);
         AtomicInteger catalogRequests = new AtomicInteger();
         authServer.createContext("/mcp", exchange -> {
@@ -147,18 +145,24 @@ class OAuthAuthorizationFlowTest {
         });
         authServer.start();
         AuthorizationServerMetadata metadata = cimdMetadata(issuer);
-        OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(CallbackListenerFactory.defaultFactory(), uri -> {
+        OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(listeners, uri -> {
             authorization.set(uri);
             deliverCallback(uri);
         }, Clock.systemUTC(), ALLOW_ALL, McpEventLog.noop(), http);
         OAuthClientHints hints = new OAuthClientHints(URI.create(issuer), List.of(), null, null, true,
-                callbackPort, Duration.ofSeconds(5), com.mcpscanner.core.oauth.RegistrationMode.AUTO, documentUrl);
+                CONFIGURED_CALLBACK_PORT, Duration.ofSeconds(5), com.mcpscanner.core.oauth.RegistrationMode.AUTO,
+                documentUrl);
+
+        List<OAuthSignIn> signIns = new java.util.concurrent.CopyOnWriteArrayList<>();
+        flow.addSignInListener(signIns::add);
 
         URI resource = URI.create(issuer + "/mcp");
         OAuthSession session = flow.connect(resource, hints, metadata);
 
+        assertThat(listeners.requestedPort()).isEqualTo(CONFIGURED_CALLBACK_PORT);
         assertThat(session.registrationMode()).isEqualTo(com.mcpscanner.core.oauth.RegistrationMode.CIMD);
         assertThat(session.clientId()).isEqualTo(documentUrl.toString());
+        assertThat(signIns).singleElement().satisfies(signIn -> assertThat(signIn.clientName()).contains("Test"));
         assertThat(parseQuery(authorization.get().getRawQuery())).containsEntry("client_id", documentUrl.toString());
         assertThat(tokenForm).containsEntry("client_id", documentUrl.toString());
         assertThat(http.sentUrls).contains(documentUrl.toString()).noneMatch(url -> url.contains("register"));
@@ -266,35 +270,78 @@ class OAuthAuthorizationFlowTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "'{\"client_id\":\"native-client\"}', Acme Scanner",
+            "'{\"client_id\":\"native-client\",\"client_name\":\"Renamed by server\"}', Renamed by server"})
+    void aDynamicallyRegisteredSignInCarriesTheNameTheServerRegistered(String registered, String expectedName)
+            throws Exception {
+        String issuer = "http://127.0.0.1:" + authPort;
+        registerMetadataWithRegistration(issuer, "/authorize", "/token", "/register");
+        registerTokenEndpoint(new HashMap<>());
+        authServer.createContext("/register", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] bytes = registered.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(201, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
+        });
+        authServer.start();
+        var identity = com.mcpscanner.config.ClientIdentity.from(field ->
+                field == com.mcpscanner.config.ClientIdentityField.OAUTH_CLIENT_NAME ? "Acme Scanner" : "");
+        OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(CallbackListenerFactory.defaultFactory(),
+                uri -> new Thread(() -> deliverCallback(uri)).start(), Clock.systemUTC(), ALLOW_ALL,
+                McpEventLog.noop(), new RecordingRealHttp(), () -> identity);
+        List<OAuthSignIn> signIns = new java.util.concurrent.CopyOnWriteArrayList<>();
+        flow.addSignInListener(signIns::add);
+
+        flow.connect(URI.create("https://mcp.example/mcp"), new OAuthClientHints(URI.create(issuer), List.of(), null,
+                null, true, 0, Duration.ofSeconds(5)));
+
+        assertThat(signIns).singleElement().satisfies(signIn -> assertThat(signIn.clientName()).contains(expectedName));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"client-id", "callback", "private-client", "missing-name"})
     void invalidCimdNeverFallsBackToAdvertisedDcr(String failure) throws Exception {
         String issuer = "http://127.0.0.1:" + authPort;
         URI location = URI.create("https://client.example/metadata.json");
-        int callbackPort;
-        try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) { callbackPort = probe.getLocalPort(); }
-        Map<String, Object> document = new HashMap<>();
-        document.put("client_id", location.toString());
-        document.put("client_name", "Client");
-        document.put("redirect_uris", List.of("http://127.0.0.1:" + callbackPort + "/callback"));
-        switch (failure) {
-            case "client-id" -> document.put("client_id", location + "?different");
-            case "callback" -> document.put("redirect_uris", List.of("http://127.0.0.1:" + callbackPort + "/other"));
-            case "private-client" -> document.put("token_endpoint_auth_method", "client_secret_basic");
-            case "missing-name" -> document.remove("client_name");
-        }
-        RecordingRealHttp http = cimdHttp(location, McpObjectMapper.INSTANCE.writeValueAsString(document));
+        EphemeralCallbackListeners listeners = new EphemeralCallbackListeners();
+        RecordingRealHttp http = cimdHttp(location, () -> invalidClientDocument(failure, location, listeners));
         AtomicInteger browserOpens = new AtomicInteger();
-        OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(CallbackListenerFactory.defaultFactory(),
+        OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(listeners,
                 uri -> browserOpens.incrementAndGet(), Clock.systemUTC(), ALLOW_ALL, McpEventLog.noop(), http);
         AuthorizationServerMetadata metadata = cimdMetadata(issuer);
         metadata.setRegistrationEndpointURI(URI.create(issuer + "/register"));
         OAuthClientHints hints = new OAuthClientHints(URI.create(issuer), List.of(), null, null, true,
-                callbackPort, Duration.ofSeconds(5), com.mcpscanner.core.oauth.RegistrationMode.AUTO, location);
+                CONFIGURED_CALLBACK_PORT, Duration.ofSeconds(5), com.mcpscanner.core.oauth.RegistrationMode.AUTO,
+                location);
 
         assertThatThrownBy(() -> flow.connect(URI.create("https://mcp.example/mcp"), hints, metadata))
                 .isInstanceOf(OAuthException.class);
         assertThat(browserOpens).hasValue(0);
         assertThat(http.sentUrls).containsExactly(location.toString());
+    }
+
+    private static String invalidClientDocument(String failure, URI location, EphemeralCallbackListeners listeners) {
+        Map<String, Object> document = new HashMap<>();
+        document.put("client_id", location.toString());
+        document.put("client_name", "Client");
+        document.put("redirect_uris", List.of(callbackOn(listeners, "/callback")));
+        switch (failure) {
+            case "client-id" -> document.put("client_id", location + "?different");
+            case "callback" -> document.put("redirect_uris", List.of(callbackOn(listeners, "/other")));
+            case "private-client" -> document.put("token_endpoint_auth_method", "client_secret_basic");
+            case "missing-name" -> document.remove("client_name");
+        }
+        try {
+            return McpObjectMapper.INSTANCE.writeValueAsString(document);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException unexpected) {
+            throw new IllegalStateException(unexpected);
+        }
+    }
+
+    private static String callbackOn(EphemeralCallbackListeners listeners, String path) {
+        return "http://127.0.0.1:" + listeners.boundPort() + path;
     }
 
     @Test
@@ -304,11 +351,11 @@ class OAuthAuthorizationFlowTest {
                 "{\"issuer\":\"" + issuer + "\",\"response_types_supported\":[\"code\"],"
                         + "\"registration_endpoint\":\"" + issuer + "/register\"}"));
         RecordingRealHttp http = new RecordingRealHttp();
-        OAuthClientHints hints = new OAuthClientHints(URI.create(issuer), List.of(), null, null, true, 12345,
-                Duration.ofSeconds(5), com.mcpscanner.core.oauth.RegistrationMode.CIMD,
+        OAuthClientHints hints = new OAuthClientHints(URI.create(issuer), List.of(), null, null, true,
+                CONFIGURED_CALLBACK_PORT, Duration.ofSeconds(5), com.mcpscanner.core.oauth.RegistrationMode.CIMD,
                 URI.create("https://client.example/metadata.json"));
 
-        assertThatThrownBy(() -> flowRoutedThrough(http, McpEventLog.noop())
+        assertThatThrownBy(() -> flowRoutedThrough(http, McpEventLog.noop(), new EphemeralCallbackListeners())
                 .connect(URI.create("https://mcp.example/mcp"), hints, metadata))
                 .isInstanceOf(OAuthException.class).hasMessageContaining("unavailable");
         assertThat(http.sentUrls).isEmpty();
@@ -419,7 +466,7 @@ class OAuthAuthorizationFlowTest {
         } catch (Exception e) { throw new RuntimeException(e); }
     }
 
-    private RecordingRealHttp cimdHttp(URI documentUrl, String document) {
+    private RecordingRealHttp cimdHttp(URI documentUrl, java.util.function.Supplier<String> document) {
         return new RecordingRealHttp() {
             @Override
             public burp.api.montoya.http.message.HttpRequestResponse sendRequest(
@@ -429,7 +476,7 @@ class OAuthAuthorizationFlowTest {
                     sentUrls.add(request.url());
                     return burp.api.montoya.http.message.HttpRequestResponse.httpRequestResponse(request,
                             burp.api.montoya.http.message.responses.HttpResponse.httpResponse(
-                                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + document));
+                                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + document.get()));
                 }
                 return super.sendRequest(request, options);
             }
@@ -483,6 +530,120 @@ class OAuthAuthorizationFlowTest {
         assertThat(log.snapshot()).anyMatch(entry -> entry.level() == McpEventLog.Level.WARN
                 && entry.message().equals("Authorization server granted read but withheld write; tools needing "
                         + "write will fail. Reconnect as a user allowed write to test them."));
+    }
+
+    @Test
+    void connectTellsSignInListenersWhoSignedInAndWithWhichClient() throws Exception {
+        String issuer = "http://127.0.0.1:" + authPort;
+        registerMetadata(issuer, "/authorize", "/token");
+        authServer.createContext("/token", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] bytes = "{\"access_token\":\"acc-1\",\"token_type\":\"Bearer\",\"scope\":\"read\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        authServer.start();
+        com.mcpscanner.config.ClientIdentity identity = com.mcpscanner.config.ClientIdentity.from(field -> switch (field) {
+            case OAUTH_CLIENT_NAME -> "Configured name";
+            case SOFTWARE_ID -> "scanner-software";
+            default -> "";
+        });
+        OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(CallbackListenerFactory.defaultFactory(),
+                uri -> new Thread(() -> deliverCallback(uri)).start(), Clock.systemUTC(), VALIDATOR_GATE,
+                McpEventLog.noop(), new RecordingRealHttp(), () -> identity);
+        List<OAuthSignIn> signIns = new java.util.concurrent.CopyOnWriteArrayList<>();
+        flow.addSignInListener(signIns::add);
+
+        OAuthSession session = flow.connect(URI.create("https://mcp.example.com/mcp"), new OAuthClientHints(
+                URI.create(issuer), List.of("read", "write"), "client-test", null, false, 0, Duration.ofSeconds(10)));
+
+        assertThat(signIns).singleElement().satisfies(signIn -> {
+            assertThat(signIn.issuer()).isEqualTo(URI.create(issuer));
+            assertThat(signIn.authorizationEndpoint()).isEqualTo(URI.create(issuer + "/authorize"));
+            assertThat(signIn.registrationEndpoint()).isEmpty();
+            assertThat(signIn.clientId()).isEqualTo("client-test");
+            assertThat(signIn.clientName()).isEmpty();
+            assertThat(signIn.redirectUri().toString()).startsWith("http://127.0.0.1:").endsWith("/callback");
+            assertThat(signIn.grantedScopes()).containsExactly("read");
+            assertThat(signIn.softwareId()).contains("scanner-software");
+            assertThat(signIn.resource()).isEqualTo(URI.create("https://mcp.example.com/mcp"));
+        });
+        assertThat(session.clientId()).isEqualTo("client-test");
+    }
+
+    @Test
+    void connectHandsSignInListenersTheClientSecretItAuthenticatedWithButNeverPrintsIt() throws Exception {
+        String issuer = "http://127.0.0.1:" + authPort;
+        registerMetadata(issuer, "/authorize", "/token");
+        authServer.createContext("/token", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] bytes = "{\"access_token\":\"acc-1\",\"token_type\":\"Bearer\",\"scope\":\"read\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        authServer.start();
+        OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(CallbackListenerFactory.defaultFactory(),
+                uri -> new Thread(() -> deliverCallback(uri)).start(), Clock.systemUTC(), VALIDATOR_GATE,
+                McpEventLog.noop(), new RecordingRealHttp());
+        List<OAuthSignIn> signIns = new java.util.concurrent.CopyOnWriteArrayList<>();
+        flow.addSignInListener(signIns::add);
+
+        flow.connect(URI.create("https://mcp.example.com/mcp"), new OAuthClientHints(URI.create(issuer),
+                List.of("read"), "client-test", "connect-secret", false, 0, Duration.ofSeconds(10)));
+
+        assertThat(signIns).singleElement().satisfies(signIn -> {
+            assertThat(signIn.clientSecret()).contains("connect-secret");
+            assertThat(signIn.toString()).doesNotContain("connect-secret");
+            assertThat(signIn.withGrantedScopes(java.util.Set.of("read", "write")).clientSecret()).contains("connect-secret");
+        });
+    }
+
+    @Test
+    void aFailingSignInListenerDoesNotFailConnect() throws Exception {
+        String issuer = "http://127.0.0.1:" + authPort;
+        registerMetadata(issuer, "/authorize", "/token");
+        registerTokenEndpoint(new HashMap<>());
+        authServer.start();
+        McpEventLog log = new McpEventLog(null);
+        OAuthAuthorizationFlow flow = newFlow(CallbackListenerFactory.defaultFactory(),
+                uri -> new Thread(() -> deliverCallback(uri)).start(), Clock.systemUTC(), log);
+        flow.addSignInListener(signIn -> {
+            throw new IllegalStateException("listener broke");
+        });
+
+        OAuthSession session = flow.connect(URI.create("https://mcp.example.com/mcp"), new OAuthClientHints(
+                URI.create(issuer), List.of(), "client-test", null, false, 0, Duration.ofSeconds(10)));
+
+        assertThat(session.clientId()).isEqualTo("client-test");
+        assertThat(log.snapshot()).anyMatch(entry -> entry.level() == McpEventLog.Level.WARN
+                && entry.message().contains("listener broke"));
+    }
+
+    @Test
+    void aFailedSignInTellsNoSignInListener() throws Exception {
+        String issuer = "http://127.0.0.1:" + authPort;
+        Map<String, String> tokenForm = new HashMap<>();
+        registerTokenEndpoint(tokenForm);
+        authServer.start();
+        OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(CallbackListenerFactory.defaultFactory(),
+                uri -> deliverCallbackWithIssuer(uri, "https://other.example"), Clock.systemUTC(), ALLOW_ALL,
+                McpEventLog.noop(), new RecordingRealHttp());
+        List<OAuthSignIn> signIns = new java.util.concurrent.CopyOnWriteArrayList<>();
+        flow.addSignInListener(signIns::add);
+        OAuthClientHints hints = new OAuthClientHints(URI.create(issuer), List.of(), "registered", null, false,
+                0, Duration.ofSeconds(5));
+
+        assertThatThrownBy(() -> flow.connect(URI.create("https://mcp.example/mcp"), hints, cimdMetadata(issuer)))
+                .isInstanceOf(OAuthException.class);
+        assertThat(signIns).isEmpty();
     }
 
     @Test
@@ -917,8 +1078,8 @@ class OAuthAuthorizationFlowTest {
         });
         authServer.start();
 
-        CallbackListenerFactory portCapturingFactory = (port, path) -> {
-            CallbackListener listener = CallbackListener.start(port, path);
+        CallbackListenerFactory portCapturingFactory = (host, port, path) -> {
+            CallbackListener listener = CallbackListener.start(host, port, path);
             boundListenerPort.set(listener.port());
             return listener;
         };
@@ -1070,6 +1231,51 @@ class OAuthAuthorizationFlowTest {
         assertThat(redirects.get(1)).isEqualTo(redirects.get(0));
         assertThat(strategy.headers()).containsEntry("Authorization", "Bearer access-2");
         assertThat(exchanges).hasValue(2);
+    }
+
+    @Test
+    void anApprovedScopeStepUpTellsSignInListenersTheWidenedGrant() throws Exception {
+        String issuer = "http://127.0.0.1:" + authPort;
+        registerMetadata(issuer, "/authorize", "/token");
+        AtomicInteger exchanges = new AtomicInteger();
+        authServer.createContext("/token", exchange -> {
+            String scope = exchanges.incrementAndGet() == 1 ? "read" : "read write";
+            byte[] bytes = ("{\"access_token\":\"access\",\"token_type\":\"Bearer\",\"scope\":\"" + scope + "\"}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        authServer.start();
+        OAuthAuthorizationFlow flow = newFlow(CallbackListenerFactory.defaultFactory(),
+                OAuthAuthorizationFlowTest::deliverCallback, Clock.systemUTC());
+        List<OAuthSignIn> widened = new java.util.concurrent.CopyOnWriteArrayList<>();
+        flow.addSignInListener(new SignInListener() {
+            @Override
+            public void signedIn(OAuthSignIn signIn) {
+            }
+
+            @Override
+            public void scopesWidened(OAuthSignIn signIn) {
+                widened.add(signIn);
+            }
+        });
+        OAuthSession session = flow.connect(URI.create("https://mcp.example/mcp"), new OAuthClientHints(
+                URI.create(issuer), List.of("read"), "client-test", null, false, 0, Duration.ofSeconds(2)));
+        OAuthAuthCodeStrategy strategy = new OAuthAuthCodeStrategy(URI.create(issuer), session.clientId(),
+                session.sharedSession(), Clock.systemUTC(), McpEventLog.noop(),
+                ignored -> com.mcpscanner.core.oauth.AuthorizationApproval.APPROVED);
+        var challenge = new com.mcpscanner.core.protocol.McpFlow.HttpResponse(403,
+                Map.of("WWW-Authenticate", "Bearer error=\"insufficient_scope\", scope=\"write\""), "", false);
+
+        strategy.sharedCredentialProvider().orElseThrow().beginOperation("tools/call").recover(challenge);
+
+        assertThat(widened).singleElement().satisfies(signIn -> {
+            assertThat(signIn.clientId()).isEqualTo("client-test");
+            assertThat(signIn.grantedScopes()).containsExactlyInAnyOrder("read", "write");
+        });
     }
 
     @Test
@@ -1824,8 +2030,13 @@ class OAuthAuthorizationFlowTest {
 
     private OAuthAuthorizationFlow flowRoutedThrough(burp.api.montoya.http.Http http,
                                                      McpEventLog eventLog) {
+        return flowRoutedThrough(http, eventLog, CallbackListenerFactory.defaultFactory());
+    }
+
+    private OAuthAuthorizationFlow flowRoutedThrough(burp.api.montoya.http.Http http, McpEventLog eventLog,
+                                                     CallbackListenerFactory listeners) {
         return new OAuthAuthorizationFlow(
-                CallbackListenerFactory.defaultFactory(),
+                listeners,
                 uri -> new Thread(() -> deliverCallback(uri)).start(),
                 Clock.systemUTC(),
                 ALLOW_ALL,

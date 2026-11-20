@@ -23,7 +23,19 @@ final class OAuthAuthorizationConsentDescriptor {
                     + "after the server created a session for the anonymous visitor is reported as tentative. "
                     + "The check never sends the scanner's own credentials to the authorization server, revokes "
                     + "every token it obtained through RFC 7009 when the server offers it (logging an error "
-                    + "otherwise), and deletes its probe client through RFC 7592 client management when offered.",
+                    + "otherwise), and deletes its probe client through RFC 7592 client management when offered. When the opt-in setting "
+                    + "'Test OAuth consent with my sign-in' is on and Burp holds the user's session cookies for the "
+                    + "authorization server, a second test sends that session with probe authorization requests: a "
+                    + "freshly named client on an unrelated loopback host, then (unless that already gets a code) "
+                    + "clients reusing the scanner client's name, redirect host and client_id prefix, and the "
+                    + "scanner's own client asking for non-OpenID scopes beyond those granted. A code that reaches "
+                    + "the probe's redirect URI with no consent page on the way is reported and redeemed once: a "
+                    + "probe client's token is judged on tools/list, and the scanner client's token response must "
+                    + "list every extra scope (otherwise tentative); the evidence is the raw exchanges, at "
+                    + "most four probe clients are registered, and every token is revoked "
+                    + "and every client deleted when the server offers it. Without a "
+                    + "cookie session, codes the browser received without interaction right after the OAuth "
+                    + "sign-in at Connect are reported as tentative.",
             CheckKind.HOST,
             AuditIssueSeverity.HIGH,
             AuditIssueConfidence.FIRM,

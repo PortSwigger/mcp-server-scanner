@@ -2,6 +2,7 @@ package com.mcpscanner.checks.catalog.oauthrefreshgrant;
 
 import burp.api.montoya.http.Http;
 import com.mcpscanner.auth.grant.RefreshGrant;
+import com.mcpscanner.checks.shared.oauth.OAuthHttp;
 
 import java.util.Optional;
 import java.util.Set;
@@ -24,6 +25,6 @@ final class RefreshExchanger {
     RefreshExchange exchange(RefreshGrant grant, String refreshToken, ClientAuthentication authentication,
                              Optional<Set<String>> scope) {
         return parser.parse(authentication,
-                http.sendRequest(requests.refresh(grant, refreshToken, authentication, scope)));
+                OAuthHttp.exchange(http, requests.refresh(grant, refreshToken, authentication, scope)));
     }
 }

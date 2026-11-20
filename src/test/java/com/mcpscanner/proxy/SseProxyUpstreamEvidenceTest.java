@@ -1,6 +1,7 @@
 package com.mcpscanner.proxy;
 
 import burp.api.montoya.http.message.HttpRequestResponse;
+import com.fasterxml.jackson.databind.JsonNode;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.mcpscanner.auth.NoAuthStrategy;
@@ -9,6 +10,9 @@ import com.mcpscanner.client.McpServerConfig;
 import com.mcpscanner.client.ProtocolHttpRequest;
 import com.mcpscanner.client.TransportType;
 import com.mcpscanner.config.ClientIdentityProvider;
+import com.mcpscanner.http.UpstreamEvidence;
+import com.mcpscanner.http.WireResolvingCopies;
+import com.mcpscanner.http.evidence.WireRecord;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.McpObjectMapper;
 import com.mcpscanner.mcp.ScannerSentinels;
@@ -30,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -123,7 +128,8 @@ class SseProxyUpstreamEvidenceTest {
         NanoHTTPD.Response response = proxy.serve(scannerRequest(withClientAddress(ScannerSentinels.stripAuthOnly())));
 
         assertCarriesNoClientAddress(upstream.requests().get(0).headers().keySet());
-        assertCarriesNoClientAddress(headerNames(evidenceFor(response).request()));
+        assertThat(itemsFor(response)).isNotEmpty()
+                .allSatisfy(item -> assertCarriesNoClientAddress(headerNames(item.request())));
     }
 
     @Test
@@ -136,7 +142,8 @@ class SseProxyUpstreamEvidenceTest {
         NanoHTTPD.Response response = proxy.serve(scannerRequest(withClientAddress(proxy.auditHeaders(Map.of()))));
 
         assertCarriesNoClientAddress(sessionUpstream.requests().get(sentBefore).headers().keySet());
-        assertCarriesNoClientAddress(headerNames(evidenceFor(response).request()));
+        assertThat(itemsFor(response)).isNotEmpty()
+                .allSatisfy(item -> assertCarriesNoClientAddress(headerNames(item.request())));
     }
 
     @Test
@@ -151,7 +158,8 @@ class SseProxyUpstreamEvidenceTest {
         NanoHTTPD.Response response = proxy.serve(scannerRequest(withClientAddress(ScannerSentinels.stripAuthOnly())));
 
         upstream.requests().forEach(sent -> assertCarriesNoClientAddress(sent.headers().keySet()));
-        assertCarriesNoClientAddress(headerNames(evidenceFor(response).request()));
+        assertThat(itemsFor(response)).isNotEmpty()
+                .allSatisfy(item -> assertCarriesNoClientAddress(headerNames(item.request())));
     }
 
     @Test
@@ -161,7 +169,8 @@ class SseProxyUpstreamEvidenceTest {
         NanoHTTPD.Response response = proxy.serve(requestTo("/message",
                 withClientAddress(ScannerSentinels.stripAuthOnly())));
 
-        assertCarriesNoClientAddress(headerNames(evidenceFor(response).request()));
+        assertThat(itemsFor(response)).isNotEmpty()
+                .allSatisfy(item -> assertCarriesNoClientAddress(headerNames(item.request())));
     }
 
     @Test
@@ -189,25 +198,92 @@ class SseProxyUpstreamEvidenceTest {
     }
 
     @Test
-    void sseForwardRecordsThePostWithTheStreamReplyAsAMessageEvent() throws Exception {
+    void sseForwardRecordsThePostWithItsOwnReplyThenTheStreamsGetWithTheRawEventThatAnsweredIt() throws Exception {
         SseUpstream upstream = new SseUpstream(202);
         proxy = sseProxy(upstream);
 
         NanoHTTPD.Response response = proxy.serve(sseScannerRequest());
 
-        HttpRequestResponse evidence = evidenceFor(response);
-        assertThat(evidence.request().url()).isEqualTo("http://upstream/message?session=isolated");
-        assertThat(evidence.request().method()).isEqualTo("POST");
-        assertThat(evidence.request().headers()).noneMatch(header -> header.name().startsWith("X-Mcp-Scanner-"));
-        assertThat(evidence.request().bodyToString()).contains("\"tools/call\"").doesNotContain("\"id\":9,");
-        assertThat(evidence.response().statusCode()).isEqualTo((short) 202);
-        assertThat(evidence.response().headerValue("X-Upstream")).isEqualTo("sse");
-        assertThat(evidence.response().bodyToString())
-                .isEqualTo("event: message\ndata: " + upstream.replyTo(evidence.request().bodyToString()) + "\n\n");
+        List<HttpRequestResponse> evidence = itemsFor(response);
+        assertThat(evidence).hasSize(2);
+        HttpRequestResponse post = evidence.get(0);
+        String sentBody = post.request().bodyToString();
+        assertThat(text(post.request().toByteArray())).startsWith("POST /message?session=isolated HTTP/1.1\r\n")
+                .contains("Host: upstream\r\n", "Content-Length: " + sentBody.length() + "\r\n",
+                        "User-Agent: Java-http-client/", "Content-Type: application/json\r\n")
+                .doesNotContainIgnoringCase("X-Mcp-Scanner-");
+        assertThat(sentBody).contains("\"tools/call\"").doesNotContain("\"id\":9,");
+        assertThat(post.response().statusCode()).isEqualTo((short) 202);
+        assertThat(post.response().body().length()).isZero();
+        assertStreamEvent(evidence.get(1), upstream);
     }
 
     @Test
-    void sseRefusedPostRecordsThePostBody() throws Exception {
+    void aLaunchedBaseKeepsItsStreamEvidenceAfterLaterProbesOverflowTheStore() throws Exception {
+        SseUpstream upstream = new SseUpstream(202);
+        proxy = sseProxy(upstream);
+        recording.launchedBases().remember(TOOLS_CALL);
+
+        NanoHTTPD.Response response = proxy.serve(sseScannerRequest());
+        overflowTheStoreWithProbes();
+
+        List<HttpRequestResponse> evidence = itemsFor(response);
+        assertThat(evidence).hasSize(2);
+        assertThat(evidence.get(0).response().statusCode()).isEqualTo((short) 202);
+        assertStreamEvent(evidence.get(1), upstream);
+    }
+
+    @Test
+    void aProbeKeptForALateIssueStillResolvesToBothItemsAfterTheStoreEvictedIt() throws Exception {
+        SseUpstream upstream = new SseUpstream(202);
+        proxy = sseProxy(upstream);
+        NanoHTTPD.Response response = proxy.serve(sseScannerRequest());
+        HttpRequestResponse kept = new WireResolvingCopies(exchange -> exchange, recording.store())
+                .kept(proxiedCarrying(response));
+
+        overflowTheStoreWithProbes();
+
+        List<HttpRequestResponse> evidence = new UpstreamEvidence(recording.store()).resolved(kept);
+        assertThat(evidence).hasSize(2);
+        assertThat(evidence.get(0).response().statusCode()).isEqualTo((short) 202);
+        assertStreamEvent(evidence.get(1), upstream);
+    }
+
+    private static void assertStreamEvent(HttpRequestResponse event, SseUpstream upstream) {
+        assertThat(text(event.request().toByteArray())).startsWith("GET /sse HTTP/1.1\r\n")
+                .doesNotContainIgnoringCase("X-Mcp-Scanner-");
+        assertThat(text(event.response().toByteArray())).isEqualTo(SseUpstream.STREAM_HEAD + upstream.rawToolCallReply());
+    }
+
+    @Test
+    void aProbeResendingTheLaunchedBodyUnchangedIsNotKeptInPlaceOfTheBase() throws Exception {
+        recording.launchedBases().remember(TOOLS_CALL);
+        SseProxyServer baseProxy = sseProxy(new SseUpstream(202));
+        try {
+            baseProxy.serve(sseScannerRequest());
+        } finally {
+            baseProxy.stop();
+        }
+        proxy = sseProxy(new SseUpstream(202));
+
+        NanoHTTPD.Response resent = proxy.serve(sseScannerRequest());
+        overflowTheStoreWithProbes();
+
+        assertThat(recording.store().upstreamOf(proxiedCarrying(resent))).isEmpty();
+    }
+
+    @Test
+    void aProbeThatWasNotLaunchedAsABaseIsEvictedOnceLaterProbesOverflowTheStore() throws Exception {
+        proxy = sseProxy(new SseUpstream(202));
+
+        NanoHTTPD.Response response = proxy.serve(sseScannerRequest());
+        overflowTheStoreWithProbes();
+
+        assertThat(recording.store().upstreamOf(proxiedCarrying(response))).isEmpty();
+    }
+
+    @Test
+    void sseRefusedPostRecordsTheBodyBytesAsReceivedWithEachHeaderValueOnItsOwnLine() throws Exception {
         SseUpstream upstream = new SseUpstream(403);
         proxy = sseProxy(upstream);
 
@@ -215,7 +291,8 @@ class SseProxyUpstreamEvidenceTest {
 
         HttpRequestResponse evidence = evidenceFor(response);
         assertThat(evidence.response().statusCode()).isEqualTo((short) 403);
-        assertThat(evidence.response().bodyToString()).isEqualTo("{\"error\":\"forbidden\"}");
+        assertThat(text(evidence.response().toByteArray())).contains("Set-Cookie: a=1\r\nSet-Cookie: b=2\r\n");
+        assertThat(evidence.response().body().getBytes()).isEqualTo(SseUpstream.REFUSAL);
     }
 
     @Test
@@ -316,13 +393,30 @@ class SseProxyUpstreamEvidenceTest {
     }
 
     private HttpRequestResponse evidenceFor(NanoHTTPD.Response response) {
+        List<HttpRequestResponse> items = itemsFor(response);
+        assertThat(items).hasSize(1);
+        return items.get(0);
+    }
+
+    private List<HttpRequestResponse> itemsFor(NanoHTTPD.Response response) {
+        return recording.store().upstreamOf(proxiedCarrying(response));
+    }
+
+    private static HttpRequestResponse proxiedCarrying(NanoHTTPD.Response response) {
         String id = response.getHeader(ScannerSentinels.EXCHANGE_HEADER);
         assertThat(id).isNotNull();
-        HttpRequestResponse proxied = HttpRequestResponse.httpRequestResponse(
+        return HttpRequestResponse.httpRequestResponse(
                 HttpRequest.httpRequestFromUrl("http://127.0.0.1:1/mcp"),
                 HttpResponse.httpResponse("HTTP/1.1 200\r\n" + ScannerSentinels.EXCHANGE_HEADER + ": " + id
                         + "\r\n\r\n{}"));
-        return recording.store().upstreamOf(proxied).orElseThrow();
+    }
+
+    private void overflowTheStoreWithProbes() {
+        RecordedExchange probe = new RecordedExchange("{}", WireRecord.ofBurp(HttpRequestResponse.httpRequestResponse(
+                HttpRequest.httpRequestFromUrl("http://upstream/message"),
+                HttpResponse.httpResponse("HTTP/1.1 202 Accepted\r\n\r\n"))));
+        java.util.stream.IntStream.range(0, UpstreamExchangeStore.MAX_EXCHANGES)
+                .forEach(index -> recording.store().put(probe));
     }
 
     private SseProxyServer proxyOver(TransportType transport, ScriptedProtocolTransport upstream) {
@@ -382,51 +476,95 @@ class SseProxyUpstreamEvidenceTest {
 
     private static final class SseUpstream {
 
+        static final String STREAM_HEAD = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                + "X-Stream: one\r\nX-Stream: two\r\n\r\n";
+        static final byte[] REFUSAL = {'{', '"', 'e', '"', ':', '"', (byte) 0xff, '"', '}'};
+
         private final int toolCallStatus;
         private final SseScanSessionTest.QueueInputStream stream = new SseScanSessionTest.QueueInputStream();
+        private volatile String rawToolCallReply;
 
         private SseUpstream(int toolCallStatus) {
             this.toolCallStatus = toolCallStatus;
             stream.push("event: endpoint\ndata: /message?session=isolated\n\n");
         }
 
-        String replyTo(String body) {
-            return "{\"jsonrpc\":\"2.0\",\"id\":" + idOf(body) + ",\"result\":{}}";
+        String rawToolCallReply() {
+            return rawToolCallReply;
         }
 
         @SuppressWarnings("unchecked")
         HttpClient client() throws Exception {
             HttpClient client = mock(HttpClient.class);
             java.net.http.HttpResponse<InputStream> opened = mock(java.net.http.HttpResponse.class);
+            AtomicReference<java.net.http.HttpRequest> openedWith = new AtomicReference<>();
+            lenient().when(opened.request()).thenAnswer(invocation -> openedWith.get());
             lenient().when(opened.statusCode()).thenReturn(200);
             lenient().when(opened.body()).thenReturn(stream);
             lenient().when(opened.headers()).thenReturn(headers(Map.of("Content-Type",
-                    List.of("text/event-stream"))));
+                    List.of("text/event-stream"), "X-Stream", List.of("one", "two"))));
             when(client.send(any(java.net.http.HttpRequest.class), any(java.net.http.HttpResponse.BodyHandler.class)))
                     .thenAnswer(invocation -> {
                         java.net.http.HttpRequest request = invocation.getArgument(0);
-                        return request.method().equals("GET") ? opened : posted(SseProxyServerTest.extractBody(request));
+                        if (request.method().equals("GET")) {
+                            openedWith.set(request);
+                            return opened;
+                        }
+                        return posted(SseProxyServerTest.extractBody(request), invocation.getArgument(1));
                     });
             return client;
         }
 
         @SuppressWarnings("unchecked")
-        private java.net.http.HttpResponse<String> posted(String body) throws IOException {
-            boolean toolCall = "tools/call".equals(McpObjectMapper.INSTANCE.readTree(body).path("method").asText());
+        private java.net.http.HttpResponse<String> posted(String body,
+                                                          java.net.http.HttpResponse.BodyHandler<String> handler)
+                throws IOException {
+            JsonNode message = McpObjectMapper.INSTANCE.readTree(body);
+            boolean toolCall = "tools/call".equals(message.path("method").asText());
             int status = toolCall ? toolCallStatus : 202;
-            if (status == 202 && McpObjectMapper.INSTANCE.readTree(body).has("id")) {
-                stream.push("event: message\ndata: " + replyTo(body) + "\n\n");
+            if (status == 202 && message.has("id")) {
+                stream.push(toolCall ? rawToolCallReplyTo(message) : "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":"
+                        + message.get("id") + ",\"result\":{}}\n\n");
             }
             java.net.http.HttpResponse<String> response = mock(java.net.http.HttpResponse.class);
             lenient().when(response.statusCode()).thenReturn(status);
-            lenient().when(response.body()).thenReturn(status == 202 ? "" : "{\"error\":\"forbidden\"}");
             lenient().when(response.headers()).thenReturn(headers(Map.of("X-Upstream", List.of("sse"),
-                    "Content-Length", List.of("2"))));
+                    "Set-Cookie", List.of("a=1", "b=2"))));
+            String received = receive(handler, status == 202 ? new byte[0] : REFUSAL);
+            lenient().when(response.body()).thenReturn(received);
             return response;
+        }
+
+        private String rawToolCallReplyTo(JsonNode message) {
+            rawToolCallReply = "id: 77\r\nevent: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":" + message.get("id")
+                    + ",\r\ndata: \"result\":{}}\r\n\r\n";
+            return rawToolCallReply;
+        }
+
+        private static String receive(java.net.http.HttpResponse.BodyHandler<String> handler, byte[] body) {
+            java.net.http.HttpResponse.BodySubscriber<String> subscriber = handler.apply(null);
+            subscriber.onSubscribe(new java.util.concurrent.Flow.Subscription() {
+                @Override
+                public void request(long n) {
+                }
+
+                @Override
+                public void cancel() {
+                }
+            });
+            if (body.length > 0) {
+                subscriber.onNext(List.of(java.nio.ByteBuffer.wrap(body)));
+            }
+            subscriber.onComplete();
+            return subscriber.getBody().toCompletableFuture().join();
         }
 
         private static HttpHeaders headers(Map<String, List<String>> values) {
             return HttpHeaders.of(values, (name, value) -> true);
         }
+    }
+
+    private static String text(burp.api.montoya.core.ByteArray bytes) {
+        return new String(bytes.getBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
     }
 }

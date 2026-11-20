@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mcpscanner.checks.api.CheckLog;
+import com.mcpscanner.checks.api.RateLimitedSends;
 import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.api.SkipSubject;
 import com.mcpscanner.checks.shared.auth.oracle.BaselineEquivalenceOracle;
@@ -38,10 +39,11 @@ final class ForgedTokenAudit {
         this.log = log;
     }
 
-    Optional<ForgedTokenFindings> run(HttpRequest seed, CompactJwt captured, String bearer, Http http) {
+    Optional<ForgedTokenFindings> run(HttpRequest seed, CompactJwt captured, String bearer, RateLimitedSends sends) {
+        Http http = sends.probes();
         HttpRequestResponse baseline = http.sendRequest(placement.withBearer(seed, bearer));
-        List<HttpRequestResponse> controls = sendRefusalControls(seed, http);
-        AcceptanceJudge judge = new AcceptanceJudge(oracle, baseline, controls);
+        RefusalControls controls = sendRefusalControls(seed, http);
+        AcceptanceJudge judge = new AcceptanceJudge(oracle, baseline, controls.both());
         OracleVerdict verdict = judge.baselineVerdict();
         if (!verdict.isHit()) {
             log.notRun(SkipSubject.of(seed), baselineSkip(verdict, baseline));
@@ -49,8 +51,9 @@ final class ForgedTokenAudit {
         }
         ForgeryContext context = new ForgeryContext(captured,
                 () -> keyDiscovery.discover(seed.url(), captured, new OAuthHttp(http)));
-        return new Probing(seed, captured, http, judge).run(catalog.attemptsFor(context))
-                .map(probing -> new ForgedTokenFindings(baseline, controls, probing.accepted, probing.claimProbes));
+        return new Probing(seed, captured, sends, judge).run(catalog.attemptsFor(context))
+                .map(probing -> new ForgedTokenFindings(baseline, controls.malformedBearer(), probing.accepted,
+                        probing.claimProbes));
     }
 
     private static SkipReason baselineSkip(OracleVerdict verdict, HttpRequestResponse baseline) {
@@ -63,8 +66,8 @@ final class ForgedTokenAudit {
         };
     }
 
-    private List<HttpRequestResponse> sendRefusalControls(HttpRequest seed, Http http) {
-        return List.of(
+    private RefusalControls sendRefusalControls(HttpRequest seed, Http http) {
+        return new RefusalControls(
                 http.sendRequest(placement.withoutCredential(seed)),
                 http.sendRequest(placement.withBearer(seed, MALFORMED_TOKEN)));
     }
@@ -73,16 +76,16 @@ final class ForgedTokenAudit {
 
         private final HttpRequest seed;
         private final CompactJwt captured;
-        private final Http http;
+        private final RateLimitedSends sends;
         private final AcceptanceJudge judge;
         private final List<AcceptedForgery> accepted = new ArrayList<>();
         private List<ClaimProbe> claimProbes = List.of();
         private boolean controlsLifted;
 
-        private Probing(HttpRequest seed, CompactJwt captured, Http http, AcceptanceJudge judge) {
+        private Probing(HttpRequest seed, CompactJwt captured, RateLimitedSends sends, AcceptanceJudge judge) {
             this.seed = seed;
             this.captured = captured;
-            this.http = http;
+            this.sends = sends;
             this.judge = judge;
         }
 
@@ -110,44 +113,43 @@ final class ForgedTokenAudit {
         }
 
         private Optional<AcceptedAttempt> tryAttempt(ForgeryAttempt attempt) {
-            HttpRequestResponse candidate = send(attempt.candidate(), captured.claims());
+            HttpRequestResponse candidate = send(sends.probes(), attempt.candidate(), captured.claims());
             if (!judge.accepts(candidate)) {
                 return Optional.empty();
             }
-            List<HttpRequestResponse> stillRefused = sendRefusalControls(seed, http);
+            List<HttpRequestResponse> stillRefused = sendRefusalControls(seed, sends.confirmations()).both();
             if (!judge.accepts(candidate, stillRefused)) {
                 controlsLifted = true;
                 return Optional.empty();
             }
             if (attempt.wrongKeyControl().isEmpty()) {
-                return Optional.of(acceptedAs(attempt.candidate(), candidate, stillRefused));
+                return Optional.of(acceptedAs(attempt.candidate(), candidate, Optional.empty()));
             }
             ForgedSignature wrongKey = attempt.wrongKeyControl().get();
-            HttpRequestResponse control = send(wrongKey, captured.claims());
+            HttpRequestResponse control = send(sends.confirmations(), wrongKey, captured.claims());
             if (judge.accepts(control, stillRefused)) {
-                return Optional.of(acceptedAs(wrongKey, control, stillRefused));
+                return Optional.of(acceptedAs(wrongKey, control, Optional.empty()));
             }
-            List<HttpRequestResponse> refused = new ArrayList<>(stillRefused);
-            refused.add(control);
-            return Optional.of(acceptedAs(attempt.candidate(), candidate, refused));
+            return Optional.of(acceptedAs(attempt.candidate(), candidate, Optional.of(control)));
         }
 
         private AcceptedAttempt acceptedAs(ForgedSignature signature, HttpRequestResponse exchange,
-                                           List<HttpRequestResponse> refusedControls) {
+                                           Optional<HttpRequestResponse> refusedWrongKeyControl) {
             return new AcceptedAttempt(signature,
-                    new AcceptedForgery(signature.description(), exchange, refusedControls));
+                    new AcceptedForgery(signature.description(), exchange, refusedWrongKeyControl));
         }
 
         private List<ClaimProbe> probeClaims(ForgedSignature signature) {
             return Arrays.stream(ClaimMutation.values())
                     .map(mutation -> {
-                        HttpRequestResponse exchange = send(signature, mutation.applyTo(captured.claims(), clock));
+                        HttpRequestResponse exchange = send(sends.confirmations(), signature,
+                                mutation.applyTo(captured.claims(), clock));
                         return new ClaimProbe(mutation, exchange, judge.accepts(exchange));
                     })
                     .toList();
         }
 
-        private HttpRequestResponse send(ForgedSignature signature, ObjectNode claims) {
+        private HttpRequestResponse send(Http http, ForgedSignature signature, ObjectNode claims) {
             return http.sendRequest(placement.withBearer(seed, signature.sign(claims)));
         }
     }

@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mcpscanner.checks.shared.jsonrpc.JsonRpcMessages;
+import com.mcpscanner.checks.shared.jsonrpc.ReplyBody;
 
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -33,7 +34,7 @@ final class TargetPage {
     }
 
     boolean shownIn(SentUrl sent) {
-        return sent.answered() && title.filter(shown -> texts(sent.exchange().response().bodyToString())
+        return sent.answered() && title.filter(shown -> texts(ReplyBody.text(sent.exchange().response()))
                 .anyMatch(text -> TITLE.matcher(text).results().anyMatch(match -> match.group(1).equals(shown))))
                 .isPresent();
     }

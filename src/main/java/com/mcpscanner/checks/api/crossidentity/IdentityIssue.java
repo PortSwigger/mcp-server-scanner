@@ -24,7 +24,7 @@ public record IdentityIssue(String name, AuditIssueSeverity severity, AuditIssue
             + "session.";
 
     public static ConsolidationAction consolidate(AuditIssue existing, AuditIssue candidate) {
-        return IssueIdentity.keepExistingWhen(IssueIdentity.sameSubject(existing, candidate));
+        return IssueIdentity.keepStrongerOfSameSubject(existing, candidate);
     }
 
     public AuditIssue render(OperationSeed seed, ReplayedOperation replayed, CheckDescriptor descriptor) {

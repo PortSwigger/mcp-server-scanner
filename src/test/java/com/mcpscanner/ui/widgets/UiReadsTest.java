@@ -13,7 +13,8 @@ class UiReadsTest {
 
     private final ManualReadScheduler scheduler = new ManualReadScheduler();
     private final List<Runnable> edt = new ArrayList<>();
-    private final UiReads reads = new UiReads(scheduler, edt::add, scheduler.debug::add);
+    private final UiReads reads = new UiReads(scheduler, edt::add,
+            (message, failure) -> scheduler.failures.add(failure));
     private final AtomicInteger computed = new AtomicInteger();
     private final List<Integer> applied = new ArrayList<>();
 
@@ -31,7 +32,7 @@ class UiReadsTest {
     }
 
     @Test
-    void failedWorkIsLoggedAtDebugAndAppliesNothing() {
+    void failedWorkIsLoggedAsAnErrorWithItsStackTraceAndAppliesNothing() {
         reads.<Integer>compute(() -> {
             throw new IllegalStateException("boom");
         }, applied::add);
@@ -39,6 +40,6 @@ class UiReadsTest {
         scheduler.runNext();
 
         assertThat(edt).isEmpty();
-        assertThat(scheduler.debug).singleElement().asString().contains("IllegalStateException");
+        assertThat(scheduler.failures).singleElement().isInstanceOf(IllegalStateException.class);
     }
 }

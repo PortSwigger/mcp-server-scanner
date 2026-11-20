@@ -52,6 +52,18 @@ class TraversalReplyTest {
     }
 
     @Test
+    void readsTheReplyAfterAServerPingCarryingAnId() {
+        HttpResponse response = HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n"
+                + "data: {\"jsonrpc\":\"2.0\",\"id\":\"s1\",\"method\":\"ping\"}\n\n"
+                + "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"content\":[{\"text\":\"f\"}]}}\n\n");
+
+        TraversalReply reply = TraversalReply.of(HttpRequestResponse.httpRequestResponse(REQUEST, response));
+
+        assertThat(reply.answered()).isTrue();
+        assertThat(reply.texts()).contains("f");
+    }
+
+    @Test
     void liftsAnSseFramedReply() {
         HttpResponse response = HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n"
                 + "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"text\":\"e\"}]}}\n\n");

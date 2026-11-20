@@ -14,12 +14,10 @@ public final class RateLimitedProbing {
         this.log = log;
     }
 
-    public List<AuditIssue> run(String subject, Http http, Function<Http, List<AuditIssue>> probing) {
-        WithholdingAfterTooManyRequests guarded = new WithholdingAfterTooManyRequests(http);
-        List<AuditIssue> issues = probing.apply(guarded);
-        if (guarded.tripped()) {
-            log.notRun(subject, SkipReason.rateLimited());
-        }
+    public List<AuditIssue> run(String subject, Http http, Function<RateLimitedSends, List<AuditIssue>> probing) {
+        RateLimitTrip trip = new RateLimitTrip();
+        List<AuditIssue> issues = probing.apply(WithholdingAfterRateLimit.over(http, trip));
+        trip.reason().ifPresent(reason -> log.notRun(subject, reason));
         return issues;
     }
 }

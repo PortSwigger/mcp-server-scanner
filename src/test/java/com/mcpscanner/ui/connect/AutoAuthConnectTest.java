@@ -110,6 +110,25 @@ class AutoAuthConnectTest {
     }
 
     @Test
+    void oauthServerRequestsOnlyTheTickedScopesWhenTheProbeDiscoversMore() {
+        DiscoveredMetadata discovered = new DiscoveredMetadata(ISSUER, DiscoverySource.WWW_AUTHENTICATE_HEADER,
+                mock(AuthorizationServerMetadata.class),
+                List.of("mcp:tools", "mcp:resources", "mcp:prompts", "mcp:admin"));
+        when(support.probeAuthRequirement(ENDPOINT, TransportType.AUTO)).thenReturn(new AuthRequirement.OAuth(discovered));
+        when(support.completeOAuthDance(any(), any(), any(), any())).thenReturn(mock(OAuthAuthCodeStrategy.class));
+        OAuthClientHints ticked = new OAuthClientHints(null, List.of("mcp:tools"), null, null, true,
+                OAuthClientHints.DEFAULT_REDIRECT_PORT, Duration.ofSeconds(120), RegistrationMode.AUTO, null,
+                new com.mcpscanner.auth.oauth.ScopeSelection(
+                        java.util.Set.of("mcp:resources", "mcp:prompts", "mcp:admin"), List.of()));
+
+        coordinator.connect(autoAttempt(ticked), (phase, message) -> {}, () -> {});
+
+        ArgumentCaptor<OAuthClientHints> hints = ArgumentCaptor.forClass(OAuthClientHints.class);
+        verify(support).completeOAuthDance(hints.capture(), any(), any(), any());
+        assertThat(hints.getValue().scopes()).containsExactly("mcp:tools");
+    }
+
+    @Test
     void staleIssuerFromAnEarlierDiscoveryDoesNotOverrideTheProbe() {
         DiscoveredMetadata discovered = new DiscoveredMetadata(
                 ISSUER, DiscoverySource.PRM_WELL_KNOWN, mock(AuthorizationServerMetadata.class));

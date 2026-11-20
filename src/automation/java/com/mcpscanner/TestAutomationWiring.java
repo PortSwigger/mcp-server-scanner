@@ -3,6 +3,10 @@ package com.mcpscanner;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.HttpService;
 import com.mcpscanner.access.CheckAccessRunner;
+import com.mcpscanner.auth.oauth.discovery.ChallengeStrategy;
+import com.mcpscanner.auth.oauth.discovery.OAuthMetadataDiscoverer;
+import com.mcpscanner.auth.oauth.safety.DefaultSuspiciousDestinationGate;
+import com.mcpscanner.automation.AuthProbe;
 import com.mcpscanner.automation.AutomationServer;
 import com.mcpscanner.automation.CheckAccessProgress;
 import com.mcpscanner.automation.CheckAccessSteps;
@@ -19,12 +23,25 @@ import com.mcpscanner.automation.IdentityHandover;
 import com.mcpscanner.automation.ItemSeeds;
 import com.mcpscanner.automation.LaunchedAudit;
 import com.mcpscanner.automation.CheckTelemetry;
+import com.mcpscanner.automation.ScanQueuedHttp;
+import burp.api.montoya.scanner.scancheck.ActiveScanCheck;
+import com.mcpscanner.automation.AuditPathCanary;
+import com.mcpscanner.checks.api.RequestCheck;
+import com.mcpscanner.checks.registry.IssueDestination;
+import com.mcpscanner.checks.registry.ProbeCalls;
+import com.mcpscanner.checks.registry.RequestCheckAdapter;
+import com.mcpscanner.checks.shared.scancontext.ScanNotices;
+import com.mcpscanner.http.ScanQueueBypass;
+import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.automation.SendCanary;
+import com.mcpscanner.automation.SignedInSessionSeed;
 import com.mcpscanner.automation.SinkServer;
 import com.mcpscanner.automation.TestAutomationSwitch;
 import com.mcpscanner.checks.registry.CheckInstrumentation;
+import com.mcpscanner.http.ConnectionReusingHttp;
 import com.mcpscanner.scan.request.ScanMessageRenderer;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,24 +76,37 @@ public final class TestAutomationWiring implements ExtensionAutomation {
 
     @Override
     public void startIfSwitchedOn(MontoyaApi api, ExtensionFoundation foundation, ConnectionWiring connection,
-                           ScanningWiring scanning, AccessWiring access, MiningWiring mining, ShutdownHooks shutdown) {
+                           ScanningWiring scanning, AccessWiring access, MiningWiring mining,
+                           SignedInConsentWiring signedInConsent, ShutdownHooks shutdown) {
         automationSwitch.port().ifPresent(port -> {
             BuiltInTrafficSink diversion = builtInTrafficSink(api, shutdown);
             LaunchedAudit audit = new LaunchedAudit(api.siteMap(), telemetry, diversion::diverted,
-                    foundation.collaboratorWatch()::settled);
+                    scanning.collaboratorWatch()::settled);
             CommandSettings settings = new CommandSettings(scanning.checkRegistry(), foundation.checkSettings(),
                     diversion::reset);
             ItemSeeds itemSeeds = new ItemSeeds();
+            SignedInSessionSeed signedInSession = new SignedInSessionSeed(() -> api.http().cookieJar(),
+                    signedInConsent.setting()::optIn, signedInConsent.connectSignIns(), Clock.systemUTC());
             HeadlessConnection headless = new HeadlessConnection(connection.clientManager(),
                     foundation.configStore()::setUseBurpNetworking, identityHandover(foundation, access, itemSeeds),
-                    scanning.authHolder());
+                    scanning.authHolder(), signedInSession);
             AutomationServer server = new AutomationServer(port, new HeadlessScanAll(headless, settings,
                     scanning.generationSettings(), scanning.scanLauncher(), audit, scanning.scanOwnerArguments()),
                     audit, checkAccess(headless, itemSeeds, connection, scanning, access, mining, shutdown),
-                    new SendCanary(connection.burpHttp())).start();
-            shutdown.add("Test automation server", server::close);
-            api.logging().logToOutput("Test automation listening on 127.0.0.1:" + server.port());
+                    new SendCanary(connection.burpHttp(), queueWait -> ConnectionReusingHttp.around(
+                            ScanQueuedHttp.sleeping(api.http(), queueWait), connection.connectionReuse())), signedInSession, authProbe(foundation, connection),
+                    new AuditPathCanary(api.scanner(), connection.burpHttp(),
+                            check -> asProductionScanCheck(check, foundation, connection)))
+                    .start();
+            shutdown.add("Test automation server", server::close);            api.logging().logToOutput("Test automation listening on 127.0.0.1:" + server.port());
         });
+    }
+
+    private static ActiveScanCheck asProductionScanCheck(RequestCheck check, ExtensionFoundation foundation,
+                                                         ConnectionWiring connection) {
+        return new RequestCheckAdapter(foundation.checkSettings(), foundation.eventLog(), check,
+                CheckInstrumentation.NONE, UpstreamExchanges.NONE, connection.connectionReuse(), IssueDestination.NONE,
+                new ScanNotices(), ProbeCalls.NONE, ScanQueueBypass.through(connection.burpHttp()));
     }
 
     private static HeadlessCheckAccess checkAccess(HeadlessConnection headless, ItemSeeds itemSeeds,
@@ -96,6 +126,14 @@ public final class TestAutomationWiring implements ExtensionAutomation {
         });
         shutdown.add("Test automation Check access", worker::shutdownNow);
         return new HeadlessCheckAccess(headless, steps, progress, worker);
+    }
+
+    private static AuthProbe authProbe(ExtensionFoundation foundation, ConnectionWiring connection) {
+        OAuthMetadataDiscoverer discoverer = OAuthMetadataDiscoverer.defaultInstance(connection.burpHttp(),
+                foundation.eventLog(), DefaultSuspiciousDestinationGate.denyingSuspicious(foundation.eventLog()),
+                foundation.configStore()::useBurpNetworking);
+        return new AuthProbe(foundation.configStore()::setUseBurpNetworking,
+                uri -> discoverer.requirementFor(uri, ChallengeStrategy.STREAM_GET));
     }
 
     private static IdentityHandover identityHandover(ExtensionFoundation foundation, AccessWiring access,

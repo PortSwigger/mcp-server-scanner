@@ -36,7 +36,7 @@ record OAuthWiring(BoundedHostResolver dnsResolver,
                 authorizationFlow(api, foundation, http, gate, callbackListeners, BrowserLauncher.desktop(eventLog)),
                 authorizationFlow(api, foundation, http, gate, callbackListeners,
                         BrowserLauncher.promptingLogin(BrowserLauncher.desktop(eventLog))),
-                OAuthMetadataDiscoverer.defaultInstance(http, eventLog, gate),
+                OAuthMetadataDiscoverer.defaultInstance(http, eventLog, gate, foundation.configStore()::useBurpNetworking),
                 new OptionalGrantAuthFactory(http, gate, EnterpriseIdentityProviderRegistry.load(),
                         Clock.systemUTC()));
     }

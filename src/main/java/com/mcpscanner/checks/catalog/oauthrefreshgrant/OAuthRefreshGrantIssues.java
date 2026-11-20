@@ -6,7 +6,6 @@ import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import com.mcpscanner.auth.grant.ClientType;
 import com.mcpscanner.checks.issue.IssueBodyBuilder;
-import com.mcpscanner.checks.shared.redaction.ExchangeRedactor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,15 +24,17 @@ final class OAuthRefreshGrantIssues {
             "Reject a refresh_token grant whose scope parameter includes any scope not originally granted by the "
                     + "resource owner (RFC 6749 section 6) with invalid_scope, and issue at most the original scope.";
 
-    private final String baseUrl;
-    private final ExchangeRedactor redactor;
+    private static final String TOOLS_LIST_ATTACHMENT =
+            "the MCP tools/list request sent with the access token it issued";
 
-    OAuthRefreshGrantIssues(String baseUrl, ExchangeRedactor redactor) {
+    private final String baseUrl;
+
+    OAuthRefreshGrantIssues(String baseUrl) {
         this.baseUrl = baseUrl;
-        this.redactor = redactor;
     }
 
     AuditIssue clientAuthentication(ClientAuthenticationFinding finding) {
+        JudgedRefresh attached = finding.strongestAccepted();
         List<String> items = new ArrayList<>();
         items.add("Client type: " + describe(finding.clientType(), finding.confidentialityEstablished()));
         items.add(control(finding.evidence()));
@@ -45,10 +46,11 @@ final class OAuthRefreshGrantIssues {
                         + "without verifying the client's secret. Anyone holding a leaked refresh token can redeem it "
                         + "without the client credentials that should bind it to the client.")
                 .findings(items)
-                .paragraph("Token values, refresh tokens and the client secret are redacted from the evidence.")
+                .paragraph("Attached: the refresh with " + attached.exchange().authentication().description()
+                        + ", " + TOOLS_LIST_ATTACHMENT + ", and the refused refresh with the unissued refresh token.")
                 .build();
         return issue(CLIENT_AUTHENTICATION_ISSUE, detail, CLIENT_AUTHENTICATION_REMEDIATION, finding.confidence(),
-                evidence(finding.accepted().stream().flatMap(OAuthRefreshGrantIssues::exchanges), finding.evidence()));
+                attached(Stream.concat(exchanges(attached), unissuedControl(finding.evidence()))));
     }
 
     AuditIssue scopeExpansion(ScopeExpansionFinding finding) {
@@ -73,6 +75,9 @@ final class OAuthRefreshGrantIssues {
                         + "so it may have added this scope by default from the start; if it did not, a refresh "
                         + "token can be used to escalate the privileges the resource owner consented to.")
                 .findings(items)
+                .paragraph("Attached: " + (probe.original().declaredByAuthorizationServer()
+                        ? "the plain refresh that declared the original scope, " : "")
+                        + "the refresh that requested the extra scope, and " + TOOLS_LIST_ATTACHMENT + ".")
                 .paragraph("The check did not exercise an operation that requires the extra scope, so the practical "
                         + "effect depends on how the MCP server enforces it. " + (probe.restored()
                         ? "The live session was narrowed back to its original scope after the probe."
@@ -80,7 +85,7 @@ final class OAuthRefreshGrantIssues {
                         + "using the expanded token until it next refreshes."))
                 .build();
         return issue(SCOPE_EXPANSION_ISSUE, detail, SCOPE_EXPANSION_REMEDIATION, finding.confidence(),
-                evidence(exchanges(probe.refresh()), finding.evidence()));
+                attached(Stream.concat(originalScopeSource(probe, finding.evidence()), exchanges(probe.refresh()))));
     }
 
     private AuditIssue issue(String name, String detail, String remediation, AuditIssueConfidence confidence,
@@ -94,17 +99,24 @@ final class OAuthRefreshGrantIssues {
         return Stream.concat(Stream.of(refresh.exchange().exchange()), refresh.token().map(JudgedToken::candidate).stream());
     }
 
-    private List<HttpRequestResponse> evidence(Stream<HttpRequestResponse> primary, RefreshEvidence evidence) {
-        return Stream.concat(primary, Stream.concat(Stream.of(evidence.control().exchange()),
-                        evidence.unissuedControl().map(RefreshExchange::exchange).stream()))
-                .filter(Objects::nonNull)
-                .map(redactor::redact)
-                .toList();
+    private static Stream<HttpRequestResponse> unissuedControl(RefreshEvidence evidence) {
+        return evidence.unissuedControl().map(RefreshExchange::exchange).stream();
+    }
+
+    private static Stream<HttpRequestResponse> originalScopeSource(ScopeProbe probe, RefreshEvidence evidence) {
+        return probe.original().declaredByAuthorizationServer()
+                ? Stream.of(evidence.control().exchange())
+                : Stream.empty();
+    }
+
+    private static List<HttpRequestResponse> attached(Stream<HttpRequestResponse> evidence) {
+        return evidence.filter(Objects::nonNull).toList();
     }
 
     private static String control(RefreshEvidence evidence) {
         return "Controls: a refresh with the registered client credentials returned HTTP " + evidence.control().status()
-                + " with a new access token, and an unissued refresh token was refused with HTTP "
+                + " with a new access token (attached only when it declared the original scope), and an unissued "
+                + "refresh token was refused with HTTP "
                 + evidence.unissuedControl().map(RefreshExchange::status).orElse(0);
     }
 

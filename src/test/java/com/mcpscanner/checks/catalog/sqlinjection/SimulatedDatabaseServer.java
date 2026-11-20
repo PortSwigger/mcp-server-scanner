@@ -7,12 +7,14 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mcpscanner.testutil.SpentRateLimitQuota;
 import com.mcpscanner.mcp.McpObjectMapper;
 import com.mcpscanner.scan.McpInsertionPointProvider;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -30,6 +32,8 @@ final class SimulatedDatabaseServer {
     private final String baseValue;
     private final Function<String, ToolReply> behaviour;
     private final List<String> receivedValues = new ArrayList<>();
+    private Predicate<String> spendsQuota = value -> false;
+    private boolean quotaSpent;
 
     private SimulatedDatabaseServer(String method, String operation, String argument, String baseValue,
                                     Function<String, ToolReply> behaviour) {
@@ -48,6 +52,11 @@ final class SimulatedDatabaseServer {
     static SimulatedDatabaseServer tableResource(String table, Function<String, ToolReply> behaviour) {
         return new SimulatedDatabaseServer("resources/read", "", "uri", RESOURCE_PREFIX + table + RESOURCE_SUFFIX,
                 uri -> behaviour.apply(hostOf(uri)));
+    }
+
+    SimulatedDatabaseServer spendingQuotaFromValue(Predicate<String> spendsQuota) {
+        this.spendsQuota = spendsQuota;
+        return this;
     }
 
     Http http() {
@@ -80,8 +89,10 @@ final class SimulatedDatabaseServer {
         String value = "tools/call".equals(method) ? params.path("arguments").path(argument).asText()
                 : params.path("uri").asText();
         receivedValues.add(value);
+        ToolReply reply = behaviour.apply(value);
+        quotaSpent |= spendsQuota.test(value);
         return HttpRequestResponse.httpRequestResponse(request,
-                HttpResponse.httpResponse(raw(reply(message.get("id"), behaviour.apply(value)))));
+                HttpResponse.httpResponse(raw(quotaHeaders() + "\r\n" + reply(message.get("id"), reply))));
     }
 
     private String reply(JsonNode id, ToolReply reply) {
@@ -122,7 +133,11 @@ final class SimulatedDatabaseServer {
         }
     }
 
-    private static String raw(String body) {
-        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + body;
+    private String quotaHeaders() {
+        return quotaSpent ? SpentRateLimitQuota.HEADER_LINES : "";
+    }
+
+    private static String raw(String headersAndBody) {
+        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" + headersAndBody;
     }
 }

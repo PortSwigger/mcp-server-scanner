@@ -23,6 +23,7 @@ import java.util.Optional;
 import static com.mcpscanner.access.comparison.ComparisonHarness.identity;
 import static com.mcpscanner.access.comparison.ComparisonHarness.withPeerB;
 import static com.mcpscanner.checks.api.crossidentity.FakeMcpTarget.resourceRead;
+import static com.mcpscanner.checks.api.crossidentity.FakeMcpTarget.principal;
 import static com.mcpscanner.checks.api.crossidentity.FakeMcpTarget.toolCall;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -143,10 +144,10 @@ class AccessComparisonScenarioTest {
     }
 
     @Test
-    void withoutComparedIdentitiesNothingIsSent() {
+    void withoutComparedIdentitiesOnlyTheNoCredentialCallIsSent() {
         var run = new ComparisonHarness().run(FakeServers.objectStore(false), toolCall("get_note", "{\"id\":\"a1\"}", "A"));
 
-        assertThat(run.sent()).isEmpty();
+        assertThat(run.sent()).singleElement().satisfies(request -> assertThat(principal(request)).isNull());
         assertThat(run.decisions()).contains("no_peer_profile");
     }
 
@@ -155,7 +156,7 @@ class AccessComparisonScenarioTest {
         var run = new ComparisonHarness().with(identity("B", PrincipalRole.PEER, Map.of(), Optional.empty(), Map.of()))
                 .run(FakeServers.objectStore(true), toolCall("get_note", "{\"id\":\"a1\"}", "A"));
 
-        assertThat(run.sent()).isEmpty();
+        assertThat(run.sent()).singleElement().satisfies(request -> assertThat(principal(request)).isNull());
         assertThat(run.decisions()).contains("no_peer_profile");
     }
 

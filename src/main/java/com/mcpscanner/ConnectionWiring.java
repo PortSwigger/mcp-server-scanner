@@ -16,6 +16,7 @@ import com.mcpscanner.config.ResourceCap;
 import com.mcpscanner.http.ConnectionReuse;
 import com.mcpscanner.http.ConnectionReusingHttp;
 import com.mcpscanner.http.UpstreamExchanges;
+import com.mcpscanner.mcp.LaunchedBases;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.McpOperationFraming;
 import com.mcpscanner.mcp.ParamHeaderFramer;
@@ -23,6 +24,7 @@ import com.mcpscanner.mcp.ResendableRequests;
 import com.mcpscanner.mcp.ToolParamHeaders;
 import com.mcpscanner.proxy.Http1LoopbackRelay;
 import com.mcpscanner.proxy.McpHttpHandler;
+import com.mcpscanner.proxy.ProxyDroppedChanges;
 import com.mcpscanner.proxy.ProxyRouting;
 import com.mcpscanner.proxy.ProxySettings;
 import com.mcpscanner.proxy.SseProxyServer;
@@ -41,12 +43,13 @@ final class ConnectionWiring {
     private final SharedUpstreamTransport upstreamTransport;
     private final UpstreamRecording recording;
     private final ConnectionReuse connectionReuse;
+    private final ProxyDroppedChanges proxyDroppedChanges;
     private final Http burpHttp;
     private final McpOperationFraming.Framer operationFramer;
 
     private ConnectionWiring(MontoyaApi api, ExtensionFoundation foundation, McpClientManager clientManager, SseProxyServer sseProxy,
                              SharedUpstreamTransport upstreamTransport, UpstreamRecording recording,
-                             ConnectionReuse connectionReuse, Http burpHttp,
+                             ConnectionReuse connectionReuse, ProxyDroppedChanges proxyDroppedChanges, Http burpHttp,
                              McpOperationFraming.Framer operationFramer) {
         this.api = api;
         this.foundation = foundation;
@@ -55,6 +58,7 @@ final class ConnectionWiring {
         this.upstreamTransport = upstreamTransport;
         this.recording = recording;
         this.connectionReuse = connectionReuse;
+        this.proxyDroppedChanges = proxyDroppedChanges;
         this.burpHttp = burpHttp;
         this.operationFramer = operationFramer;
     }
@@ -62,7 +66,9 @@ final class ConnectionWiring {
     static ConnectionWiring create(MontoyaApi api, ExtensionFoundation foundation) {
         UpstreamRecording recording = UpstreamRecording.create(foundation.eventLog());
         BoundEndpoint scannerEndpoint = new BoundEndpoint();
-        ConnectionReuse connectionReuse = new ConnectionReuse(new ProxyRouting(scannerEndpoint)::answersLocally);
+        ResendableBurpRequests resendableBurpRequests = new ResendableBurpRequests();
+        ConnectionReuse connectionReuse = new ConnectionReuse(new ProxyRouting(scannerEndpoint)::answersLocally,
+                resendableBurpRequests);
         Http burpHttp = ConnectionReusingHttp.around(api.http(), connectionReuse);
         SharedUpstreamTransport upstreamTransport = SharedUpstreamTransport.over(burpHttp,
                 foundation.configStore()::useBurpNetworking, foundation.eventLog(), recording.captures());
@@ -72,10 +78,14 @@ final class ConnectionWiring {
         clientManager.addDisconnectListener(connectionReuse::forgetOrigins);
         clientManager.addDisconnectListener(upstreamTransport::forgetStreamingRoutes);
         McpOperationFraming.Framer operationFramer = operationFramer(clientManager, foundation.eventLog());
+        ResendableRequests resendableRequests = resendableRequests(clientManager);
+        resendableBurpRequests.bindTo(resendableRequests);
         return new ConnectionWiring(api, foundation, clientManager,
                 sseProxy(clientManager, foundation, upstreamTransport.transport(), recording,
-                        operationFramer, resendableRequests(clientManager)),
-                upstreamTransport, recording, connectionReuse, burpHttp, operationFramer);
+                        operationFramer, resendableRequests),
+                upstreamTransport, recording, connectionReuse, new ProxyDroppedChanges(scannerEndpoint,
+                        clientManager.scannerSession()::isIssuedSessionId), burpHttp,
+                operationFramer);
     }
 
     private static McpOperationFraming.Framer operationFramer(McpClientManager clientManager, McpEventLog eventLog) {
@@ -165,6 +175,10 @@ final class ConnectionWiring {
         return connectionReuse;
     }
 
+    ProxyDroppedChanges proxyDroppedChanges() {
+        return proxyDroppedChanges;
+    }
+
     SseProxyServer sseProxy() {
         return sseProxy;
     }
@@ -173,8 +187,13 @@ final class ConnectionWiring {
         return upstreamTransport.transport();
     }
 
+    LaunchedBases launchedBases() {
+        return recording.launchedBases();
+    }
+
     UpstreamExchanges upstreamExchanges() {
-        return recording.store().filingIssuesUnder(recording.legacySseRoutes()::stableUrl);
+        return recording.store().filingIssuesUnder(recording.legacySseRoutes()::stableUrl)
+                .proxiedThrough(sseProxy::service);
     }
 
     IsolatedCatalogDiscovery newIsolatedDiscovery() {

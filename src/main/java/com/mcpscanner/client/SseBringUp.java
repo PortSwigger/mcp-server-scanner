@@ -11,6 +11,7 @@ import com.mcpscanner.core.protocol.McpFlow;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Objects;
 
 final class SseBringUp {
 
@@ -22,6 +23,7 @@ final class SseBringUp {
     private final RedirectPolicy redirectPolicy;
     private final ConnectionAttemptSink sink;
     private final ServerPings serverPings;
+    private volatile SseExchangeListener exchangeListener = SseExchangeListener.IGNORING;
 
     SseBringUp(McpFlow flow, SseEndpointDiscoverer discoverer, ProtocolHttpExchange exchange,
                RedirectPolicy redirectPolicy, ConnectionAttemptSink sink, ServerPings serverPings) {
@@ -31,6 +33,10 @@ final class SseBringUp {
         this.redirectPolicy = redirectPolicy;
         this.sink = sink;
         this.serverPings = serverPings;
+    }
+
+    void observeExchangesWith(SseExchangeListener listener) {
+        exchangeListener = Objects.requireNonNull(listener, "listener");
     }
 
     SseSession open(String target, ConnectionAttempt attempt, RedirectMode redirectMode, ClientProfile profile) {
@@ -75,11 +81,11 @@ final class SseBringUp {
         URI messageUrl = discovered.messageUrl();
         recordMessageEndpointOrClose(attempt, discovered);
         return new DiscoveredSseStream(messageUrl, exchange.replyReader(discovered.sseStream()),
-                json -> sink.recordSseAdmission(attempt, json), serverPings,
+                json -> sink.recordSseAdmission(attempt, json), serverPings, discovered.opening(), exchangeListener,
                 request -> {
                     requireRedirectMode(redirectMode);
                     sink.rememberCredentials(attempt, request.headers());
-                    return exchange.post(messageUrl, request);
+                    return exchange.recordedPost(messageUrl, request);
                 });
     }
 }

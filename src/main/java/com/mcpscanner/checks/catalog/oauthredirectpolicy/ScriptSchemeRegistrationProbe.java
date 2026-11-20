@@ -1,10 +1,8 @@
 package com.mcpscanner.checks.catalog.oauthredirectpolicy;
 
-import burp.api.montoya.http.message.HttpRequestResponse;
 import com.mcpscanner.checks.shared.oauth.Registration;
 import com.mcpscanner.checks.shared.oauth.RegistrationStatus;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,21 +14,21 @@ final class ScriptSchemeRegistrationProbe implements RedirectProbe {
 
     @Override
     public List<RedirectFinding> run(ProbeContext context) {
-        return context.clients().https()
-                .map(control -> SCHEME_SPELLINGS.stream()
-                        .map(spellings -> firstAccepted(context, control, spellings))
-                        .flatMap(Optional::stream)
-                        .toList())
-                .orElse(List.of());
+        if (context.clients().https().isEmpty()) {
+            return List.of();
+        }
+        return SCHEME_SPELLINGS.stream()
+                .map(spellings -> firstAccepted(context, spellings))
+                .flatMap(Optional::stream)
+                .toList();
     }
 
-    private static Optional<RedirectFinding> firstAccepted(ProbeContext context, OwnedClient control,
-                                                           List<String> spellings) {
+    private static Optional<RedirectFinding> firstAccepted(ProbeContext context, List<String> spellings) {
         for (String redirectUri : spellings) {
             Registration registration = context.registrar()
                     .register(ProbeClientMetadata.redirectingTo(List.of(redirectUri)));
             if (registration.clientListingAll(List.of(redirectUri)).isPresent()) {
-                return Optional.of(finding(context, control, redirectUri, registration));
+                return Optional.of(finding(context, redirectUri, registration));
             }
             if (registration.status() != RegistrationStatus.REJECTED) {
                 return Optional.empty();
@@ -39,12 +37,8 @@ final class ScriptSchemeRegistrationProbe implements RedirectProbe {
         return Optional.empty();
     }
 
-    private static RedirectFinding finding(ProbeContext context, OwnedClient control, String redirectUri,
-                                           Registration registration) {
-        List<HttpRequestResponse> evidence = new ArrayList<>();
-        evidence.add(control.registration().evidence());
-        registration.exchange().ifPresent(evidence::add);
+    private static RedirectFinding finding(ProbeContext context, String redirectUri, Registration registration) {
         return new RedirectFinding(FindingKind.SCRIPT_SCHEME_REGISTRATION, context.registrar().endpoint(),
-                "registered and echoed " + redirectUri, evidence);
+                "registered and echoed " + redirectUri, registration.exchange().stream().toList());
     }
 }

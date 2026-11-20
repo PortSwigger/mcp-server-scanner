@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -22,7 +23,7 @@ final class ScriptedConnectionServer implements AutoCloseable {
     static final Reply DROP = (out, serverClosed) -> { };
     static final Reply UNTIL_CLOSED = (out, serverClosed) -> serverClosed.await();
 
-    private final ServerSocket socket = new ServerSocket(0);
+    private final ServerSocket socket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
     private final List<Reply> repliesByConnection;
     private final AtomicInteger connections = new AtomicInteger();
     private final CountDownLatch closed = new CountDownLatch(1);

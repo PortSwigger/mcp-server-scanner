@@ -22,8 +22,7 @@ class SseResponseParserTest {
     void ignoresEndpointWithoutEventTerminator(String ending) throws Exception {
         String sse = "event: endpoint\ndata: /message" + ending;
 
-        assertThat(SseResponseParser.extractEndpointUrl(
-                new BufferedReader(new StringReader(sse)))).isNull();
+        assertThat(endpointOf(sse)).isNull();
     }
 
     @Test
@@ -304,9 +303,7 @@ class SseResponseParserTest {
     @Test
     void extractsEndpointUrlFromStream() throws IOException {
         String sse = "event: endpoint\ndata: /message?sessionId=abc\n\n";
-        BufferedReader reader = new BufferedReader(new StringReader(sse));
-
-        String result = SseResponseParser.extractEndpointUrl(reader);
+        String result = endpointOf(sse);
 
         assertThat(result).isEqualTo("/message?sessionId=abc");
     }
@@ -314,18 +311,14 @@ class SseResponseParserTest {
     @Test
     void extractEndpointUrlReturnsNullWhenNoEndpointEvent() throws IOException {
         String sse = "event: message\ndata: {\"id\":1}\n\n";
-        BufferedReader reader = new BufferedReader(new StringReader(sse));
-
-        String result = SseResponseParser.extractEndpointUrl(reader);
+        String result = endpointOf(sse);
 
         assertThat(result).isNull();
     }
 
     @Test
     void extractEndpointUrlReturnsNullOnEmptyStream() throws IOException {
-        BufferedReader reader = new BufferedReader(new StringReader(""));
-
-        String result = SseResponseParser.extractEndpointUrl(reader);
+        String result = endpointOf("");
 
         assertThat(result).isNull();
     }
@@ -335,9 +328,7 @@ class SseResponseParserTest {
         StringBuilder huge = new StringBuilder("event: endpoint\ndata: /messages?session=");
         huge.append("a".repeat(2 * 1024 * 1024));
         huge.append("\n\n");
-        BufferedReader reader = new BufferedReader(new StringReader(huge.toString()));
-
-        assertThatThrownBy(() -> SseResponseParser.extractEndpointUrl(reader))
+        assertThatThrownBy(() -> endpointOf(huge.toString()))
                 .isInstanceOf(IOException.class);
     }
 
@@ -381,10 +372,21 @@ class SseResponseParserTest {
         String sse = "event:message\ndata:" + response + "\n\n";
 
         assertThat(SseResponseParser.extractJsonRpcResponse(sse)).isEqualTo(response);
-        assertThat(SseResponseParser.readNextEvent(new BufferedReader(new StringReader(sse))))
-                .isEqualTo(new SseResponseParser.SseEvent("message", response));
-        assertThat(SseResponseParser.extractEndpointUrl(new BufferedReader(new StringReader(
-                "event:endpoint\ndata:/message?sessionId=1\n\n")))).isEqualTo("/message?sessionId=1");
+        assertThat(SseResponseParser.nextDataFrame(SseResponseParser.eventFrames(
+                new java.io.ByteArrayInputStream(sse.getBytes(java.nio.charset.StandardCharsets.UTF_8)))).text())
+                .isEqualTo("event:message\ndata:" + response + "\n\n");
+        assertThat(endpointOf("event:endpoint\ndata:/message?sessionId=1\n\n")).isEqualTo("/message?sessionId=1");
+    }
+
+    @Test
+    void nextDataFrameSkipsFramesWithoutDataAndKeepsTheRawBytesOfTheOneWithData() throws Exception {
+        String sse = ": ping\r\n\r\nid: 2\r\ndata: {\"a\":\r\ndata: 1}\r\n\r\n";
+        SseFrameReader frames = SseResponseParser.eventFrames(
+                new java.io.ByteArrayInputStream(sse.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        assertThat(new String(SseResponseParser.nextDataFrame(frames).bytes(), java.nio.charset.StandardCharsets.UTF_8))
+                .isEqualTo("id: 2\r\ndata: {\"a\":\r\ndata: 1}\r\n\r\n");
+        assertThat(SseResponseParser.nextDataFrame(frames)).isNull();
     }
 
     @Test
@@ -392,5 +394,10 @@ class SseResponseParserTest {
         String sse = "event:endpoint\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\n";
 
         assertThat(SseResponseParser.extractJsonRpcResponse(sse)).isNull();
+    }
+
+    private static String endpointOf(String sse) throws IOException {
+        return SseResponseParser.extractEndpointUrl(SseResponseParser.endpointFrames(
+                new java.io.ByteArrayInputStream(sse.getBytes(StandardCharsets.UTF_8))));
     }
 }

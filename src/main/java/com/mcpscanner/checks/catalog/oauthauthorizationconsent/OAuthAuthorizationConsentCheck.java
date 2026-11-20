@@ -7,8 +7,11 @@ import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.checks.api.CheckDescriptor;
 import com.mcpscanner.checks.api.CheckLog;
 import com.mcpscanner.checks.api.HostCheck;
+import com.mcpscanner.checks.api.HostTrial;
 import com.mcpscanner.checks.api.OAuthSkipLog;
+import com.mcpscanner.checks.api.SignedInConsent;
 import com.mcpscanner.checks.api.SkipReason;
+import com.mcpscanner.checks.api.WholeCheckTrial;
 import com.mcpscanner.checks.shared.oauth.AuthorizationServer;
 import com.mcpscanner.checks.shared.oauth.AuthorizationServerDiscovery;
 import com.mcpscanner.checks.shared.oauth.HttpUris;
@@ -30,16 +33,29 @@ public final class OAuthAuthorizationConsentCheck implements HostCheck {
     private final Supplier<AuthStrategy> authStrategy;
     private final OAuthAuthorizationConsentIssues issues =
             new OAuthAuthorizationConsentIssues(OAuthAuthorizationConsentDescriptor.DESCRIPTOR);
+    private final List<HostTrial> trials;
 
     public OAuthAuthorizationConsentCheck(McpEventLog eventLog, Supplier<AuthStrategy> authStrategy) {
+        this(eventLog, authStrategy, SignedInConsent.OPTED_OUT);
+    }
+
+    public OAuthAuthorizationConsentCheck(McpEventLog eventLog, Supplier<AuthStrategy> authStrategy,
+                                          SignedInConsent signedInConsent) {
         this.log = new CheckLog(eventLog, OAuthAuthorizationConsentDescriptor.DESCRIPTOR.id());
         this.eventLog = eventLog;
         this.authStrategy = authStrategy;
+        this.trials = List.of(new WholeCheckTrial(this),
+                new SignedInConsentTrial(this, log, eventLog, authStrategy, signedInConsent, issues));
     }
 
     @Override
     public CheckDescriptor descriptor() {
         return OAuthAuthorizationConsentDescriptor.DESCRIPTOR;
+    }
+
+    @Override
+    public List<HostTrial> trials() {
+        return trials;
     }
 
     @Override
@@ -99,7 +115,7 @@ public final class OAuthAuthorizationConsentCheck implements HostCheck {
                     ledger, scope.skips(), scope.mcpEndpoint()).run(client));
         } finally {
             server.tokenEndpoint().ifPresent(tokenEndpoint -> new TokenRevocation(http,
-                    server.revocationEndpoint(), tokenEndpoint, eventLog).revoke(client.clientId(), ledger.issued()));
+                    server.revocationEndpoint(), tokenEndpoint, eventLog).revoke(client.credentials(), ledger.issued()));
         }
     }
 

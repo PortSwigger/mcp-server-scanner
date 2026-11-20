@@ -56,6 +56,14 @@ class SessionHeadersTest {
     }
 
     @Test
+    void aLegacySseSessionIdIsAlsoReadAsSent() {
+        assertThat(SessionHeaders.sentLegacySseSessionOf(ImmutableHttpRequest.post(
+                "http://host/messages/?session_id=p%2B1%3D%3D", Map.of(), "{}"))).contains("p%2B1%3D%3D");
+        assertThat(SessionHeaders.sentLegacySseSessionOf(ImmutableHttpRequest.post(
+                "http://host/mcp/sessions/281470279102720", Map.of(), "{}"))).contains("281470279102720");
+    }
+
+    @Test
     void aProbeOnTheLiveSessionsFixedMessageRouteHasNoSessionId() {
         assertThat(SessionHeaders.legacySseSessionOf("http://host/message", "http://host/message")).isEmpty();
         assertThat(SessionHeaders.legacySseSessionOf("http://host/mcp/sessions/2", "http://host/mcp/sessions/1"))

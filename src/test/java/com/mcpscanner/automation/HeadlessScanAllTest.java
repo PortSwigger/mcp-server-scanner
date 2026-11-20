@@ -53,7 +53,8 @@ class HeadlessScanAllTest {
             new IdentityStore(InMemoryPersistedObject.configStore(), McpEventLog.noop()));
     private final WriteReplayConfirmations confirmations = new WriteReplayConfirmations();
     private final HeadlessScanAll scanAll = new HeadlessScanAll(new HeadlessConnection(clientManager, useBurp -> { },
-            new IdentityHandover(registry, confirmations, (item, expectation) -> { }, seeds -> { }), new CurrentAuthHolder()),
+            new IdentityHandover(registry, confirmations, (item, expectation) -> { }, seeds -> { }), new CurrentAuthHolder(),
+            mock(SignedInSessionSeed.class)),
             mock(CommandSettings.class), family -> true, launcher, mock(LaunchedAudit.class),
             tool -> registry.primaryUser().ownedValues().ownerArguments().all());
 

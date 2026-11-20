@@ -147,6 +147,42 @@ class SessionBindingCheckTest {
     }
 
     @Test
+    void sessionReboundEvidenceIsTheBearerTheHijackTheIdentitysOwnReplyAndTheFirstRepeat() {
+        var run = withPeerB().run(FakeServers.rebindingSessions(false), SESSION_RECORD);
+
+        assertThat(run.issues()).filteredOn(issue -> issue.name().equals(SESSION_REBOUND)).singleElement()
+                .satisfies(issue -> {
+                    List<HttpRequest> evidence = issue.requestResponses().stream()
+                            .map(exchange -> exchange.request()).toList();
+                    String disposable = evidence.get(0).headerValue("Mcp-Session-Id");
+                    assertThat(evidence).hasSize(4);
+                    assertThat(evidence).extracting(FakeMcpTarget::principal)
+                            .containsExactly(null, "B", "B", null);
+                    assertThat(evidence).extracting(request -> request.headerValue("Mcp-Session-Id"))
+                            .containsExactly(disposable, disposable, evidence.get(2).headerValue("Mcp-Session-Id"),
+                                    disposable)
+                            .doesNotContain("sess-A");
+                    assertThat(evidence.get(2).headerValue("Mcp-Session-Id")).isNotEqualTo(disposable);
+                    assertThat(run.sent()).filteredOn(request -> !"DELETE".equals(request.method()))
+                            .filteredOn(request -> FakeMcpTarget.principal(request) == null)
+                            .filteredOn(request -> disposable.equals(request.headerValue("Mcp-Session-Id")))
+                            .hasSize(3);
+                });
+    }
+
+    @Test
+    void sessionReboundDetailNamesWhichAttachedRequestIsWhich() {
+        var run = withPeerB().run(FakeServers.rebindingSessions(false), SESSION_RECORD);
+
+        assertThat(run.issues()).filteredOn(issue -> issue.name().equals(SESSION_REBOUND)).singleElement()
+                .satisfies(issue -> assertThat(issue.detail())
+                        .contains("two repeated credential-free requests")
+                        .contains("the third request in the evidence is identity-B&#39;s reply in its own session")
+                        .contains("the last request in the evidence is the first of them; the second, identical, "
+                                + "is not attached"));
+    }
+
+    @Test
     void rebindingServerNeverReceivesTheIdentitysCredentialOnTheLiveSession() {
         var run = withPeerB().run(FakeServers.rebindingSessions(false), SESSION_RECORD);
 

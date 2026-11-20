@@ -5,7 +5,7 @@ import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 
 enum FindingKind {
     CODE_DELIVERY(
-            "OAuth authorization code sent to unregistered redirect URI",
+            "MCP OAuth authorization code sent to unregistered redirect URI",
             AuditIssueSeverity.MEDIUM, AuditIssueConfidence.FIRM,
             "The authorization endpoint redirected an authorization code to a redirect URI that the scanner's "
                     + "own client never registered. The registered redirect URI of the same client received an "
@@ -17,7 +17,7 @@ enum FindingKind {
                     + "exact string match (RFC 9700 section 2.1), and reject the request without redirecting "
                     + "when it does not match."),
     ERROR_DELIVERY(
-            "OAuth error response sent to unregistered redirect URI",
+            "MCP OAuth error response sent to unregistered redirect URI",
             AuditIssueSeverity.INFORMATION, AuditIssueConfidence.TENTATIVE,
             "The authorization endpoint redirected an OAuth error response to a redirect URI that the scanner's "
                     + "own client never registered, after the registered redirect URI received an OAuth "
@@ -27,16 +27,16 @@ enum FindingKind {
             "Validate redirect_uri against the client's registered redirect URIs before returning any error by "
                     + "redirect. Show unvalidated errors on the authorization server's own page instead."),
     SCRIPT_SCHEME_REGISTRATION(
-            "OAuth dynamic client registration accepts script-scheme redirect URI",
+            "MCP OAuth dynamic client registration accepts script-scheme redirect URI",
             AuditIssueSeverity.INFORMATION, AuditIssueConfidence.TENTATIVE,
             "Anonymous dynamic client registration accepted and echoed a javascript: or data: redirect URI, "
-                    + "after an HTTPS redirect URI control registration succeeded.",
+                    + "after an HTTPS redirect URI control registration (not attached) succeeded.",
             "This establishes registration policy only. It does not prove that a consent page navigates to the "
                     + "stored URI, that script runs, or that any user is affected.",
             "Reject javascript:, data: and other script-capable schemes, in any letter case, when clients "
                     + "register redirect URIs (RFC 7591 section 5, RFC 9700 section 4.1.3)."),
     WILDCARD_EXPANSION(
-            "OAuth authorization endpoint expands wildcard redirect URI",
+            "MCP OAuth authorization endpoint expands wildcard redirect URI",
             AuditIssueSeverity.INFORMATION, AuditIssueConfidence.FIRM,
             "The scanner's own client registered a wildcard-host redirect URI. The authorization endpoint then "
                     + "redirected an authorization code to a concrete host that only the wildcard matched, after "
@@ -45,7 +45,23 @@ enum FindingKind {
             "This proves pattern matching of redirect URIs at the authorization endpoint. The scanner chose the "
                     + "wildcard itself, so it shows no theft of another client's code.",
             "Match redirect URIs exactly at the authorization endpoint and refuse wildcard registrations "
-                    + "(RFC 9700 section 2.1).");
+                    + "(RFC 9700 section 2.1)."),
+    ANY_HOST_REGISTRATION(
+            "MCP OAuth dynamic client registration accepts redirect URI on any host",
+            AuditIssueSeverity.INFORMATION, AuditIssueConfidence.FIRM,
+            "Anonymous dynamic client registration, sent without an initial access token or any other "
+                    + "credential, accepted and echoed an HTTPS redirect URI on client.example.com, a third-party "
+                    + "host unrelated to the authorization server. Anyone can register a client whose "
+                    + "authorization responses go to a host they control, and then send a victim an "
+                    + "authorization link for that client.",
+            "This establishes registration policy only. The MCP authorization specification allows any HTTPS "
+                    + "redirect URI, so this does not prove consent bypass, authorization code delivery or "
+                    + "account takeover. The risk depends on whether the authorization server shows a consent "
+                    + "page that names the client and its redirect host before it redirects a code.",
+            "Restrict the redirect URIs that anonymous clients can register (loopback, client ID metadata "
+                    + "documents or an allowlist of hosts), or require an initial access token for dynamic "
+                    + "client registration (RFC 7591 section 5). Always show a consent page that names the "
+                    + "redirect host for a newly registered client (RFC 9700 sections 4.1 and 4.5).");
 
     private final String issueName;
     private final AuditIssueSeverity severity;

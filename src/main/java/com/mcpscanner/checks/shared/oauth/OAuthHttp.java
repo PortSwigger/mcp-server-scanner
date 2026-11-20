@@ -5,6 +5,8 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.mcpscanner.http.BareRequests;
+import com.mcpscanner.http.EmptyResponse;
+import com.mcpscanner.http.OutsideScanQueue;
 import com.mcpscanner.mcp.BurpStreamingRefusal;
 import com.mcpscanner.mcp.TooManyRequests;
 
@@ -86,7 +88,7 @@ public final class OAuthHttp {
             return Optional.empty();
         }
         try {
-            return answered(http.sendRequest(request));
+            return answered(exchange(http, request));
         } catch (RuntimeException failure) {
             if (BurpStreamingRefusal.refused(failure)) {
                 return missed(NoAnswer.STREAMED_REPLY);
@@ -95,8 +97,12 @@ public final class OAuthHttp {
         }
     }
 
+    public static HttpRequestResponse exchange(Http http, HttpRequest request) {
+        return OutsideScanQueue.send(http, request);
+    }
+
     Optional<HttpRequestResponse> answered(HttpRequestResponse exchange) {
-        if (exchange == null || exchange.response() == null) {
+        if (unanswered(exchange)) {
             return missed(NoAnswer.NO_RESPONSE);
         }
         if (TooManyRequests.is(exchange.response())) {
@@ -107,6 +113,10 @@ public final class OAuthHttp {
             missedSinceLastSuccess.set(null);
         }
         return Optional.of(exchange);
+    }
+
+    private static boolean unanswered(HttpRequestResponse exchange) {
+        return exchange == null || exchange.response() == null || EmptyResponse.is(exchange.response());
     }
 
     private Optional<HttpRequestResponse> missed(NoAnswer reason) {

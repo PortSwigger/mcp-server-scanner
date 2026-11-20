@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.auth.OAuthAuthCodeStrategy;
@@ -113,7 +114,7 @@ class OAuthConfigPanelTest {
         PersistedObject store = mock(PersistedObject.class);
         when(store.getBoolean(anyString())).thenReturn(null);
         when(store.getString("mcp.oauth.client_id")).thenReturn("saved-client");
-        OAuthConfigPanel uut = newPanelWithStore(new ExtensionConfigStore(store, mock(Logging.class)),
+        OAuthConfigPanel uut = newPanelWithStore(new ExtensionConfigStore(store, new InMemoryPreferences(), mock(Logging.class)),
                 mock(OAuthMetadataDiscoverer.class));
 
         assertThat(com.mcpscanner.testutil.SwingTree.visibleDescendants(uut))
@@ -366,6 +367,163 @@ class OAuthConfigPanelTest {
     }
 
     @Test
+    void anUntickedDiscoveredScopeStaysUntickedWhenDiscoveryRuns() throws Exception {
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        untickAllBut(panel, "mcp:tools");
+
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+
+        assertThat(panel.buildOauthHintsSnapshot().scopes()).containsExactly("mcp:tools");
+        assertThat(panel.scopeTable().scopesSnapshot()).hasSize(4);
+    }
+
+    @Test
+    void scopeSelectionSurvivesReloadAndLaterDiscovery() throws Exception {
+        ExtensionConfigStore store = statefulConfigStore(new HashMap<>());
+        OAuthConfigPanel original = newPanelWithStore(store, mock(OAuthMetadataDiscoverer.class));
+        invokeAndWait(() -> original.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        untickAllBut(original, "mcp:tools");
+
+        OAuthConfigPanel restored = newPanelWithStore(store, mock(OAuthMetadataDiscoverer.class));
+        assertThat(restored.buildOauthHintsSnapshot().scopes()).containsExactly("mcp:tools");
+        invokeAndWait(() -> restored.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+
+        assertThat(restored.buildOauthHintsSnapshot().scopes()).containsExactly("mcp:tools");
+        assertThat(restored.scopeTable().scopesSnapshot()).hasSize(4);
+    }
+
+    @Test
+    void anUntickedScopeStaysDeclinedAcrossDisconnectAndReconnect() throws Exception {
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        untickAllBut(panel, "mcp:tools");
+
+        invokeAndWait(panel::clearAutoDiscoveredOAuth);
+
+        assertThat(scopesRequestedAtConnect(panel)).containsExactly("mcp:tools");
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        assertThat(scopesRequestedAtConnect(panel)).containsExactly("mcp:tools");
+        assertThat(panel.scopeTable().enabledScopes()).containsExactly("mcp:tools");
+    }
+
+    @Test
+    void aStaleTickedDiscoveredScopeIsNotRequestedWhenTheServerNoLongerAdvertisesIt() throws Exception {
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(List.of("mcp:a"))));
+
+        List<String> requested = panel.buildOauthHintsSnapshot()
+                .withIssuer(URI.create("https://issuer.example"), List.of("mcp:b")).scopes();
+
+        assertThat(requested).containsExactly("mcp:b");
+    }
+
+    @Test
+    void untickingEveryScopeRequestsNone() throws Exception {
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        untickAllBut(panel, "none");
+
+        assertThat(scopesRequestedAtConnect(panel)).isEmpty();
+    }
+
+    @Test
+    void aTickedCustomScopeIsRequestedWithTheDiscoveredScopes() throws Exception {
+        panel.scopeTable().seed(List.of(ScopeTableModel.customScope("offline_access")));
+
+        assertThat(scopesRequestedAtConnect(panel))
+                .containsExactly("mcp:tools", "mcp:resources", "mcp:prompts", "mcp:admin", "offline_access");
+    }
+
+    @Test
+    void disconnectKeepsEveryScopeRowWithItsTickAcrossReconnectAndReopen() throws Exception {
+        ExtensionConfigStore store = statefulConfigStore(new HashMap<>());
+        OAuthConfigPanel original = newPanelWithStore(store, mock(OAuthMetadataDiscoverer.class));
+        invokeAndWait(() -> original.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        untickAllBut(original, "mcp:tools");
+        List<ExtensionConfigStore.PersistedScope> narrowed = original.scopeTable().scopesSnapshot();
+
+        invokeAndWait(original::clearAutoDiscoveredOAuth);
+        assertThat(original.scopeTable().scopesSnapshot()).isEqualTo(narrowed);
+        invokeAndWait(() -> original.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        assertThat(original.scopeTable().scopesSnapshot()).isEqualTo(narrowed);
+
+        OAuthConfigPanel reopened = newPanelWithStore(store, mock(OAuthMetadataDiscoverer.class));
+        assertThat(reopened.scopeTable().scopesSnapshot()).isEqualTo(narrowed);
+    }
+
+    @Test
+    void movingToAnotherHostWithATypedIssuerDropsTheOldServersScopes() throws Exception {
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        untickAllBut(panel, "mcp:tools");
+        invokeAndWait(() -> panel.getOauthIssuerField().setText("https://issuer.example"));
+
+        invokeAndWait(panel::forgetPreviousServer);
+
+        assertThat(panel.buildOauthHintsSnapshot().scopes()).isEmpty();
+        assertThat(panel.scopeTable().scopesSnapshot()).isEmpty();
+    }
+
+    @Test
+    void aScopeDeclinedForTheOldHostIsNotDeclinedForTheNextHost() throws Exception {
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        untickAllBut(panel, "mcp:tools");
+
+        invokeAndWait(panel::forgetPreviousServer);
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+
+        assertThat(panel.scopeTable().scopeSelection().declined()).isEmpty();
+        assertThat(panel.scopeTable().scopesSnapshot()).allSatisfy(scope -> assertThat(scope.enabled()).isTrue());
+    }
+
+    @Test
+    void movingToAnotherHostKeepsCustomScopes() throws Exception {
+        invokeAndWait(() -> panel.scopeTable().seed(List.of(ScopeTableModel.customScope("custom:read"))));
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+
+        invokeAndWait(panel::forgetPreviousServer);
+
+        assertThat(panel.scopeTable().scopesSnapshot()).extracting(ExtensionConfigStore.PersistedScope::name)
+                .containsExactly("custom:read");
+    }
+
+    @Test
+    void disconnectWithATypedIssuerStillRequestsTheTickedScope() throws Exception {
+        invokeAndWait(() -> panel.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+        untickAllBut(panel, "mcp:tools");
+        invokeAndWait(() -> panel.getOauthIssuerField().setText("https://issuer.example"));
+
+        invokeAndWait(panel::clearAutoDiscoveredOAuth);
+
+        assertThat(panel.buildOauthHintsSnapshot().scopes()).containsExactly("mcp:tools");
+    }
+
+    @Test
+    void discoveredScopesAreSavedAsSoonAsTheyAreDiscovered() throws Exception {
+        ExtensionConfigStore store = statefulConfigStore(new HashMap<>());
+        OAuthConfigPanel original = newPanelWithStore(store, mock(OAuthMetadataDiscoverer.class));
+
+        invokeAndWait(() -> original.applyDiscoveredMetadata(advertising(ALL_SCOPES)));
+
+        assertThat(store.scopes()).isEqualTo(original.scopeTable().scopesSnapshot()).hasSize(4);
+    }
+
+    private static List<String> scopesRequestedAtConnect(OAuthConfigPanel target) {
+        return target.buildOauthHintsSnapshot().withIssuer(URI.create("https://issuer.example"), ALL_SCOPES).scopes();
+    }
+
+    private static final List<String> ALL_SCOPES = List.of("mcp:tools", "mcp:resources", "mcp:prompts", "mcp:admin");
+
+    private static DiscoveredMetadata advertising(List<String> scopes) {
+        return new DiscoveredMetadata(URI.create("https://issuer.example"), DiscoverySource.AS_WELL_KNOWN,
+                mock(AuthorizationServerMetadata.class), scopes);
+    }
+
+    private static void untickAllBut(OAuthConfigPanel target, String kept) {
+        javax.swing.JTable table = target.scopeTable().table();
+        for (int row = 0; row < table.getRowCount(); row++) {
+            boolean keep = kept.equals(table.getValueAt(row, ScopeTableModel.COLUMN_NAME));
+            table.setValueAt(keep, row, ScopeTableModel.COLUMN_ENABLED);
+        }
+    }
+
+    @Test
     void savedClientBindingStillRejectsChangedIssuerAfterReload() {
         Map<String, Object> values = new HashMap<>();
         ExtensionConfigStore store = statefulConfigStore(values);
@@ -390,7 +548,7 @@ class OAuthConfigPanelTest {
                 .when(persisted).setString(anyString(), anyString());
         doAnswer(call -> values.put(call.getArgument(0), call.getArgument(1)))
                 .when(persisted).setInteger(anyString(), org.mockito.ArgumentMatchers.anyInt());
-        return new ExtensionConfigStore(persisted, mock(Logging.class));
+        return new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class));
     }
 
     @Test
@@ -450,7 +608,7 @@ class OAuthConfigPanelTest {
         when(store.getString("mcp.oauth.issuer")).thenReturn("https://issuer.example");
         when(store.getString("mcp.oauth.client_id")).thenReturn("old-ignored-id");
         when(store.getBoolean("mcp.oauth.skip_dcr")).thenReturn(false);
-        OAuthConfigPanel restored = newPanelWithStore(new ExtensionConfigStore(store, mock(Logging.class)),
+        OAuthConfigPanel restored = newPanelWithStore(new ExtensionConfigStore(store, new InMemoryPreferences(), mock(Logging.class)),
                 mock(OAuthMetadataDiscoverer.class));
 
         assertThat(restored.getOauthClientIdField().getText()).isEqualTo("old-ignored-id");
@@ -575,7 +733,7 @@ class OAuthConfigPanelTest {
     void clearAutoDiscoveredOAuthWipesIssuerAndClearsConfigKeyWhenAutoDiscovered() throws Exception {
         PersistedObject store = mock(PersistedObject.class);
         when(store.getBoolean(anyString())).thenReturn(null);
-        ExtensionConfigStore configStore = new ExtensionConfigStore(store, mock(Logging.class));
+        ExtensionConfigStore configStore = new ExtensionConfigStore(store, new InMemoryPreferences(), mock(Logging.class));
         DiscoveredMetadata metadata = new DiscoveredMetadata(
                 URI.create("https://issuer.example"),
                 DiscoverySource.AS_WELL_KNOWN,
@@ -598,7 +756,7 @@ class OAuthConfigPanelTest {
     void clearAutoDiscoveredOAuthLeavesUserTypedIssuerIntact() throws Exception {
         PersistedObject store = mock(PersistedObject.class);
         when(store.getBoolean(anyString())).thenReturn(null);
-        ExtensionConfigStore configStore = new ExtensionConfigStore(store, mock(Logging.class));
+        ExtensionConfigStore configStore = new ExtensionConfigStore(store, new InMemoryPreferences(), mock(Logging.class));
 
         AtomicReference<OAuthConfigPanel> ref = new AtomicReference<>();
         invokeAndWait(() -> ref.set(newPanelWithStore(configStore, mock(OAuthMetadataDiscoverer.class))));
@@ -614,7 +772,7 @@ class OAuthConfigPanelTest {
     void discoveryDoesNotPersistIssuer() throws Exception {
         PersistedObject store = mock(PersistedObject.class);
         when(store.getBoolean(anyString())).thenReturn(null);
-        ExtensionConfigStore configStore = new ExtensionConfigStore(store, mock(Logging.class));
+        ExtensionConfigStore configStore = new ExtensionConfigStore(store, new InMemoryPreferences(), mock(Logging.class));
         DiscoveredMetadata metadata = new DiscoveredMetadata(
                 URI.create("https://issuer.example"),
                 DiscoverySource.AS_WELL_KNOWN,
@@ -635,7 +793,7 @@ class OAuthConfigPanelTest {
     void userEditAfterDiscoveryClearsAutoFlagAndPersists() throws Exception {
         PersistedObject store = mock(PersistedObject.class);
         when(store.getBoolean(anyString())).thenReturn(null);
-        ExtensionConfigStore configStore = new ExtensionConfigStore(store, mock(Logging.class));
+        ExtensionConfigStore configStore = new ExtensionConfigStore(store, new InMemoryPreferences(), mock(Logging.class));
         DiscoveredMetadata metadata = new DiscoveredMetadata(
                 URI.create("https://issuer.example"),
                 DiscoverySource.AS_WELL_KNOWN,
@@ -659,7 +817,7 @@ class OAuthConfigPanelTest {
     void clearAutoDiscoveredOAuthIsIdempotent() throws Exception {
         PersistedObject store = mock(PersistedObject.class);
         when(store.getBoolean(anyString())).thenReturn(null);
-        ExtensionConfigStore configStore = new ExtensionConfigStore(store, mock(Logging.class));
+        ExtensionConfigStore configStore = new ExtensionConfigStore(store, new InMemoryPreferences(), mock(Logging.class));
 
         AtomicReference<OAuthConfigPanel> ref = new AtomicReference<>();
         invokeAndWait(() -> ref.set(newPanelWithStore(configStore, mock(OAuthMetadataDiscoverer.class))));

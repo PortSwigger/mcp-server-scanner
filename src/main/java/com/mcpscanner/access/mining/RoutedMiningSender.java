@@ -22,6 +22,6 @@ public final class RoutedMiningSender implements MiningSender {
     public MiningReply send(Principal identity, MiningCall call) {
         HttpRequestResponse exchange = http.sendRequest(identities.routed(identity, requests.render(call)));
         return exchange == null || exchange.response() == null ? MiningReply.unanswered()
-                : MiningReply.of(exchange.response().statusCode(), McpReply.in(exchange.response()).result());
+                : MiningReply.of(exchange.response().statusCode(), McpReply.of(exchange).result());
     }
 }

@@ -68,6 +68,44 @@ class SseSessionLifecycleTest {
     }
 
     @Test
+    void pathSessionHandshakesAreAttachedWithTheIssuedIdHighlighted() {
+        AtomicLong pointer = new AtomicLong(281_470_279_102_720L);
+        server.messageUrl = FakeSseSessionServer.PATH_MESSAGE_URL;
+        server.ids = () -> Long.toString(pointer.getAndAdd(64L << 20));
+
+        assertThat(audit(base(FakeSseSessionServer.PATH_MESSAGE_URL + "281470010667200"))).singleElement()
+                .satisfies(issue -> assertThat(issue.requestResponses()).hasSize(GuessabilityArm.SHOWN_HANDSHAKES)
+                        .satisfiesExactly(
+                                exchange -> assertHighlighted(exchange, server.issued.get(0)),
+                                exchange -> assertHighlighted(exchange, server.issued.get(1))));
+    }
+
+    @Test
+    void urlEncodedQuerySessionHandshakesAreAttachedWithTheEncodedIdHighlighted() {
+        AtomicLong pointer = new AtomicLong(281_470_279_102_720L);
+        server.encodeIds = true;
+        server.ids = () -> "p+" + pointer.getAndAdd(64L << 20) + "==";
+
+        assertThat(audit()).singleElement()
+                .satisfies(issue -> assertThat(issue.requestResponses()).hasSize(GuessabilityArm.SHOWN_HANDSHAKES)
+                        .satisfiesExactly(
+                                exchange -> assertHighlighted(exchange, encoded(server.issued.get(0))),
+                                exchange -> assertHighlighted(exchange, encoded(server.issued.get(1)))));
+    }
+
+    @Test
+    void aSessionIdThatPrefixesAnotherDoesNotLabelItsHandshake() {
+        java.util.Iterator<String> ids = List.of("1", "10", "20", "30", "40", "50", "60", "70").iterator();
+        server.ids = ids::next;
+
+        assertThat(audit()).singleElement()
+                .satisfies(issue -> assertThat(issue.requestResponses()).hasSize(GuessabilityArm.SHOWN_HANDSHAKES)
+                        .satisfiesExactly(
+                                exchange -> assertHighlighted(exchange, "1"),
+                                exchange -> assertHighlighted(exchange, "10")));
+    }
+
+    @Test
     void aPathOnlyRequestIsNotTreatedAsSseWhenTheTransportIsNotSse() {
         CheckServices services = new CheckServices(log, () -> () -> Map.of(), Optional::empty, Optional::empty,
                 PrincipalRoster::empty, AccessLedger.noop(), PrincipalListings.unknown(), Optional::empty);
@@ -166,6 +204,18 @@ class SseSessionLifecycleTest {
         return HttpRequestResponse.httpRequestResponse(request,
                 HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
                         + "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"tools\":[]}}"));
+    }
+
+    private static void assertHighlighted(HttpRequestResponse exchange, String text) {
+        assertThat(exchange.request().url()).endsWith(text);
+        String sent = exchange.request().toByteArray().toString();
+        assertThat(exchange.requestMarkers()).isNotEmpty().allSatisfy(marker -> assertThat(
+                sent.substring(marker.range().startIndexInclusive(), marker.range().endIndexExclusive()))
+                .isEqualTo(text));
+    }
+
+    private static String encoded(String id) {
+        return java.net.URLEncoder.encode(id, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     private List<String> messages() {

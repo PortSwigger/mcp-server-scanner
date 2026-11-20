@@ -18,10 +18,13 @@ import com.mcpscanner.core.oauth.RegistrationSelector;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Map;
+import java.util.Optional;
 
 final class ClientRegistrar {
 
     private static final String PURPOSE_CLIENT_METADATA_DOCUMENT = "OAuth client metadata document";
+    private static final String CLIENT_NAME = "client_name";
 
     private final BurpHttpRequestSender sender;
     private final OAuthDestinationGuard guard;
@@ -42,11 +45,11 @@ final class ClientRegistrar {
         if (selection.mode() == RegistrationMode.DCR) {
             return dynamicRegistrar.register(metadata.getRegistrationEndpointURI(), hints, callback);
         }
-        if (selection.mode() == RegistrationMode.CIMD) {
-            requireValidClientDocument(hints, callback, mcpResource);
-        }
+        Optional<String> clientName = selection.mode() == RegistrationMode.CIMD
+                ? Optional.of(validClientDocumentName(hints, callback, mcpResource))
+                : Optional.empty();
         eventLog.info("DCR skipped - registration mode=" + selection.mode());
-        return new ClientRegistration(selection.clientId(), selection.clientSecret(), selection.mode());
+        return new ClientRegistration(selection.clientId(), selection.clientSecret(), selection.mode(), clientName);
     }
 
     private static RegistrationSelection select(AuthorizationServerMetadata metadata, OAuthClientHints hints,
@@ -65,7 +68,7 @@ final class ClientRegistrar {
         }
     }
 
-    private void requireValidClientDocument(OAuthClientHints hints, LoopbackCallback callback, URI mcpResource) {
+    private String validClientDocumentName(OAuthClientHints hints, LoopbackCallback callback, URI mcpResource) {
         if (hints.redirectPort() == 0) {
             throw new OAuthException("CIMD requires a configured fixed callback port");
         }
@@ -74,7 +77,9 @@ final class ClientRegistrar {
         try {
             HTTPResponse response = OAuthHttpTimeouts.apply(new HTTPRequest(HTTPRequest.Method.GET, location)).send(sender);
             response.ensureStatusCode(200);
-            new CimdDocumentValidator().validate(location, JSONObjectUtils.parse(response.getBody()), callback.uri());
+            Map<String, Object> document = JSONObjectUtils.parse(response.getBody());
+            new CimdDocumentValidator().validate(location, document, callback.uri());
+            return (String) document.get(CLIENT_NAME);
         } catch (IOException | GeneralException e) {
             throw new OAuthException("Failed to fetch client metadata document: " + e.getMessage(), e);
         } catch (RegistrationException invalidDocument) {

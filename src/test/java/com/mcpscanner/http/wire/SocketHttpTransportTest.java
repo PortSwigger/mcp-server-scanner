@@ -53,6 +53,26 @@ class SocketHttpTransportTest {
     }
 
     @Test
+    void recordsTheBytesItWroteAndEveryRawByteTheCallerRead() throws Exception {
+        String reply = "HTTP/1.1 200 Fine\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nTransfer-Encoding: chunked\r\n\r\n"
+                + "2\r\nok\r\n0\r\n\r\n";
+        try (OneConnectionServer server = OneConnectionServer.replyingWith(reply)) {
+            WireRequest sent = foreignHostRequest("http://127.0.0.1:" + server.port());
+            try (WireExchange exchange = new SocketHttpTransport(READ_TIMEOUT).exchange(sent)) {
+                assertThat(body(exchange)).isEqualTo("ok");
+
+                var evidence = exchange.record().evidence();
+
+                assertThat(evidence.request().toByteArray().getBytes()).isEqualTo(sent.bytes());
+                assertThat(server.received().head()).isEqualTo(headOf(sent));
+                assertThat(new String(evidence.response().toByteArray().getBytes(), StandardCharsets.ISO_8859_1))
+                        .isEqualTo(reply);
+                assertThat(evidence.request().httpService().port()).isEqualTo(server.port());
+            }
+        }
+    }
+
+    @Test
     void aReplyThatNeverArrivesIsASentFailure() throws Exception {
         try (OneConnectionServer server = OneConnectionServer.silent()) {
             SocketHttpTransport transport = new SocketHttpTransport(Duration.ofMillis(300));
@@ -148,6 +168,11 @@ class SocketHttpTransportTest {
         try (ServerSocket socket = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
             return socket.getLocalPort();
         }
+    }
+
+    private static String headOf(WireRequest request) {
+        String whole = new String(request.bytes(), StandardCharsets.ISO_8859_1);
+        return whole.substring(0, whole.indexOf("\r\n\r\n") + 4);
     }
 
     private static String body(WireExchange exchange) throws IOException {

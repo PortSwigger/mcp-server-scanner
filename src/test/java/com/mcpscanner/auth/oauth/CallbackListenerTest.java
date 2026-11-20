@@ -19,6 +19,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CallbackListenerTest {
 
     @Test
+    void listensOnTheIpv6LoopbackLiteralItIsGiven() throws Exception {
+        try (CallbackListener listener = CallbackListener.start("[::1]", 0, "/callback")) {
+            HttpClient.newHttpClient().send(HttpRequest.newBuilder()
+                    .uri(URI.create("http://[::1]:" + listener.port() + "/callback?code=abc&state=xyz"))
+                    .timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding());
+
+            assertThat(callbackWithin(listener, Duration.ofSeconds(5)).code()).isEqualTo("abc");
+        }
+    }
+
+    @Test
     void capturesAuthorizationResponseIssuer() throws Exception {
         try (CallbackListener listener = CallbackListener.start(0, "/callback")) {
             HttpClient.newHttpClient().send(HttpRequest.newBuilder()
@@ -50,6 +61,24 @@ class CallbackListenerTest {
             assertThat(result.code()).isEqualTo("abc");
             assertThat(result.state()).isEqualTo("xyz");
             assertThat(result.isError()).isFalse();
+        }
+    }
+
+    @Test
+    void servesTheSuccessPageWhenItsOwnerClosesAsSoonAsTheCallbackArrives() throws Exception {
+        try (CallbackListener listener = CallbackListener.start(0, "/callback")) {
+            listener.awaitCallback().thenRunAsync(listener::close);
+
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://127.0.0.1:" + listener.port() + "/callback?code=abc&state=xyz"))
+                            .timeout(Duration.ofSeconds(5))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.body()).contains("Authorization complete");
         }
     }
 

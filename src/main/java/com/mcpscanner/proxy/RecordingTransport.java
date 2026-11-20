@@ -3,7 +3,9 @@ package com.mcpscanner.proxy;
 import com.mcpscanner.client.ProtocolHttpRequest;
 import com.mcpscanner.client.ProtocolHttpResponse;
 import com.mcpscanner.client.ProtocolHttpTransport;
-import com.mcpscanner.http.BurpMessages;
+import com.mcpscanner.http.evidence.BodyCapture;
+import com.mcpscanner.http.evidence.WireRecord;
+import com.mcpscanner.mcp.BoundedBodyReader;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -24,15 +26,14 @@ final class RecordingTransport implements ProtocolHttpTransport {
             throws IOException, InterruptedException {
         Optional<ForwardCapture> capture = captures.current();
         ProtocolHttpResponse response = delegate.send(request, timeout);
-        return capture.map(active -> recorded(active, request, response)).orElse(response);
+        return capture.flatMap(active -> response.wire().map(wire -> recorded(active, request, response, wire)))
+                .orElse(response);
     }
 
     private static ProtocolHttpResponse recorded(ForwardCapture capture, ProtocolHttpRequest request,
-                                                 ProtocolHttpResponse response) {
-        CapturedBody body = new CapturedBody(response.body());
-        capture.record(() -> new RecordedExchange(request.uri(), request.method(),
-                BurpMessages.multiValued(request.headers()), request.body(), response.status(), response.headers(),
-                body.captured()));
-        return new ProtocolHttpResponse(response.status(), response.headers(), body, response.uri());
+                                                 ProtocolHttpResponse response, WireRecord wire) {
+        BodyCapture body = new BodyCapture(response.body(), BoundedBodyReader.MAX_RESPONSE_BYTES);
+        capture.record(() -> new RecordedExchange(request.body(), body.completing(wire)));
+        return response.withBody(body);
     }
 }

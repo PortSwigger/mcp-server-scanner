@@ -15,13 +15,16 @@ public final class HeadlessConnection {
     private final Consumer<Boolean> burpNetworking;
     private final IdentityHandover identities;
     private final CurrentAuthHolder authHolder;
+    private final SignedInSessionSeed signedInSession;
 
     public HeadlessConnection(McpClientManager clientManager, Consumer<Boolean> burpNetworking,
-                              IdentityHandover identities, CurrentAuthHolder authHolder) {
+                              IdentityHandover identities, CurrentAuthHolder authHolder,
+                              SignedInSessionSeed signedInSession) {
         this.clientManager = clientManager;
         this.burpNetworking = burpNetworking;
         this.identities = identities;
         this.authHolder = authHolder;
+        this.signedInSession = signedInSession;
     }
 
     synchronized <T> T exclusively(Supplier<T> launch) {
@@ -29,11 +32,13 @@ public final class HeadlessConnection {
     }
 
     HeadlessConnected connect(ConnectCommand command) {
+        clientManager.beginConnectAttempt();
+        signedInSession.beforeConnect(command.signedInSession(), command.endpoint());
         if (command.useBurpNetworking() != null) {
             burpNetworking.accept(command.useBurpNetworking());
         }
-        identities.beforeConnect(command.identities(), command.auth());
         AuthStrategy strategy = command.auth().strategy();
+        identities.beforeConnect(command.identities(), command.auth(), strategy);
         ConnectResult inventory = clientManager.connect(
                 new McpServerConfig(command.endpoint(), command.transport(), strategy));
         identities.afterConnect(command.identities(), inventory.tools());

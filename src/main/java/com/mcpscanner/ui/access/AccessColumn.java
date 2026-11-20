@@ -1,7 +1,7 @@
 package com.mcpscanner.ui.access;
 
 import com.mcpscanner.checks.api.Principal;
-import com.mcpscanner.identity.AnonymousComparison;
+import com.mcpscanner.checks.api.crossidentity.SyntheticLabel;
 
 import java.util.Optional;
 
@@ -41,10 +41,39 @@ sealed interface AccessColumn {
         }
     }
 
-    record Anonymous() implements AccessColumn {
+    sealed interface Synthetic extends AccessColumn {
+
+        SyntheticLabel label();
+
         @Override
-        public String title() {
-            return AnonymousComparison.NAME;
+        default String title() {
+            return label().label();
+        }
+
+        default String principalId() {
+            return label().principalId();
+        }
+
+        default String described() {
+            return label().described();
+        }
+
+        default String withThe() {
+            return label().withThe();
+        }
+    }
+
+    record Anonymous() implements Synthetic {
+        @Override
+        public SyntheticLabel label() {
+            return SyntheticLabel.NO_CREDENTIAL;
+        }
+    }
+
+    record FakeToken() implements Synthetic {
+        @Override
+        public SyntheticLabel label() {
+            return SyntheticLabel.FAKE_TOKEN;
         }
     }
 

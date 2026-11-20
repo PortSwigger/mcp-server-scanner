@@ -1,5 +1,6 @@
 package com.mcpscanner.checks.catalog.oauthrefreshgrant;
 
+import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
@@ -15,12 +16,14 @@ import com.mcpscanner.auth.grant.ClientType;
 import com.mcpscanner.auth.oauth.OAuthException;
 import com.mcpscanner.auth.oauth.OAuthTokens;
 import com.mcpscanner.checks.api.CheckKind;
+import com.mcpscanner.http.ScanQueueBypass;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.nimbusds.oauth2.sdk.token.BearerAccessToken;
 import com.nimbusds.oauth2.sdk.token.RefreshToken;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.net.URI;
 import java.time.Clock;
@@ -85,6 +88,26 @@ class OAuthRefreshGrantCheckTest {
     }
 
     @Test
+    void sendsEveryAuthorizationServerRequestOutsideTheScanQueueAndMcpRequestsOnIt() {
+        server.acceptsMissingSecret = true;
+        Http scanQueue = server.http();
+        Http unqueued = server.http();
+
+        check(strategy(CLIENT_SECRET, ClientType.CONFIDENTIAL_REGISTERED))
+                .audit(mcpBase(), ScanQueueBypass.through(unqueued).around(scanQueue));
+
+        assertThat(pathsSentThrough(unqueued)).contains("/token").allMatch(path -> !path.equals("/mcp"));
+        assertThat(pathsSentThrough(scanQueue)).isNotEmpty().allMatch(path -> path.equals("/mcp"));
+    }
+
+    private static List<String> pathsSentThrough(Http http) {
+        return Mockito.mockingDetails(http).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("sendRequest"))
+                .map(invocation -> URI.create(((HttpRequest) invocation.getArgument(0)).url()).getPath())
+                .toList();
+    }
+
+    @Test
     void neverCarriesTheBrowserCookieOfTheBaseRequestIntoTokenProbes() {
         server.acceptsMissingSecret = true;
         HttpRequestResponse base = mcpBase();
@@ -95,6 +118,105 @@ class OAuthRefreshGrantCheckTest {
 
         assertThat(server.mcpRequests).isNotEmpty()
                 .allSatisfy(request -> assertThat(request.hasHeader("Cookie")).isFalse());
+    }
+
+    @Test
+    void clientAuthenticationEvidenceIsTheAcceptedRefreshItsToolsListAndTheUnissuedTokenRefusal() {
+        server.acceptsMissingSecret = true;
+
+        List<AuditIssue> issues = audit(strategy(CLIENT_SECRET, ClientType.CONFIDENTIAL_REGISTERED));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.requestResponses()).extracting(this::label)
+                    .containsExactly("omitted-secret-refresh", "tools/list", "unissued-refresh");
+            assertThat(issue.detail()).contains("Attached: the refresh with the client_id only, with no client secret, "
+                    + "the MCP tools/list request sent with the access token it issued, and the refused refresh "
+                    + "with the unissued refresh token.");
+        });
+    }
+
+    @Test
+    void clientAuthenticationEvidenceAttachesOnlyTheFirstAcceptedRefreshWhenBothAreAccepted() {
+        server.acceptsMissingSecret = true;
+        server.acceptsWrongSecret = true;
+
+        List<AuditIssue> issues = audit(strategy(CLIENT_SECRET, ClientType.CONFIDENTIAL_REGISTERED));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.requestResponses()).extracting(this::label)
+                    .containsExactly("omitted-secret-refresh", "tools/list", "unissued-refresh");
+            assertThat(issue.detail()).contains("no client secret").contains("wrong client secret")
+                    .contains("Attached: the refresh with the client_id only, with no client secret,");
+        });
+    }
+
+    @Test
+    void clientAuthenticationEvidenceAttachesTheAcceptedRefreshWhoseTokenWorksWhenTheFirstOneIsUnusable() {
+        server.acceptsMissingSecret = true;
+        server.acceptsWrongSecret = true;
+        server.mcpEndpointRefusesTokensIssuedWithoutSecret = true;
+
+        List<AuditIssue> issues = audit(strategy(CLIENT_SECRET, ClientType.CONFIDENTIAL_REGISTERED));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.requestResponses()).extracting(this::label)
+                    .containsExactly("wrong-secret-refresh", "tools/list", "unissued-refresh");
+            assertThat(issue.requestResponses().get(1).response().statusCode()).isEqualTo((short) 200);
+            assertThat(issue.detail()).contains("Attached: the refresh with the client_id with a wrong client secret, "
+                    + "the MCP tools/list request sent with the access token it issued, and the refused refresh "
+                    + "with the unissued refresh token.");
+        });
+    }
+
+    @Test
+    void scopeExpansionEvidenceIsTheDeclaringControlRefreshTheExpandingRefreshAndItsToolsList() {
+        server.expandsScope = true;
+        server.clientSecret = null;
+
+        List<AuditIssue> issues = audit(strategy(null, ClientType.PUBLIC));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.requestResponses()).extracting(this::label)
+                    .containsExactly("client-id-only-refresh", "scope-refresh", "tools/list");
+            assertThat(issue.detail()).contains("Attached: the plain refresh that declared the original scope, "
+                    + "the refresh that requested the extra scope, and the MCP tools/list request sent with the "
+                    + "access token it issued.");
+        });
+    }
+
+    @Test
+    void scopeExpansionEvidenceOmitsTheControlRefreshWhenItDidNotDeclareTheOriginalScope() {
+        server.expandsScope = true;
+        server.declaresScopeOnlyOnProbes = true;
+        server.clientSecret = null;
+
+        List<AuditIssue> issues = audit(strategy(null, ClientType.PUBLIC));
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.requestResponses()).extracting(this::label)
+                    .containsExactly("scope-refresh", "tools/list");
+            assertThat(issue.detail()).contains("Attached: the refresh that requested the extra scope, and the MCP "
+                    + "tools/list request sent with the access token it issued.");
+        });
+    }
+
+    private String label(HttpRequestResponse exchange) {
+        HttpRequest request = exchange.request();
+        if (request.url().startsWith(MCP_URL)) {
+            return request.bodyToString().contains("tools/list") ? "tools/list" : "mcp";
+        }
+        String body = request.bodyToString();
+        if (body.contains("mcp-scanner-unissued-")) {
+            return "unissued-refresh";
+        }
+        if (body.contains("scope=")) {
+            return "scope-refresh";
+        }
+        if (!request.hasHeader("Authorization")) {
+            return server.clientSecret == null ? "client-id-only-refresh" : "omitted-secret-refresh";
+        }
+        return BasicCredentials.header(CLIENT_ID, RefreshRequestFactory.WRONG_SECRET)
+                .equals(request.headerValue("Authorization")) ? "wrong-secret-refresh" : "registered-refresh";
     }
 
     @Test
@@ -316,23 +438,6 @@ class OAuthRefreshGrantCheckTest {
     }
 
     @Test
-    void redactsTokensWhoseCharactersAreEncodedOnTheWire() {
-        server.acceptsMissingSecret = true;
-        server.expandsScope = true;
-        server.rotatesRefreshTokens = true;
-        server.tokenSuffix = "+a/b==";
-
-        List<AuditIssue> issues = audit(strategy(CLIENT_SECRET, ClientType.CONFIDENTIAL_REGISTERED));
-
-        assertThat(issues).hasSize(2).allSatisfy(issue -> issue.requestResponses().forEach(exchange -> {
-            String request = exchange.request().bodyToString();
-            assertThat(request).doesNotContain("rotated-refresh-token");
-            assertThat(exchange.response().bodyToString()).doesNotContain("issued-access-token")
-                    .doesNotContain("rotated-refresh-token");
-        }));
-    }
-
-    @Test
     void reauthenticatesTheLiveSessionAfterAnUnauthenticatedRefreshIsAccepted() {
         server.acceptsMissingSecret = true;
         server.mcpEndpointRefusesProbeTokens = true;
@@ -356,7 +461,7 @@ class OAuthRefreshGrantCheckTest {
     }
 
     @Test
-    void evidenceNeverCarriesTokensOrTheClientSecret() {
+    void evidenceCarriesTheRawTokensExchanged() {
         server.acceptsMissingSecret = true;
         server.acceptsWrongSecret = true;
         server.expandsScope = true;
@@ -364,21 +469,33 @@ class OAuthRefreshGrantCheckTest {
 
         List<AuditIssue> issues = audit(strategy(CLIENT_SECRET, ClientType.CONFIDENTIAL_REGISTERED));
 
-        assertThat(issues).hasSize(2).allSatisfy(issue -> {
-            assertThat(issue.requestResponses()).isNotEmpty();
-            issue.requestResponses().forEach(OAuthRefreshGrantCheckTest::assertRedacted);
-        });
+        assertThat(issues).hasSize(2).allSatisfy(issue -> assertThat(rawText(issue))
+                .contains("issued-access-token")
+                .containsAnyOf(LIVE_REFRESH_TOKEN, "rotated-refresh-token")
+                .doesNotContainIgnoringCase("redacted"));
+        assertThat(issues.stream().map(OAuthRefreshGrantCheckTest::rawText).reduce("", String::concat))
+                .contains(java.util.Base64.getEncoder().encodeToString(
+                        (CLIENT_ID + ":" + CLIENT_SECRET).getBytes()));
     }
 
-    private static void assertRedacted(HttpRequestResponse exchange) {
-        String request = exchange.request().bodyToString() + " " + exchange.request().headerValue("Authorization");
-        String response = exchange.response() == null ? "" : exchange.response().bodyToString();
-        for (String text : List.of(request, response)) {
-            assertThat(text).doesNotContain(CLIENT_SECRET).doesNotContain(LIVE_REFRESH_TOKEN)
-                    .doesNotContain("issued-access-token").doesNotContain("rotated-refresh-token")
-                    .doesNotContain(java.util.Base64.getEncoder().encodeToString(
-                            (CLIENT_ID + ":" + CLIENT_SECRET).getBytes()));
-        }
+    @Test
+    void evidenceKeepsTokensWithUrlSignificantCharactersUnchanged() {
+        server.acceptsMissingSecret = true;
+        server.expandsScope = true;
+        server.rotatesRefreshTokens = true;
+        server.tokenSuffix = "+a/b==";
+
+        List<AuditIssue> issues = audit(strategy(CLIENT_SECRET, ClientType.CONFIDENTIAL_REGISTERED));
+
+        assertThat(issues).hasSize(2).allSatisfy(issue -> assertThat(rawText(issue))
+                .containsPattern("issued-access-token-\\d+\\+a\\\\?/b=="));
+    }
+
+    private static String rawText(AuditIssue issue) {
+        return issue.requestResponses().stream()
+                .map(exchange -> exchange.request().bodyToString() + " " + exchange.request().headerValue("Authorization")
+                        + " " + (exchange.response() == null ? "" : exchange.response().bodyToString()))
+                .reduce("", String::concat);
     }
 
     private List<AuditIssue> audit(AuthStrategy strategy) {

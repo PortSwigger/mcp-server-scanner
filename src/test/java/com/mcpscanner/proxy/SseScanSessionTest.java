@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
+import static com.mcpscanner.testutil.OpenedStreams.openedByAGet;
 import static com.mcpscanner.testutil.AwaitedFutures.doneWithin;
 import static java.time.Duration.ofMillis;
 import static java.time.Duration.ofSeconds;
@@ -87,7 +88,7 @@ class SseScanSessionTest {
         HttpResponse<InputStream> response = mock(HttpResponse.class);
         lenient().when(response.statusCode()).thenReturn(200);
         when(response.body()).thenReturn(new ByteArrayInputStream(sseContent.getBytes()));
-        return response;
+        return openedByAGet(response);
     }
 
     @SuppressWarnings("unchecked")
@@ -95,7 +96,7 @@ class SseScanSessionTest {
         HttpResponse<InputStream> response = mock(HttpResponse.class);
         lenient().when(response.statusCode()).thenReturn(200);
         when(response.body()).thenReturn(body);
-        return response;
+        return openedByAGet(response);
     }
 
     @SuppressWarnings("unchecked")
@@ -789,7 +790,7 @@ class SseScanSessionTest {
     void closeClosesSseStream() throws Exception {
         String sseStream = SSE_PRELUDE + RESPONSE_EVENT;
         InputStream mockInputStream = spy(new ByteArrayInputStream(sseStream.getBytes()));
-        HttpResponse<InputStream> sseResponse = mock(HttpResponse.class);
+        HttpResponse<InputStream> sseResponse = openedByAGet(mock(HttpResponse.class));
         when(sseResponse.body()).thenReturn(mockInputStream);
 
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))

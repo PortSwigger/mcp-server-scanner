@@ -27,7 +27,16 @@ public final class McpReply {
         if (response == null) {
             return NONE;
         }
-        return new McpReply(JsonRpcMessages.parsed(McpRequestDetector.jsonRpcBody(response)).filter(JsonNode::isObject));
+        String body = McpRequestDetector.jsonRpcBody(response.headerValue("Content-Type"), ReplyBody.text(response));
+        return new McpReply(JsonRpcMessages.parsed(body).filter(JsonNode::isObject));
+    }
+
+    public static McpReply of(HttpRequestResponse exchange) {
+        if (exchange == null) {
+            return NONE;
+        }
+        McpReply matching = answering(exchange, McpReply::isReply);
+        return matching.answered() ? matching : in(exchange.response());
     }
 
     public static McpReply answering(HttpRequestResponse exchange, Predicate<JsonNode> eligible) {
@@ -35,7 +44,7 @@ public final class McpReply {
             return NONE;
         }
         JsonRpcEnvelope request = JsonRpcEnvelope.of(exchange.request());
-        return new McpReply(JsonRpcMessages.in(exchange.response().bodyToString()).stream()
+        return new McpReply(JsonRpcMessages.in(ReplyBody.text(exchange.response())).stream()
                 .filter(request::isAnsweredBy)
                 .filter(eligible)
                 .findFirst());
@@ -43,6 +52,10 @@ public final class McpReply {
 
     public static boolean isResponse(JsonNode message) {
         return message.has("result") || message.has("error");
+    }
+
+    private static boolean isReply(JsonNode message) {
+        return isResponse(message) && !message.has("method");
     }
 
     public Optional<JsonNode> message() {

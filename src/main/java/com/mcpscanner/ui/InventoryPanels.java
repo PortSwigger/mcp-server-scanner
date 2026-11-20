@@ -17,19 +17,34 @@ import com.mcpscanner.ui.sendto.SendToRequest;
 import javax.swing.JTable;
 import javax.swing.event.TableModelEvent;
 import java.util.List;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 final class InventoryPanels {
 
-    private final ToolTablePanel tools = new ToolTablePanel();
-    private final ResourceTablePanel resources = new ResourceTablePanel();
-    private final ResourceTemplateTablePanel templates = new ResourceTemplateTablePanel();
-    private final PromptTablePanel prompts = new PromptTablePanel();
+    private final InventoryTicks ticks;
+    private final ToolTablePanel tools;
+    private final ResourceTablePanel resources;
+    private final ResourceTemplateTablePanel templates;
+    private final PromptTablePanel prompts;
     private final ServerInfoPanel serverInfo = new ServerInfoPanel();
-    private final List<AbstractInventoryTablePanel<?, ?>> all = List.of(tools, resources, templates, prompts);
+    private final List<AbstractInventoryTablePanel<?, ?>> all;
     private ServerCapabilities serverCapabilities = ServerCapabilities.none();
     private AdvertisedAuthorizationServer authorizationServer = AdvertisedAuthorizationServer.none();
     private DetailSession session = DetailSession.none();
+
+    InventoryPanels() {
+        this(InventoryTicks.SCAN_SELECTION);
+    }
+
+    InventoryPanels(InventoryTicks ticks) {
+        this.ticks = ticks;
+        this.tools = new ToolTablePanel(ticks);
+        this.resources = new ResourceTablePanel(ticks);
+        this.templates = new ResourceTemplateTablePanel(ticks);
+        this.prompts = new PromptTablePanel(ticks);
+        this.all = List.of(tools, resources, templates, prompts);
+    }
 
     ToolTablePanel tools() {
         return tools;
@@ -56,15 +71,22 @@ final class InventoryPanels {
     }
 
     void addTo(InventoryTabs tabs) {
-        tabs.addCounted("Tools", tools, () -> tools.selectedTools().size(), tools.getTableModel()::getRowCount);
-        tabs.addCounted("Resources", resources, () -> resources.selectedResources().size(),
-                resources.getTableModel()::getRowCount);
-        tabs.addCounted("Templates", templates, () -> templates.selectedResourceTemplates().size(),
-                templates.getTableModel()::getRowCount);
-        tabs.addCounted("Prompts", prompts, () -> prompts.selectedPrompts().size(),
-                prompts.getTableModel()::getRowCount);
+        addCounted(tabs, "Tools", tools, () -> tools.selectedTools().size());
+        addCounted(tabs, "Resources", resources, () -> resources.selectedResources().size());
+        addCounted(tabs, "Templates", templates, () -> templates.selectedResourceTemplates().size());
+        addCounted(tabs, "Prompts", prompts, () -> prompts.selectedPrompts().size());
         tabs.addTab("Server Info", serverInfo);
         tabs.setSelectedIndex(0);
+    }
+
+    private void addCounted(InventoryTabs tabs, String title, AbstractInventoryTablePanel<?, ?> panel,
+                            IntSupplier selected) {
+        IntSupplier total = panel.getTableModel()::getRowCount;
+        if (ticks.shown()) {
+            tabs.addCounted(title, panel, selected, total);
+        } else {
+            tabs.addTitled(panel, () -> title + " (" + total.getAsInt() + ")");
+        }
     }
 
     void bindSendTo(SendToMenu menu, McpRepeaterRequestFactory requests) {

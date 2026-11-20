@@ -8,7 +8,8 @@ import java.util.Set;
 
 public record ScanAllCommand(String endpoint, TransportType transport, CommandAuth auth, Set<String> checks,
                              List<SeedCall> seeds, Boolean useBurpNetworking,
-                             boolean divertBuiltInChecks, CommandIdentities identities, Integer maxCatalogItems)
+                             boolean divertBuiltInChecks, CommandIdentities identities, Integer maxCatalogItems,
+                             SignedInSessionCommand signedInSession)
         implements ConnectCommand {
 
     public static final String EVERY_CHECK = "*";
@@ -20,6 +21,14 @@ public record ScanAllCommand(String endpoint, TransportType transport, CommandAu
         checks = checks == null ? Set.of() : Set.copyOf(checks);
         seeds = seeds == null ? List.of() : List.copyOf(seeds);
         identities = identities == null ? CommandIdentities.NONE : identities;
+        signedInSession = signedInSession == null ? SignedInSessionCommand.NONE : signedInSession;
+    }
+
+    public ScanAllCommand(String endpoint, TransportType transport, CommandAuth auth, Set<String> checks,
+                          List<SeedCall> seeds, Boolean useBurpNetworking, boolean divertBuiltInChecks,
+                          CommandIdentities identities, Integer maxCatalogItems) {
+        this(endpoint, transport, auth, checks, seeds, useBurpNetworking, divertBuiltInChecks, identities,
+                maxCatalogItems, null);
     }
 
     public ScanAllCommand(String endpoint, TransportType transport, CommandAuth auth, Set<String> checks,

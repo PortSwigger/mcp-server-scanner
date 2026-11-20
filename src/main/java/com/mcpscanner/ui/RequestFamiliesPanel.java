@@ -30,6 +30,8 @@ public final class RequestFamiliesPanel extends JPanel {
     static final String INSERTION_POINTS_TITLE = "Insertion points";
     static final String HEADER_FIELDS_LABEL = "Offer MCP headers as insertion points";
     static final String HEADER_FIELDS_HINT = "Mcp-Method, Mcp-Name, MCP-Protocol-Version, Mcp-Session-Id";
+    static final String META_ENVELOPE_LABEL = "Fuzz request metadata (_meta) on every request";
+    static final String META_ENVELOPE_HINT = "Off: _meta is fuzzed once per server, on one request of each scan.";
     static final String SELECT_ALL = "Select all";
     static final String SELECT_NONE = "Select none";
 
@@ -60,6 +62,7 @@ public final class RequestFamiliesPanel extends JPanel {
         content.add(heading(INSERTION_POINTS_TITLE));
         content.add(Box.createVerticalStrut(4));
         content.add(new OptionRow(headerFieldsOption()));
+        content.add(new OptionRow(metaEnvelopeOption()));
         return content;
     }
 
@@ -79,6 +82,11 @@ public final class RequestFamiliesPanel extends JPanel {
     private ToggleOption headerFieldsOption() {
         return new ToggleOption(HEADER_FIELDS_LABEL, HEADER_FIELDS_HINT, settings.headerFieldsEnabled(),
                 settings::setHeaderFieldsEnabled);
+    }
+
+    private ToggleOption metaEnvelopeOption() {
+        return new ToggleOption(META_ENVELOPE_LABEL, META_ENVELOPE_HINT, settings.metaEnvelopeFuzzedOnEveryRequest(),
+                settings::setMetaEnvelopeFuzzedOnEveryRequest);
     }
 
     private ResponsiveColumns familyColumns() {

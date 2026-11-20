@@ -1,6 +1,7 @@
 package com.mcpscanner.checks.catalog.oauthauthorizationconsent;
 
 import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -27,6 +28,10 @@ final class FindingDraft {
     }
 
     ConsentFinding as(FindingKind kind) {
-        return new ConsentFinding(kind, location, facts, evidence);
+        return as(kind, kind.confidence());
+    }
+
+    ConsentFinding as(ConsentIssueKind kind, AuditIssueConfidence confidence) {
+        return new ConsentFinding(kind, confidence, location, facts, evidence);
     }
 }

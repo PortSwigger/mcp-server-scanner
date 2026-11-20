@@ -60,14 +60,12 @@ class ScriptSchemeRegistrationProbeTest {
     }
 
     @Test
-    void findingEvidenceIsTheControlThenTheScriptRegistration() {
+    void findingEvidenceIsOnlyTheAcceptedScriptRegistration() {
         RedirectFinding finding = run().get(0);
 
-        assertThat(finding.evidence()).hasSize(2);
-        assertThat(FakeAuthorizationServer.registeredRedirectUris(finding.evidence().get(0).request()))
-                .singleElement().asString().startsWith("https://");
-        assertThat(FakeAuthorizationServer.registeredRedirectUris(finding.evidence().get(1).request()))
-                .containsExactly("javascript:void(0)");
+        assertThat(finding.evidence()).singleElement().satisfies(exchange ->
+                assertThat(FakeAuthorizationServer.registeredRedirectUris(exchange.request()))
+                        .containsExactly("javascript:void(0)"));
     }
 
     @Test

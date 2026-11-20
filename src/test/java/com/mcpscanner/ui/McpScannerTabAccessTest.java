@@ -66,6 +66,13 @@ class McpScannerTabAccessTest {
     }
 
     @Test
+    void offersAWriteReplayApprovalInProfessional() throws Exception {
+        McpScannerTab tab = fromEdt(fixture::newTab);
+
+        assertThat(tab.writeReplayApproval()).isPresent();
+    }
+
+    @Test
     void accessTabFollowsTheInventoryTabsAndCountsIssuesInItsTitle() throws Exception {
         McpScannerTab tab = fixture.connected(inventory(List.of()), this::install);
         InventoryTabs tabs = fromEdt(() -> find(tab, InventoryTabs.class));

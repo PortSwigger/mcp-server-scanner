@@ -1,6 +1,7 @@
 package com.mcpscanner.proxy;
 
 import com.mcpscanner.client.RedirectLoggingInterceptor;
+import com.mcpscanner.http.evidence.WireRecord;
 
 import java.io.IOException;
 import java.net.URI;
@@ -13,7 +14,6 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -69,17 +69,22 @@ final class SseMessagePoster {
     }
 
     private MessagePostResult send(HttpRequest request, String jsonBody) throws IOException, InterruptedException {
-        HttpResponse<String> response = redirectInterceptor.sendAndLog(
-                httpClient, request, ignored -> new BoundedPostBodySubscriber());
+        RecordedPostBodies bodies = new RecordedPostBodies();
+        HttpResponse<String> response = redirectInterceptor.sendAndLog(httpClient, request, bodies);
         int status = response.statusCode();
         return new MessagePostResult(status, response.body(), RelayedHeaders.ofMultiValued(headersOf(response)),
-                recorded(request, jsonBody, response));
+                recorded(request, jsonBody, response, bodies.lastReceived()));
     }
 
-    private static RecordedExchange recorded(HttpRequest request, String jsonBody, HttpResponse<String> response) {
-        byte[] body = Objects.requireNonNullElse(response.body(), "").getBytes(StandardCharsets.UTF_8);
-        return new RecordedExchange(request.uri(), request.method(), request.headers().map(), jsonBody,
-                response.statusCode(), headersOf(response), body);
+    private static RecordedExchange recorded(HttpRequest request, String jsonBody, HttpResponse<String> response,
+                                             byte[] received) {
+        HttpRequest finalHop = response.request() == null ? request : response.request();
+        WireRecord head = WireRecord.ofJdk(finalHop, bodySentBy(finalHop, jsonBody), response);
+        return new RecordedExchange(jsonBody, head.withBody(received, false));
+    }
+
+    private static byte[] bodySentBy(HttpRequest hop, String jsonBody) {
+        return "POST".equals(hop.method()) ? jsonBody.getBytes(StandardCharsets.UTF_8) : new byte[0];
     }
 
     private static Map<String, List<String>> headersOf(HttpResponse<String> response) {

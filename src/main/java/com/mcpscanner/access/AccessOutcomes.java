@@ -3,6 +3,7 @@ package com.mcpscanner.access;
 import com.mcpscanner.checks.api.AccessFinding;
 import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.checks.api.AccessOutcome;
+import com.mcpscanner.checks.api.Principal;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,7 +14,6 @@ import java.util.Optional;
 final class AccessOutcomes {
 
     private final Map<CellKey, AccessOutcome> identities = new HashMap<>();
-    private final Map<AccessItemKey, AccessOutcome> anonymous = new HashMap<>();
     private final Map<CellKey, List<AccessFinding>> findings = new HashMap<>();
     private final Map<AccessItemKey, String> notCompared = new HashMap<>();
 
@@ -24,7 +24,7 @@ final class AccessOutcomes {
     }
 
     synchronized void recordAnonymous(AccessItemKey item, AccessOutcome outcome) {
-        anonymous.put(item, outcome);
+        identities.put(new CellKey(item, Principal.ANONYMOUS_ID), outcome);
         notCompared.remove(item);
     }
 
@@ -44,17 +44,12 @@ final class AccessOutcomes {
         return Optional.ofNullable(identities.get(new CellKey(item, principalId)));
     }
 
-    synchronized Optional<AccessOutcome> anonymous(AccessItemKey item) {
-        return Optional.ofNullable(anonymous.get(item));
-    }
-
     synchronized List<AccessFinding> findings(AccessItemKey item, String principalId) {
         return List.copyOf(findings.getOrDefault(new CellKey(item, principalId), List.of()));
     }
 
     synchronized void clear() {
         identities.clear();
-        anonymous.clear();
         findings.clear();
         notCompared.clear();
     }

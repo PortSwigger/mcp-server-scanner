@@ -1,6 +1,7 @@
 package com.mcpscanner.auth.oauth;
 
 import com.mcpscanner.auth.oauth.safety.HostResolver;
+import com.mcpscanner.mcp.LoopbackHosts;
 
 import java.net.InetAddress;
 import java.net.URI;
@@ -9,9 +10,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 
 public class OAuthUrlValidator {
 
@@ -29,7 +28,6 @@ public class OAuthUrlValidator {
     public static final String CLASSIFICATION_UNRESOLVABLE = "unresolvable";
     public static final String CLASSIFICATION_CROSS_ORIGIN = "cross-origin";
 
-    private static final Set<String> LOOPBACK_HOSTS = Set.of("127.0.0.1", "::1", "localhost");
     private static final String CLOUD_METADATA_HOST = "169.254.169.254";
     private static final String HTTPS_SCHEME = "https";
     private static final String HTTP_SCHEME = "http";
@@ -205,7 +203,7 @@ public class OAuthUrlValidator {
     }
 
     private boolean isLoopbackHost(String host) {
-        return LOOPBACK_HOSTS.contains(stripBrackets(host).toLowerCase(Locale.ROOT));
+        return LoopbackHosts.isNamedLoopback(host);
     }
 
     private String stripBrackets(String host) {

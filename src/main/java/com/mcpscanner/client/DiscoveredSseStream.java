@@ -2,6 +2,7 @@ package com.mcpscanner.client;
 
 import com.mcpscanner.mcp.BoundedBodyReader;
 import com.mcpscanner.mcp.InFlightServerPings;
+import com.mcpscanner.mcp.RawSseFrame;
 import com.mcpscanner.mcp.ServerPings;
 import com.mcpscanner.mcp.SseFrame;
 import com.mcpscanner.mcp.SseResponseParser;
@@ -22,14 +23,19 @@ final class DiscoveredSseStream implements SseStreamFactory.Stream {
     private final SseReplyReader reader;
     private final Consumer<String> admissionReplies;
     private final InFlightServerPings inFlightPings;
-    private final Function<McpRequests.Request, McpFlow.HttpResponse> poster;
+    private final SseStreamOpening opening;
+    private final SseExchangeListener listener;
+    private final Function<McpRequests.Request, SseMessagePost> poster;
     private boolean endpointAnnounced;
 
     DiscoveredSseStream(URI messageUrl, SseReplyReader reader, Consumer<String> admissionReplies,
-                        ServerPings serverPings, Function<McpRequests.Request, McpFlow.HttpResponse> poster) {
+                        ServerPings serverPings, SseStreamOpening opening, SseExchangeListener listener,
+                        Function<McpRequests.Request, SseMessagePost> poster) {
         this.messageUrl = messageUrl;
         this.reader = reader;
         this.admissionReplies = admissionReplies;
+        this.opening = opening;
+        this.listener = listener;
         this.poster = poster;
         this.inFlightPings = new InFlightServerPings(serverPings, this::postServerRequestReply);
     }
@@ -40,27 +46,41 @@ final class DiscoveredSseStream implements SseStreamFactory.Stream {
             endpointAnnounced = true;
             return endpointEvent();
         }
-        String frame = reader.nextEvent();
-        while (frame != null && answeredServerRequest(frame)) {
-            frame = reader.nextEvent();
+        RawSseFrame frame = nextFrameForCaller();
+        if (frame == null) {
+            return null;
         }
-        if (frame != null && McpSse.reply(frame, ADMISSION_REQUEST_ID, BoundedBodyReader.MAX_RESPONSE_BYTES) != null) {
-            admissionReplies.accept(SseResponseParser.extractJsonRpcResponse(frame));
-        }
-        return frame;
+        listener.eventReceived(opening, frame);
+        recordAdmissionReply(frame.text());
+        return frame.text();
     }
 
     @Override
     public McpFlow.HttpResponse post(String endpoint, McpRequests.Request request) {
         inFlightPings.callStarted(request);
-        McpFlow.HttpResponse response = poster.apply(request);
+        SseMessagePost posted = poster.apply(request);
+        listener.messagePosted(opening, request, posted);
         reader.beginReplyWait();
-        return response;
+        return posted.response();
     }
 
     @Override
     public void close() {
         reader.close();
+    }
+
+    private RawSseFrame nextFrameForCaller() {
+        RawSseFrame frame = reader.nextFrame();
+        while (frame != null && answeredServerRequest(frame.text())) {
+            frame = reader.nextFrame();
+        }
+        return frame;
+    }
+
+    private void recordAdmissionReply(String frame) {
+        if (McpSse.reply(frame, ADMISSION_REQUEST_ID, BoundedBodyReader.MAX_RESPONSE_BYTES) != null) {
+            admissionReplies.accept(SseResponseParser.extractJsonRpcResponse(frame));
+        }
     }
 
     private boolean answeredServerRequest(String frame) {

@@ -159,6 +159,10 @@ public class McpScannerSession implements ConnectedEndpoint, McpOperationFraming
         legacySseRoutes = Objects.requireNonNull(routes, "routes");
     }
 
+    void observeSseExchangesWith(SseExchangeListener listener) {
+        sseBringUp.observeExchangesWith(listener);
+    }
+
     public ResendableRequests resendableRequests() {
         return resendableRequests;
     }

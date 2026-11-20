@@ -83,8 +83,8 @@ public final class CommandInjectionCheck implements InsertionPointCheck, Connect
             return List.of();
         }
         return rateLimited.run(subject, streamedReplies.around(http),
-                guarded -> probe(new ProbeField(baseRequestResponse, insertionPoint,
-                        insertionPointNames.nameOf(baseRequestResponse.request(), insertionPoint), guarded)));
+                sends -> probe(new ProbeField(baseRequestResponse, insertionPoint,
+                        insertionPointNames.nameOf(baseRequestResponse.request(), insertionPoint), sends)));
     }
 
     @Override

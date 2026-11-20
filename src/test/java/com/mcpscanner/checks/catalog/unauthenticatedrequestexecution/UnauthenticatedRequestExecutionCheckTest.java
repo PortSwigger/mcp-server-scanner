@@ -133,8 +133,14 @@ class UnauthenticatedRequestExecutionCheckTest {
 
             assertThat(issues).singleElement()
                     .satisfies(issue -> assertThat(issue.name()).isEqualTo(FindingKind.ANONYMOUS_EXECUTION.issueName()));
-            assertThat(issues.get(0).requestResponses())
-                    .anySatisfy(exchange -> assertThat(exchange.request().bodyToString()).contains("\"initialize\""));
+            assertThat(server.received()).anySatisfy(sent -> {
+                assertThat(sent.headerValue("Authorization")).isNull();
+                assertThat(sent.bodyToString()).contains("\"initialize\"");
+            });
+            assertThat(issues.get(0).requestResponses()).hasSize(2).last().satisfies(anonymous -> {
+                assertThat(anonymous.request().headerValue("Authorization")).isNull();
+                assertThat(anonymous.request().headerValue("Mcp-Session-Id")).isNotNull().isNotEqualTo(liveSession);
+            });
         }
 
         @Test
@@ -438,17 +444,27 @@ class UnauthenticatedRequestExecutionCheckTest {
 
         @Test
         void presenceOnlyOperationIsMediumFirmAndConfirmedWithASecondFabricatedCredential() {
-            List<AuditIssue> issues = audit(bearerCheck(), SimulatedMcpServer.enforcing().acceptingAnyCredential(),
-                    request(toolCall(), AUTHENTICATED));
+            SimulatedMcpServer server = SimulatedMcpServer.enforcing().acceptingAnyCredential();
+            List<AuditIssue> issues = audit(bearerCheck(), server, request(toolCall(), AUTHENTICATED));
 
             assertThat(issues).singleElement().satisfies(issue -> {
                 assertThat(issue.name()).isEqualTo(FindingKind.INVALID_CREDENTIAL_ACCEPTED.issueName());
                 assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.MEDIUM);
                 assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
                 assertThat(issue.requestResponses()).extracting(exchange -> exchange.request().headerValue("Authorization"))
-                        .contains(VALID_TOKEN_HEADER, "Bearer not_a_real_token_12345")
-                        .anyMatch(value -> value != null && value.startsWith(FABRICATED));
+                        .containsExactly(VALID_TOKEN_HEADER, null, "Bearer not_a_real_token_12345");
             });
+            assertThat(server.received()).extracting(sent -> sent.headerValue("Authorization"))
+                    .anyMatch(value -> value != null && value.startsWith(FABRICATED));
+        }
+
+        @Test
+        void theAttachedAnonymousRefusalIsTheProbeNotTheRefusedFreshSessionHandshake() {
+            SimulatedMcpServer server = SimulatedMcpServer.enforcing().acceptingAnyCredential();
+
+            assertThat(audit(bearerCheck(), server, request(toolCall(), AUTHENTICATED))).singleElement()
+                    .satisfies(issue -> assertThat(issue.requestResponses().get(1).request().bodyToString())
+                            .contains("tools/call").doesNotContain("initialize"));
         }
 
         @Test

@@ -15,6 +15,8 @@ public final class RequestBudgets {
             Connect, modern HTTP                                            | 1
             Connect, initialize-based HTTP                                  | 2
             Connect, SSE                                                    | 3
+            Browser consent fallback, server that asks for consent          | 2  | opt-in: register and delete one probe client
+            Browser consent fallback, server that skips consent             | 4  | opt-in: a second probe client after the first got a code
             Discovery, 10 tools in pages of 3                               | 7
             Scan of one tool call, command-injection                        | 156
             Scan of one tool call, cross-client-response-leak               | 4
@@ -35,11 +37,13 @@ public final class RequestBudgets {
             Scan of one tool call, ssrf-filter-bypass                       | 0
             Scan of one tool call, unauthenticated-request-execution        | 14
             Generated calls for one tool with two pattern-bound optional arguments | 3
-            Check access per item, stateless server, same credentials       | 3
-            Check access per item, stateless server, distinct credentials   | 6
-            Check access per item, stateful server, same credentials        | 4
-            Check access per item, stateful server, distinct credentials    | 8
-            Check access per item, stateless server, refused at the captured version | 9
+            Signed-in consent trial, benign server                          | 20 | opt-in: 4 discovery, 3 probe registrations, 5 two-hop authorization walks, 3 deletions
+            Check access per item, stateless server, same credentials       | 4  | +1 fake-token call per item
+            Check access per item, stateless server, distinct credentials   | 7  | +1 fake-token call per item
+            Check access per item, stateful server, same credentials        | 6  | +2 fake-token session attempt and call per item
+            Check access per item, stateful server, distinct credentials    | 10 | +2 fake-token session attempt and call per item
+            Check access per item, stateless server, refused at the captured version | 10 | +1 fake-token call per item
+            Check access run, synthetic listings, initialize-based HTTP     | 14 | No credential and fake-token isolated discovery, 7 each, once per run
             """;
 
     private static final Map<String, Integer> BUDGETS = Arrays.stream(TABLE.split("\n"))

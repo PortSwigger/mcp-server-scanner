@@ -7,6 +7,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from mcp_test_server.oauth.clients import RegisteredClient
+from mcp_test_server.oauth.consent_memory import ConsentSubject
 from mcp_test_server.oauth.grants import AuthorizationGrant
 from mcp_test_server.oauth.server_context import (
     DEFAULT_SCOPE,
@@ -14,6 +15,7 @@ from mcp_test_server.oauth.server_context import (
     AuthorizationServerContext,
     ConsentMode,
 )
+from mcp_test_server.oauth.sign_in import LoginPage
 
 
 class AuthorizationRejected(Exception):
@@ -50,13 +52,21 @@ class AuthorizationRequest:
             return "invalid_request"
         return None
 
-    def approve(self) -> Response:
+    @property
+    def scope(self) -> str:
+        return self.parameters.get("scope") or DEFAULT_SCOPE
+
+    def consent_subject(self) -> ConsentSubject:
+        return ConsentSubject(self.client.client_id, self.client.client_name, self.redirect_uri,
+                              frozenset(self.scope.split()))
+
+    def approve(self, subject: str = TEST_SUBJECT) -> Response:
         grant = AuthorizationGrant(
             client_id=self.client.client_id,
             redirect_uri=self.redirect_uri,
-            scope=self.parameters.get("scope") or DEFAULT_SCOPE,
+            scope=self.scope,
             code_challenge=self.parameters.get("code_challenge"),
-            subject=TEST_SUBJECT,
+            subject=subject,
         )
         return self.redirect({"code": self._context.grants.issue_code(grant)})
 
@@ -83,6 +93,25 @@ class AuthorizeEndpoint:
             return authorization.redirect({"error": error})
         if self._context.consent_mode is ConsentMode.AUTO:
             return authorization.approve()
+        if self._context.consent_mode.needs_sign_in:
+            return self._signed_in(request, authorization)
+        return self._ask_consent(authorization)
+
+    def _signed_in(self, request: Request, authorization: AuthorizationRequest) -> Response:
+        user = self._context.sessions.user(request)
+        if user is None:
+            return self._ask_sign_in(request, authorization)
+        if self._context.consent_memory.remembers(user, authorization.consent_subject()):
+            return authorization.approve(user)
+        return self._ask_consent(authorization)
+
+    @staticmethod
+    def _ask_sign_in(request: Request, authorization: AuthorizationRequest) -> Response:
+        if authorization.parameters.get("prompt") == "none":
+            return authorization.redirect({"error": "login_required"})
+        return LoginPage.returning_to(request)
+
+    def _ask_consent(self, authorization: AuthorizationRequest) -> Response:
         if authorization.parameters.get("prompt") == "none":
             return authorization.redirect({"error": "consent_required"})
         page = self._context.consent_page.render(authorization.client.client_name, authorization.parameters)
@@ -99,9 +128,18 @@ class ConsentDecisionEndpoint:
             authorization = AuthorizationRequest(self._context, {**form, "response_type": "code"})
         except AuthorizationRejected as rejection:
             return rejection.response
+        if not self._context.consent_mode.needs_sign_in:
+            return self._decide(form, authorization, TEST_SUBJECT)
+        user = self._context.sessions.user(request)
+        if user is None:
+            return LoginPage.render("", status_code=401)
+        return self._decide(form, authorization, user)
+
+    def _decide(self, form: Mapping[str, str], authorization: AuthorizationRequest, user: str) -> Response:
         if form.get("decision") != "approve":
             return authorization.redirect({"error": "access_denied"})
-        return authorization.approve()
+        self._context.consent_memory.remember(user, authorization.consent_subject())
+        return authorization.approve(user)
 
 
 def _error_page(error: str, description: str) -> Response:

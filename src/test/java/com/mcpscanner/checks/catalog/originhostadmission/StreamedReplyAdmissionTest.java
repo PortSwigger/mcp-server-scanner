@@ -74,7 +74,7 @@ class StreamedReplyAdmissionTest {
                     .findFirst().orElseThrow();
 
             assertThat(issue.detail()).contains("The scanner sent the Host: attacker.example + Origin: "
-                    + "http://attacker.example probe and the control request " + OUTSIDE_BURP);
+                    + "http://attacker.example probe " + OUTSIDE_BURP);
             assertThat(issue.requestResponses().get(1).response().statusCode()).isEqualTo((short) 200);
         }
     }
@@ -85,11 +85,11 @@ class StreamedReplyAdmissionTest {
             AuditIssue issue = check().audit(captured(toolsList(server.url())), server.burp).get(0);
 
             assertThat(issue.detail()).contains("The scanner sent these requests " + OUTSIDE_BURP);
-            assertThat(issue.requestResponses()).hasSize(5)
+            assertThat(issue.requestResponses()).hasSize(2)
                     .allSatisfy(exchange -> assertThat(exchange.response().statusCode()).isEqualTo((short) 200));
-            assertThat(issue.requestResponses().subList(1, 4))
+            assertThat(issue.requestResponses())
                     .extracting(exchange -> exchange.request().headerValue("Origin"))
-                    .containsExactly("http://evil.example", "null", "http://attacker.example:1337");
+                    .containsExactly(null, "http://evil.example");
         }
     }
 
@@ -99,8 +99,7 @@ class StreamedReplyAdmissionTest {
             AuditIssue issue = check().audit(captured(toolsList(server.url())), burpAnsweringOnlyTheFirstRequest())
                     .get(0);
 
-            assertThat(issue.detail()).contains("The scanner sent the Origin: http://evil.example probe, the Origin: "
-                    + "null probe, the Origin: http://attacker.example:1337 probe and the control request "
+            assertThat(issue.detail()).contains("The scanner sent the Origin: http://evil.example probe "
                     + OUTSIDE_BURP).doesNotContain("these requests " + OUTSIDE_BURP).doesNotContain("the baseline request");
             assertThat(server.receivedOrigins).containsExactly("http://evil.example", "null",
                     "http://attacker.example:1337", "(none)", "http://attacker.example", "(none)");

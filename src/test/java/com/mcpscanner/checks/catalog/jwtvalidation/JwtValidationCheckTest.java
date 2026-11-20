@@ -273,11 +273,35 @@ class JwtValidationCheckTest {
             verify(eventLog).info(PREFIX + "stopped " + subject + " (rate limited: the server answered HTTP 429)");
         }
 
+        @Test
+        void reportsAForgeryWhoseAcceptingReplySaysTheRateLimitQuotaIsSpent() {
+            FakeJwtServer unlimited = new FakeJwtServer(RS256).accepting(algorithm("none"));
+            audit(unlimited, TOOL_CALL, RS256);
+            FakeJwtServer server = new FakeJwtServer(RS256).accepting(algorithm("none"))
+                    .spendingQuotaAfter(unsignedForgeryIndex(unlimited.received()));
+
+            assertThat(audit(server, TOOL_CALL, RS256)).singleElement()
+                    .satisfies(issue -> assertThat(issue.detail()).contains("alg: none"));
+        }
+
+        @Test
+        void aSpentRateLimitQuotaOnARefusedForgeryStopsFurtherForgeries() {
+            FakeJwtServer server = new FakeJwtServer(RS256).spendingQuotaAfter(3);
+
+            assertThat(audit(server, TOOL_CALL, RS256)).isEmpty();
+
+            assertThat(server.received()).hasSize(4);
+        }
+
         private int provenAfter(List<HttpRequest> received) {
+            return unsignedForgeryIndex(received) + 3;
+        }
+
+        private int unsignedForgeryIndex(List<HttpRequest> received) {
             for (int index = 0; index < received.size(); index++) {
                 String authorization = received.get(index).headerValue("Authorization");
                 if (authorization != null && algorithm("none").test(authorization.substring("Bearer ".length()))) {
-                    return index + 3;
+                    return index;
                 }
             }
             throw new AssertionError("no unsigned forgery was sent");
@@ -325,7 +349,7 @@ class JwtValidationCheckTest {
                 assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.HIGH);
                 assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
                 assertThat(issue.detail()).contains("alg: none").contains("appear to be checked");
-                assertThat(issue.requestResponses()).hasSize(6);
+                assertThat(issue.requestResponses()).hasSize(3);
             });
         }
 
@@ -345,7 +369,7 @@ class JwtValidationCheckTest {
 
             assertThat(issue.detail()).contains("does not validate").contains("issuer (iss)", "audience (aud)",
                     "expiry (exp)").doesNotContain("appear to be checked");
-            assertThat(issue.requestResponses()).hasSize(9);
+            assertThat(issue.requestResponses()).hasSize(6);
         }
 
         @Test
@@ -376,6 +400,69 @@ class JwtValidationCheckTest {
             AuditIssue issue = audit(server, TOOL_CALL, HS256).get(0);
 
             assertThat(issue.detail()).contains("random HMAC secret").doesNotContain("empty HMAC secret");
+        }
+    }
+
+    @Nested
+    class Evidence {
+
+        @Test
+        void anUncontrolledForgeryAttachesTheBaselineTheMalformedRefusalItsTokenAndEachAcceptedClaim() {
+            FakeJwtServer server = new FakeJwtServer(RS256).accepting(algorithm("none")).ignoringClaims();
+
+            List<String> tokens = attachedTokens(audit(server, TOOL_CALL, RS256).get(0));
+
+            assertThat(tokens).hasSize(6);
+            assertThat(tokens.get(0)).isEqualTo(RS256);
+            assertThat(tokens.get(1)).isEqualTo(ForgedTokenAudit.MALFORMED_TOKEN);
+            assertThat(tokens.get(2)).matches(algorithm("none")).satisfies(token ->
+                    assertThat(TestTokens.claimsOf(token)).isEqualTo(TestTokens.claimsOf(RS256)));
+            assertThat(tokens.subList(3, 6)).allSatisfy(token -> {
+                assertThat(token).matches(algorithm("none"));
+                assertThat(TestTokens.claimsOf(token)).isNotEqualTo(TestTokens.claimsOf(RS256));
+            });
+        }
+
+        @Test
+        void aControlledForgeryAlsoAttachesItsRefusedWrongKeyControl() {
+            byte[] empty = new byte[0];
+            FakeJwtServer server = new FakeJwtServer(HS256).accepting(hmacSignedWith(empty)).ignoringClaims();
+
+            AuditIssue issue = audit(server, TOOL_CALL, HS256).get(0);
+            List<String> tokens = attachedTokens(issue);
+
+            assertThat(tokens).hasSize(7);
+            assertThat(tokens.get(0)).isEqualTo(HS256);
+            assertThat(tokens.get(1)).isEqualTo(ForgedTokenAudit.MALFORMED_TOKEN);
+            assertThat(tokens.get(2)).matches(hmacSignedWith(empty));
+            assertThat(tokens.get(3)).matches(algorithm("HS256")).isNotEqualTo(tokens.get(2));
+            assertThat(hmacSignedWith(empty).test(tokens.get(3))).isFalse();
+            assertThat(issue.requestResponses().get(3).response().statusCode()).isEqualTo((short) 401);
+            assertThat(tokens.subList(4, 7)).allSatisfy(token -> assertThat(token).matches(hmacSignedWith(empty)));
+        }
+
+        @Test
+        void onlyTheFirstAcceptedForgeryIsAttached() {
+            FakeJwtServer server = new FakeJwtServer(RS256).accepting(algorithm("none")).accepting(algorithm("RS256"));
+
+            AuditIssue issue = audit(server, TOOL_CALL, RS256).get(0);
+            List<String> tokens = attachedTokens(issue);
+
+            assertThat(issue.detail()).contains("alg: none").contains("freshly generated RSA key")
+                    .contains("before and again after each forged token")
+                    .contains("which was not accepted")
+                    .contains("The no-credential refusal, the other forged tokens and the repeated refusal controls "
+                            + "are not attached.");
+            assertThat(tokens).hasSize(3);
+            assertThat(tokens.get(0)).isEqualTo(RS256);
+            assertThat(tokens.get(1)).isEqualTo(ForgedTokenAudit.MALFORMED_TOKEN);
+            assertThat(tokens.get(2)).isNotEqualTo(RS256).matches(algorithm("RS256"));
+        }
+
+        private List<String> attachedTokens(AuditIssue issue) {
+            return issue.requestResponses().stream()
+                    .map(exchange -> exchange.request().headerValue("Authorization").substring("Bearer ".length()))
+                    .toList();
         }
     }
 

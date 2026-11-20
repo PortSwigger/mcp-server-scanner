@@ -163,6 +163,18 @@ class CredentialPromptTest {
     }
 
     @Test
+    void withoutComparedUsersRefusedToolCallsAreNotExplainedInScanTerms() throws Exception {
+        onEdt(() -> prompt = new UsersPanel(harness.services, GrantCredentialForms.NONE, () -> { },
+                UsersMode.PRIMARY_ONLY).credentialPrompt(actions()));
+
+        onEdt(() -> prompt.show(Optional.of(new CredentialNeed.ToolCallsRefused(3))));
+
+        String tooltip = fromEdt(prompt::getToolTipText);
+        assertThat(tooltip).isEqualTo("Connecting was allowed anonymously, so requests as "
+                + "User 1 only reach what an anonymous user can.");
+    }
+
+    @Test
     void moreRefusedCallsOnlyUpdateTheCount() throws Exception {
         open();
         onEdt(() -> prompt.show(Optional.of(new CredentialNeed.ToolCallsRefused(3))));
@@ -188,7 +200,11 @@ class CredentialPromptTest {
     }
 
     private void open() throws Exception {
-        onEdt(() -> prompt = new CredentialPrompt(harness.services, new CredentialPrompt.Actions() {
+        onEdt(() -> prompt = new CredentialPrompt(harness.services, actions()));
+    }
+
+    private CredentialPrompt.Actions actions() {
+        return new CredentialPrompt.Actions() {
             @Override
             public void connect() {
                 connects.incrementAndGet();
@@ -203,6 +219,6 @@ class CredentialPromptTest {
             public void openPrimaryUser() {
                 primaryOpened.incrementAndGet();
             }
-        }));
+        };
     }
 }

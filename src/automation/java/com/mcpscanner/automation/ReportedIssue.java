@@ -6,12 +6,18 @@ import java.util.List;
 import java.util.function.Function;
 
 public record ReportedIssue(String name, String severity, String confidence, String baseUrl, String detail,
-                            boolean extensionGenerated, List<String> checks) {
+                            boolean extensionGenerated, List<String> checks, List<String> evidence) {
 
     static final int EXTENSION_GENERATED_TYPE_INDEX = 0x08000000;
 
     public ReportedIssue {
         checks = checks == null ? List.of() : List.copyOf(checks);
+        evidence = evidence == null ? List.of() : List.copyOf(evidence);
+    }
+
+    public ReportedIssue(String name, String severity, String confidence, String baseUrl, String detail,
+                         boolean extensionGenerated, List<String> checks) {
+        this(name, severity, confidence, baseUrl, detail, extensionGenerated, checks, List.of());
     }
 
     static ReportedIssue of(AuditIssue issue, Function<String, List<String>> checksReporting) {
@@ -25,10 +31,10 @@ public record ReportedIssue(String name, String severity, String confidence, Str
 
     private static ReportedIssue of(AuditIssue issue, boolean extensionGenerated, List<String> checks) {
         return new ReportedIssue(issue.name(), issue.severity().name(), issue.confidence().name(), issue.baseUrl(),
-                issue.detail(), extensionGenerated, checks);
+                issue.detail(), extensionGenerated, checks, EvidenceSummary.of(issue.requestResponses()));
     }
 
     public ReportedIssue unattributed() {
-        return new ReportedIssue(name, severity, confidence, baseUrl, detail, extensionGenerated, List.of());
+        return new ReportedIssue(name, severity, confidence, baseUrl, detail, extensionGenerated, List.of(), evidence);
     }
 }

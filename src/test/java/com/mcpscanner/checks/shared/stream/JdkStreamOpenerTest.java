@@ -1,8 +1,10 @@
 package com.mcpscanner.checks.shared.stream;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
+import com.mcpscanner.http.wire.OneConnectionServer;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.ScannerSentinels;
+import com.mcpscanner.testutil.ClosedPort;
 import com.mcpscanner.testutil.ImmutableHttpRequest;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.sun.net.httpserver.HttpExchange;
@@ -165,10 +167,7 @@ class JdkStreamOpenerTest {
 
     @Test
     void aRefusedConnectionWarnsOncePerOrigin() throws IOException {
-        int closedPort;
-        try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
-            closedPort = socket.getLocalPort();
-        }
+        int closedPort = ClosedPort.onLoopback();
         JdkStreamOpener opener = new JdkStreamOpener(FAST, log);
         HttpRequest request = StreamGetRequest.from(ImmutableHttpRequest.post(
                 "http://127.0.0.1:" + closedPort + "/mcp", Map.of(), "{}"), java.util.Optional.empty());
@@ -192,6 +191,52 @@ class JdkStreamOpenerTest {
                 .doesNotContainKeys("x-mcp-scanner-direct", "x-mcp-scanner-strip-auth");
         assertThat(opening.exchange().request().hasHeader(ScannerSentinels.DIRECT_DELIVERY_HEADER)).isFalse();
         assertThat(opening.exchange().request().hasHeader("Authorization")).isTrue();
+    }
+
+    @Test
+    void theEvidenceIsTheRequestTheJdkClientWroteAndTheStreamExactlyAsReceived() throws Exception {
+        String head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n";
+        String events = "event: endpoint\r\ndata: /messages?id=1\r\n\r\n";
+        try (OneConnectionServer raw = OneConnectionServer.replyingWith(head + events)) {
+            HttpRequest request = StreamGetRequest.from(ImmutableHttpRequest.post(
+                    "http://127.0.0.1:" + raw.port() + "/sse", Map.of("Authorization", "Bearer kept"), "{}"),
+                    java.util.Optional.empty()).withHeader(ScannerSentinels.STRIP_AUTH_HEADER, "1");
+
+            StreamOpening opening = new JdkStreamOpener(FAST).open(request);
+
+            assertThat(text(opening.exchange().request().toByteArray().getBytes()))
+                    .isEqualTo(raw.received().head())
+                    .contains("\r\nAuthorization: Bearer kept\r\n", "\r\nUser-Agent: Java-http-client/")
+                    .doesNotContain("X-Mcp-Scanner-");
+            assertThat(text(opening.exchange().response().toByteArray().getBytes()))
+                    .startsWith("HTTP/1.1 200 OK\r\n")
+                    .contains("\r\nset-cookie: a=1\r\nset-cookie: b=2\r\n")
+                    .endsWith("\r\n\r\n" + events);
+            assertThat(opening.exchange().annotations().hasNotes()).isFalse();
+        }
+    }
+
+    @Test
+    void aPrefixCutAtTheLimitIsFlaggedAsTruncated() {
+        StreamOpening opening = new JdkStreamOpener(FAST).open(get("/flood"));
+
+        assertThat(opening.exchange().annotations().notes())
+                .isEqualTo("Response body truncated at 64 bytes by the scanner's size cap");
+    }
+
+    @Test
+    void anUnansweredStreamKeepsTheRequestTheJdkClientWrote() {
+        StreamLimits quick = new StreamLimits(Duration.ofMillis(300), Duration.ofMillis(100), 64);
+
+        StreamOpening opening = new JdkStreamOpener(quick).open(get("/silent").withHeader("Authorization", "Bearer kept"));
+
+        assertThat(text(opening.exchange().request().toByteArray().getBytes()))
+                .startsWith("GET /silent HTTP/1.1\r\n")
+                .contains("\r\nAuthorization: Bearer kept\r\n", "\r\nUser-Agent: Java-http-client/");
+    }
+
+    private static String text(byte[] bytes) {
+        return new String(bytes, StandardCharsets.ISO_8859_1);
     }
 
     private volatile boolean interruptedAfterReturn;

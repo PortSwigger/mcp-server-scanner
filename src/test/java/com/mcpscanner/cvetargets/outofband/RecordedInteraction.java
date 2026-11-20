@@ -70,10 +70,11 @@ record RecordedInteraction(String identifier, InteractionType type, ZonedDateTim
     private static HttpDetails http(JsonNode entry) {
         HttpRequestResponse exchange = HttpRequestResponse.httpRequestResponse(
                 RawRequests.parse(Base64.getDecoder().decode(entry.path("request").asText())), null);
+        HttpProtocol protocol = HttpProtocol.valueOf(entry.path("protocol").asText(HttpProtocol.HTTP.name()));
         return new HttpDetails() {
             @Override
             public HttpProtocol protocol() {
-                return HttpProtocol.HTTP;
+                return protocol;
             }
 
             @Override

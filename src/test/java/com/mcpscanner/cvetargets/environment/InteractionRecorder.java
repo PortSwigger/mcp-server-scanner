@@ -62,7 +62,9 @@ public final class InteractionRecorder implements RecorderLauncher {
         docker(COMMAND_TIMEOUT, "rm", "--force", identity.container());
         docker(COMMAND_TIMEOUT, "run", "--detach", "--rm", "--name", identity.container(),
                 "--network", SharedTargetNetwork.NAME, "--ip", identity.address(),
-                "--env", "RECORDER_ADDRESS=" + identity.address(), "--publish", "127.0.0.1::" + ADMIN_PORT, image)
+                "--env", "RECORDER_ADDRESS=" + identity.address(),
+                "--volume", identity.trustVolume() + ":" + RecorderTrust.RECORDER_DIRECTORY,
+                "--publish", "127.0.0.1::" + ADMIN_PORT, image)
                 .requireSuccess();
     }
 

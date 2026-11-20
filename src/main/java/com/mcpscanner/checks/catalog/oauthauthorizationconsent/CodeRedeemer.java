@@ -46,10 +46,11 @@ final class CodeRedeemer {
 
     Redemption redeem(IssuedCode code) {
         Optional<HttpRequestResponse> exchange = http.postForm(tokenEndpoint,
-                AuthorizationParameters.encode(form(code)), APPLICATION_JSON, Map.of());
+                AuthorizationParameters.encode(form(code)), APPLICATION_JSON, client.credentials().headers());
         Optional<JsonDocument> tokens = exchange.flatMap(JsonDocument::fromSuccessfulResponse);
         Redemption redemption = new Redemption(tokens.flatMap(document -> document.text("access_token")),
-                tokens.flatMap(document -> document.text("refresh_token")), exchange);
+                tokens.flatMap(document -> document.text("refresh_token")), exchange,
+                tokens.flatMap(document -> document.text("scope")));
         ledger.record(redemption);
         return redemption;
     }
@@ -82,10 +83,9 @@ final class CodeRedeemer {
         form.put("grant_type", "authorization_code");
         form.put("code", code.value());
         form.put("redirect_uri", client.callback().toString());
-        form.put("client_id", client.clientId());
         form.put("code_verifier", code.pkce().verifier());
         form.put("resource", resource.toString());
-        return form;
+        return client.credentials().form(form);
     }
 
     private static Thread daemonThread(Runnable task) {

@@ -76,6 +76,8 @@ class ContentProbeTest {
     }
 
     private static ContentProbe probe(SimulatedFileTool tool) {
-        return new ContentProbe(new PayloadSender(tool.http(), new PathArgumentInsertionPoint("readme.txt"), Optional::empty));
+        PayloadSender sender = new PayloadSender(tool.http(), new PathArgumentInsertionPoint("readme.txt"),
+                Optional::empty);
+        return new ContentProbe(sender, sender);
     }
 }

@@ -4,6 +4,7 @@ import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import com.mcpscanner.testutil.SpentRateLimitQuota;
 import com.mcpscanner.testutil.ImmutableHttpRequest;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.Test;
@@ -67,6 +68,60 @@ class ProbeChannelTest {
         channel.send(probe());
 
         assertThat(channel.exhausted()).isTrue();
+    }
+
+    @Test
+    void isExhaustedOnceAnAnswerSaysNoRequestsRemainAndSaysWhy() {
+        MontoyaTestFactory.install();
+        when(http.sendRequest(any(HttpRequest.class))).thenAnswer(invocation -> HttpRequestResponse.httpRequestResponse(
+                invocation.getArgument(0),
+                HttpResponse.httpResponse("HTTP/1.1 401 Unauthorized\r\n" + SpentRateLimitQuota.HEADER_LINES + "\r\n")));
+        ProbeChannel channel = new ProbeChannel(http, 10);
+
+        HttpRequestResponse answer = channel.send(probe());
+
+        assertThat(answer.response().statusCode()).isEqualTo((short) 401);
+        assertThat(channel.exhausted()).isTrue();
+        assertThat(channel.exhaustion()).contains(ProbeChannel.Exhaustion.QUOTA_SPENT);
+    }
+
+    @Test
+    void aSpentQuotaStopsNewProbesButStillLetsAHitBeConfirmed() {
+        MontoyaTestFactory.install();
+        ProbeChannel channel = new ProbeChannel(http, 10);
+
+        channel.record(HttpRequestResponse.httpRequestResponse(probe(),
+                HttpResponse.httpResponse("HTTP/1.1 200 OK\r\n" + SpentRateLimitQuota.HEADER_LINES + "\r\n")));
+
+        assertThat(channel.exhausted()).isTrue();
+        assertThat(channel.barsConfirmation()).isFalse();
+    }
+
+    @Test
+    void aTooManyRequestsAnswerAfterASpentQuotaStillBarsConfirmation() {
+        MontoyaTestFactory.install();
+        ProbeChannel channel = new ProbeChannel(http, 10);
+        channel.record(HttpRequestResponse.httpRequestResponse(probe(),
+                HttpResponse.httpResponse("HTTP/1.1 200 OK\r\n" + SpentRateLimitQuota.HEADER_LINES + "\r\n")));
+        channel.record(HttpRequestResponse.httpRequestResponse(probe(),
+                HttpResponse.httpResponse("HTTP/1.1 429 Too Many Requests\r\n\r\n")));
+
+        assertThat(channel.barsConfirmation()).isTrue();
+        assertThat(channel.exhaustion()).contains(ProbeChannel.Exhaustion.RATE_LIMITED);
+    }
+
+    @Test
+    void aTooManyRequestsAnswerOrASpentBudgetBarsConfirmation() {
+        MontoyaTestFactory.install();
+        ProbeChannel rateLimited = new ProbeChannel(http, 10);
+        rateLimited.record(HttpRequestResponse.httpRequestResponse(probe(),
+                HttpResponse.httpResponse("HTTP/1.1 429 Too Many Requests\r\n\r\n")));
+        ProbeChannel spentBudget = new ProbeChannel(http, 1);
+        spentBudget.send(probe());
+
+        assertThat(rateLimited.barsConfirmation()).isTrue();
+        assertThat(spentBudget.barsConfirmation()).isTrue();
+        assertThat(new ProbeChannel(http, 10).barsConfirmation()).isFalse();
     }
 
     @Test

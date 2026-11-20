@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mcpscanner.auth.AuthHeaders;
 import com.mcpscanner.http.ConnectionClose;
 import com.mcpscanner.mcp.HttpOrigin;
+import com.mcpscanner.mcp.FramedOperation;
 import com.mcpscanner.mcp.McpHeaders;
+import com.mcpscanner.mcp.ScannerSentinels;
 import com.mcpscanner.mcp.McpOperationFraming;
 import com.mcpscanner.core.protocol.McpRequests;
 
@@ -63,6 +65,7 @@ public final class McpHttpRequestFactory {
         headers.putAll(sessionHeaders);
         headers.putAll(framed);
         headers.keySet().removeIf(FIXED_HEADERS::contains);
+        headers.put(ScannerSentinels.FRAMED_OPERATION_HEADER, FramedOperation.encode(headers));
         return headers;
     }
 

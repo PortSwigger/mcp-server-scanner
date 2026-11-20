@@ -1,9 +1,6 @@
 package com.mcpscanner.checks.catalog.oauthredirectpolicy;
 
-import burp.api.montoya.http.message.HttpRequestResponse;
-
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -46,15 +43,7 @@ final class DeliveryProbe {
         Delivery delivery = deliveryCase.normalisePath()
                 ? oracle.classifyWithNormalisation(pair, registered, state, control.outcome(), probe.outcome())
                 : oracle.classify(pair, state, control.outcome(), probe.outcome());
-        return new DeliveryObservation(delivery, evidence(client, control, probe));
-    }
-
-    private static List<HttpRequestResponse> evidence(OwnedClient client, AuthorizationAttempt control,
-                                                      AuthorizationAttempt probe) {
-        List<HttpRequestResponse> evidence = new ArrayList<>();
-        evidence.add(client.registration().evidence());
-        control.exchange().ifPresent(evidence::add);
-        probe.exchange().ifPresent(evidence::add);
-        return evidence;
+        return new DeliveryObservation(delivery, Optional.of(client.registration().evidence()), control.exchange(),
+                probe.exchange());
     }
 }

@@ -9,7 +9,15 @@ record BypassFinding(HttpRequestResponse base, FetchField field, Refusal refusal
                      ObservedInteractions observed, TargetPage page) {
 
     boolean showsTargetPage() {
-        return !page.shownIn(refusal.evidence())
-                && proven.stream().anyMatch(lead -> page.shownIn(lead.lead().loopback()));
+        return !page.shownIn(refusal.evidence()) && proven.stream().anyMatch(this::showsPage);
+    }
+
+    ControlledLead attachedLead() {
+        return proven.stream().filter(lead -> showsTargetPage() && showsPage(lead)).findFirst()
+                .orElse(proven.get(0));
+    }
+
+    private boolean showsPage(ControlledLead lead) {
+        return page.shownIn(lead.lead().loopback());
     }
 }

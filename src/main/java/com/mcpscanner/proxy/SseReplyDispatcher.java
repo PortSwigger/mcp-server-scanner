@@ -23,7 +23,7 @@ final class SseReplyDispatcher {
     private final McpEventLog eventLog;
     private final LongSupplier pendingResponseBudget;
     private final Object dispatchLock = new Object();
-    private final ConcurrentMap<String, CompletableFuture<String>> waiters = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, CompletableFuture<StreamedReply>> waiters = new ConcurrentHashMap<>();
     private final PendingResponseBuffer pendingResponses = new PendingResponseBuffer();
     private final AtomicReference<Throwable> terminalFailure = new AtomicReference<>();
 
@@ -32,10 +32,10 @@ final class SseReplyDispatcher {
         this.pendingResponseBudget = pendingResponseBudget;
     }
 
-    CompletableFuture<String> expect(String id) {
-        CompletableFuture<String> reply = new CompletableFuture<>();
+    CompletableFuture<StreamedReply> expect(String id) {
+        CompletableFuture<StreamedReply> reply = new CompletableFuture<>();
         synchronized (dispatchLock) {
-            String buffered = pendingResponses.remove(id);
+            StreamedReply buffered = pendingResponses.remove(id);
             if (buffered != null) {
                 reply.complete(buffered);
             } else {
@@ -45,7 +45,7 @@ final class SseReplyDispatcher {
         return reply;
     }
 
-    String await(CompletableFuture<String> reply, Duration timeout)
+    StreamedReply await(CompletableFuture<StreamedReply> reply, Duration timeout)
             throws InterruptedException, ExecutionException, TimeoutException {
         Throwable terminal = terminalFailure.get();
         if (terminal != null && !reply.isDone()) {
@@ -54,22 +54,22 @@ final class SseReplyDispatcher {
         return reply.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
     }
 
-    void release(String id, CompletableFuture<String> reply) {
+    void release(String id, CompletableFuture<StreamedReply> reply) {
         waiters.remove(id, reply);
     }
 
-    void dispatch(String data) {
-        String id = responseId(data);
+    void dispatch(StreamedReply reply) {
+        String id = responseId(reply.json());
         if (id == null) {
             return;
         }
         synchronized (dispatchLock) {
-            CompletableFuture<String> waiter = waiters.remove(id);
+            CompletableFuture<StreamedReply> waiter = waiters.remove(id);
             if (waiter != null) {
-                waiter.complete(data);
+                waiter.complete(reply);
                 return;
             }
-            buffer(id, data);
+            buffer(id, reply);
         }
     }
 
@@ -89,7 +89,7 @@ final class SseReplyDispatcher {
     int failAll(Throwable cause) {
         int count = 0;
         for (String key : waiters.keySet()) {
-            CompletableFuture<String> waiter = waiters.remove(key);
+            CompletableFuture<StreamedReply> waiter = waiters.remove(key);
             if (waiter != null) {
                 waiter.completeExceptionally(cause);
                 count++;
@@ -130,9 +130,9 @@ final class SseReplyDispatcher {
         }
     }
 
-    private void buffer(String id, String data) {
+    private void buffer(String id, StreamedReply reply) {
         long budget = pendingResponseBudget.getAsLong();
-        List<String> evicted = pendingResponses.put(id, data, budget);
+        List<String> evicted = pendingResponses.put(id, reply, budget);
         if (!evicted.isEmpty()) {
             eventLog.warn("Unclaimed SSE response buffer exceeded " + budget + " bytes; discarded "
                     + evicted.size() + " oldest unmatched response(s). Raise the limit in Settings if "

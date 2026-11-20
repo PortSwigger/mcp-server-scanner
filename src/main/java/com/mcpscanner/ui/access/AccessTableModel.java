@@ -88,6 +88,7 @@ final class AccessTableModel extends AbstractTableModel {
         principals.forEach(principal -> columns.add(
                 new AccessColumn.Identity(principal, usersWithoutIds.contains(principal.id()))));
         columns.add(new AccessColumn.Anonymous());
+        columns.add(new AccessColumn.FakeToken());
         columns.add(new AccessColumn.Expectation());
         return columns;
     }

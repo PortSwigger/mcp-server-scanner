@@ -21,6 +21,7 @@ import com.mcpscanner.client.TransportType;
 import com.mcpscanner.cvetargets.requests.VerbatimHeaderHttp;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.performance.RequestBudgets;
+import com.mcpscanner.checks.api.crossidentity.SyntheticPrincipals;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -82,7 +83,8 @@ class CheckAccessRequestBudgetTest {
     private static AccessComparison comparison(Principal compared) {
         return new CrossIdentityComparison(McpEventLog.noop(), () -> new BearerTokenAuthStrategy("alice-token"),
                 () -> PrincipalRoster.of(ALICE, List.of(compared)),
-                CrossIdentityPorts.of(new AnySignedInLedger(), PrincipalListings.unknown()));
+                CrossIdentityPorts.of(new AnySignedInLedger(), PrincipalListings.unknown()),
+                new SyntheticPrincipals(() -> new BearerTokenAuthStrategy("alice-token"))::all, call -> { });
     }
 
     private static Principal signedIn(String id, String name, PrincipalRole role) {

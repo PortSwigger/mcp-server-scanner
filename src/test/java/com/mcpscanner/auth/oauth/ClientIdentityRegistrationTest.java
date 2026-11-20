@@ -1,5 +1,6 @@
 package com.mcpscanner.auth.oauth;
 
+import com.mcpscanner.ExtensionMetadata;
 import com.mcpscanner.config.ClientIdentity;
 import com.mcpscanner.config.ClientIdentityField;
 import com.nimbusds.oauth2.sdk.client.ClientMetadata;
@@ -19,9 +20,10 @@ class ClientIdentityRegistrationTest {
     }
 
     @Test
-    void defaultsRegisterOnlyTheOriginalClientName() {
-        assertThat(registrationBody(ClientIdentity.defaults())).containsOnlyKeys("client_name")
-                .containsEntry("client_name", "MCP Server Scanner");
+    void defaultsRegisterTheOriginalClientNameAndTheExtensionsSoftwareId() {
+        assertThat(registrationBody(ClientIdentity.defaults())).containsOnlyKeys("client_name", "software_id")
+                .containsEntry("client_name", "MCP Server Scanner")
+                .containsEntry("software_id", ExtensionMetadata.SOFTWARE_ID);
     }
 
     @Test

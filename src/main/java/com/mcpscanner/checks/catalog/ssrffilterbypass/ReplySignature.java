@@ -4,6 +4,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mcpscanner.checks.shared.jsonrpc.McpReply;
+import com.mcpscanner.checks.shared.jsonrpc.ReplyBody;
 
 import java.util.List;
 import java.util.stream.Stream;
@@ -21,7 +22,7 @@ final class ReplySignature {
 
     static String of(HttpResponse response, ProbeUrl probe) {
         String text = McpReply.in(response).message().map(ReplySignature::withoutId)
-                .orElseGet(response::bodyToString);
+                .orElseGet(() -> ReplyBody.text(response));
         for (String rendering : renderings(probe.host())) {
             text = text.replace(rendering, HOST);
         }

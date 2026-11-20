@@ -67,6 +67,38 @@ class TextMarkersTest {
     }
 
     @Test
+    void carriesAnAnchoredMarkerOverAsTheSameSingleMarker() {
+        String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"params\":{\"path\":\".\"}}";
+        HttpRequest sent = request(body).withAddedHeader("X-Routing", "a.b.c");
+        int payload = sent.toByteArray().toString().lastIndexOf("\".\"") + 1;
+        HttpRequestResponse anchored = HttpRequestResponse.httpRequestResponse(sent, null)
+                .withRequestMarkers(List.of(Marker.marker(payload, payload + 1)));
+        HttpRequest cleaned = sent.withRemovedHeader("X-Routing");
+
+        HttpRequestResponse carried = TextMarkers.carriedOver(anchored,
+                HttpRequestResponse.httpRequestResponse(cleaned, null));
+
+        int expected = cleaned.toByteArray().toString().lastIndexOf("\".\"") + 1;
+        assertThat(carried.requestMarkers()).singleElement().satisfies(marker -> {
+            assertThat(marker.range().startIndexInclusive()).isEqualTo(expected);
+            assertThat(marker.range().endIndexExclusive()).isEqualTo(expected + 1);
+        });
+    }
+
+    @Test
+    void carriesTwoMarkersOfTheSameTextToTwoDistinctPlacesInOrder() {
+        HttpRequestResponse proxied = TextMarkers.inResponse(exchange("{}", "{\"a\":\"PROOF\",\"b\":\"PROOF\"}"),
+                List.of("PROOF"));
+        HttpRequestResponse upstream = exchange("{}", "{\"jsonrpc\":\"2.0\",\"padding\":\"" + "x".repeat(80)
+                + "\",\"z\":\"PROOF\",\"y\":\"PROOF\"}");
+
+        HttpRequestResponse carried = TextMarkers.carriedOver(proxied, upstream);
+
+        assertThat(carried.responseMarkers()).extracting(marker -> marker.range().startIndexInclusive())
+                .doesNotHaveDuplicates().isSorted().hasSize(2);
+    }
+
+    @Test
     void carriesNothingFromAnUnmarkedExchange() {
         HttpRequestResponse upstream = exchange("{}", "{}");
 

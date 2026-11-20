@@ -1,5 +1,6 @@
 package com.mcpscanner.access.mining;
 
+import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.identity.OwnedValueStore;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.McpToolDefinition;
@@ -100,7 +101,7 @@ public final class AccessMining {
 
     private MiningReport mine(MiningRun run, MiningPlan plan, MiningListener listener, WriteCallApproval approval) {
         try {
-            log.info("Collecting IDs started for " + plan.principals().size() + " users and Anonymous");
+            log.info("Collecting IDs started for " + plan.principals().size() + " users and " + Principal.ANONYMOUS_NAME);
             MiningResult result = new AccessMiner(sender, preferences.settings(plan.inventory().tools()),
                     sendWorkers.get())
                     .mine(plan.inventory(), plan.principals(),
@@ -113,7 +114,7 @@ public final class AccessMining {
             }
             return MiningReportLines.of(new MiningResult(result.identities(), result.warnings(), stop), plan);
         } catch (RuntimeException failure) {
-            log.error("Collecting IDs failed: " + failure.getMessage());
+            log.error("Collecting IDs failed: " + failure.getMessage(), failure);
             return MiningReport.failed(String.valueOf(failure.getMessage()));
         }
     }

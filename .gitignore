@@ -35,3 +35,6 @@ __pycache__/
 /build/cve-targets/
 /cve-targets/RESULTS.md
 /cve-targets/*/RESULTS.md
+
+# Local research notes, data and scripts (not shipped).
+/research/

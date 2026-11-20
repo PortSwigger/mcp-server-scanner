@@ -9,11 +9,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-final class FixtureSseStreams implements AutoCloseable {
+public final class FixtureSseStreams implements AutoCloseable {
     private final Map<String, OutputStream> streams = new ConcurrentHashMap<>();
     private final AtomicInteger ids = new AtomicInteger();
 
-    String open(HttpExchange exchange) throws IOException {
+    public String open(HttpExchange exchange) throws IOException {
         exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
         exchange.sendResponseHeaders(200, 0);
         String id = Integer.toString(ids.incrementAndGet());
@@ -21,7 +21,7 @@ final class FixtureSseStreams implements AutoCloseable {
         return id;
     }
 
-    void send(String streamId, String event, String data) throws IOException {
+    public void send(String streamId, String event, String data) throws IOException {
         OutputStream stream = streams.get(streamId);
         if (stream == null) {
             throw new IOException("Unknown SSE stream " + streamId);
@@ -38,7 +38,7 @@ final class FixtureSseStreams implements AutoCloseable {
         }
     }
 
-    void close(String streamId) {
+    public void close(String streamId) {
         OutputStream stream = streams.remove(streamId);
         if (stream != null) {
             closeQuietly(stream);

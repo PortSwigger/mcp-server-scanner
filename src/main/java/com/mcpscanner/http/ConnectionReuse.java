@@ -4,40 +4,53 @@ import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 
+import java.time.Clock;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 public final class ConnectionReuse {
 
     static final String CONNECTION_ID = "mcp-scanner";
 
-    static String connectionIdFor(HttpService origin) {
-        return CONNECTION_ID + "-" + OriginConnections.originOf(origin);
-    }
+    private static final Predicate<HttpRequest> NEVER = request -> false;
 
     private final OriginConnections origins = new OriginConnections();
+    private final KeptAliveConnections keptAlive;
     private final Predicate<HttpRequest> answeredLocally;
+    private final Predicate<HttpRequest> resendable;
 
     public ConnectionReuse(Predicate<HttpRequest> answeredLocally) {
+        this(answeredLocally, NEVER);
+    }
+
+    public ConnectionReuse(Predicate<HttpRequest> answeredLocally, Predicate<HttpRequest> resendable) {
+        this(answeredLocally, resendable, Clock.systemUTC());
+    }
+
+    ConnectionReuse(Predicate<HttpRequest> answeredLocally, Predicate<HttpRequest> resendable, Clock clock) {
         this.answeredLocally = Objects.requireNonNull(answeredLocally);
+        this.resendable = Objects.requireNonNull(resendable);
+        this.keptAlive = new KeptAliveConnections(clock);
     }
 
     public static ConnectionReuse withoutLocalAnswers() {
-        return new ConnectionReuse(request -> false);
+        return new ConnectionReuse(NEVER);
     }
 
     public void forgetOrigins() {
         origins.forget();
+        keptAlive.forget();
     }
 
-    HttpRequestResponse send(HttpRequest request, ConnectionSender sender) {
+    HttpRequestResponse send(HttpRequest request, SendPath path, ConnectionSender sender) {
         if (answeredLocally.test(request)) {
             return sender.fresh(ConnectionClose.on(request));
         }
         HttpService origin = request.httpService();
         return switch (origins.of(origin)) {
             case UNKNOWN -> learning(origin, sender.fresh(ConnectionClose.on(request)));
-            case HTTP_1 -> reusing(origin, ConnectionClose.withoutOurs(request), sender);
+            case HTTP_1 -> reusing(path, origin, ConnectionClose.withoutOurs(request), sender);
             case HTTP_2 -> sender.fresh(ConnectionClose.withoutOurs(request));
             case CLOSING -> sender.fresh(ConnectionClose.on(request));
         };
@@ -50,10 +63,27 @@ public final class ConnectionReuse {
         return exchange;
     }
 
-    private HttpRequestResponse reusing(HttpService origin, HttpRequest request, ConnectionSender sender) {
+    private HttpRequestResponse reusing(SendPath path, HttpService origin, HttpRequest request,
+                                        ConnectionSender sender) {
+        Optional<KeptAliveConnections.Lease> lease = keptAlive.take(path, origin);
+        if (lease.isEmpty()) {
+            return sender.fresh(ConnectionClose.on(request));
+        }
+        return resentIfUnanswered(request, keptAlive(path, origin, lease.get(), request, sender), sender);
+    }
+
+    private HttpRequestResponse resentIfUnanswered(HttpRequest request, HttpRequestResponse exchange,
+                                                   ConnectionSender sender) {
+        return answered(exchange) || !resendable.test(request) ? exchange : sender.fresh(ConnectionClose.on(request));
+    }
+
+    private HttpRequestResponse keptAlive(SendPath path, HttpService origin, KeptAliveConnections.Lease lease,
+                                          HttpRequest request, ConnectionSender sender) {
         try {
-            HttpRequestResponse exchange = sender.reusing(request, connectionIdFor(origin));
-            if (!answered(exchange)) {
+            HttpRequestResponse exchange = sender.reusing(request, lease.connectionId());
+            if (answered(exchange)) {
+                keptAlive.putBack(path, origin, lease);
+            } else {
                 origins.reuseFailed(origin);
             }
             return exchange;

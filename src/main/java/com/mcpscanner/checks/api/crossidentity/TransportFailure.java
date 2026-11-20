@@ -2,7 +2,7 @@ package com.mcpscanner.checks.api.crossidentity;
 
 public final class TransportFailure {
 
-    private boolean raised;
+    private volatile boolean raised;
 
     public boolean raised() {
         return raised;

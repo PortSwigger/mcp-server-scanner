@@ -2,6 +2,9 @@ package com.mcpscanner.checks.shared.oauth;
 
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import com.mcpscanner.http.ScanQueueBypass;
+import com.mcpscanner.testutil.BurpEmptyResponse;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +17,7 @@ import static com.mcpscanner.checks.shared.oauth.ScriptedHttp.status;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class OAuthHttpTest {
@@ -91,6 +95,18 @@ class OAuthHttpTest {
         ScriptedHttp server = new ScriptedHttp().on("GET", URL, ScriptedHttp.NO_RESPONSE);
 
         assertThat(server.oauth().get(DOC, "text/html")).isEmpty();
+    }
+
+    @Test
+    void sendsOutsideTheScanQueueSoAnAuthorizationServersRateLimitPolicyCannotThrottleTheScan() {
+        Http scanQueue = mock(Http.class);
+        ScriptedHttp unqueued = new ScriptedHttp().on("GET", URL, status(200));
+
+        assertThat(new OAuthHttp(ScanQueueBypass.through(unqueued.http()).around(scanQueue)).getJson(DOC))
+                .isPresent();
+
+        assertThat(unqueued.sent()).hasSize(1);
+        verifyNoInteractions(scanQueue);
     }
 
     @Test
@@ -176,6 +192,17 @@ class OAuthHttpTest {
 
         http.get(DOC, "text/html");
 
+        assertThat(http.noAnswer()).contains(OAuthHttp.NoAnswer.NO_RESPONSE);
+    }
+
+    @Test
+    void anEmptyReplyFromATimedOutOrIdleClosedSendIsNoAnswer() {
+        Http idleClosed = mock(Http.class);
+        when(idleClosed.sendRequest(any(HttpRequest.class))).thenAnswer(invocation ->
+                HttpRequestResponse.httpRequestResponse(invocation.getArgument(0), BurpEmptyResponse.create()));
+        OAuthHttp http = new OAuthHttp(idleClosed);
+
+        assertThat(http.postJson(DOC, "{}")).isEmpty();
         assertThat(http.noAnswer()).contains(OAuthHttp.NoAnswer.NO_RESPONSE);
     }
 

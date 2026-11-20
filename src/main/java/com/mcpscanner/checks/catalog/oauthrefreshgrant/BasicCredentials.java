@@ -12,7 +12,7 @@ final class BasicCredentials {
     private BasicCredentials() {
     }
 
-    static String encoded(String clientId, String secret) {
+    private static String encoded(String clientId, String secret) {
         String pair = formEncode(clientId) + ":" + formEncode(secret);
         return Base64.getEncoder().encodeToString(pair.getBytes(StandardCharsets.UTF_8));
     }

@@ -6,7 +6,7 @@ import com.mcpscanner.ui.widgets.Plurals;
 
 record CredentialPromptText(String title, String detail) {
 
-    static CredentialPromptText of(CredentialNeed need, String user) {
+    static CredentialPromptText of(CredentialNeed need, String user, UsersMode mode) {
         if (need instanceof CredentialNeed.ServerRefused refused) {
             return new CredentialPromptText("The server needs credentials for " + user + ".",
                     sentence(refused.answer()) + " What you enter is saved to " + user + ", then Connect runs again.");
@@ -21,8 +21,8 @@ record CredentialPromptText(String title, String detail) {
         }
         CredentialNeed.ToolCallsRefused refused = (CredentialNeed.ToolCallsRefused) need;
         return new CredentialPromptText("The server refused " + Plurals.count(refused.count(), "tool call") + ": "
-                + user + " has no credentials.", "Connecting was allowed anonymously, so a scan as " + user
-                + " only reaches what an anonymous user can.");
+                + user + " has no credentials.", "Connecting was allowed anonymously, so "
+                + mode.anonymousReach(user) + " what an anonymous user can.");
     }
 
     static boolean takesTokenInline(CredentialNeed need) {

@@ -4,7 +4,13 @@ import com.mcpscanner.cvetargets.manifest.LoadedTarget;
 import com.mcpscanner.cvetargets.manifest.ManifestFixtures;
 import com.mcpscanner.cvetargets.manifest.TargetRepository;
 import com.mcpscanner.cvetargets.manifest.TargetSelection;
+import com.mcpscanner.cvetargets.manifest.ArmRole;
+import com.mcpscanner.cvetargets.manifest.ExpectedOutcome;
+import com.mcpscanner.cvetargets.manifest.Outcome;
+import com.mcpscanner.cvetargets.run.ArmDurations;
+import com.mcpscanner.cvetargets.run.ArmKey;
 import com.mcpscanner.cvetargets.run.ArmResult;
+import com.mcpscanner.cvetargets.run.ProbeTally;
 import com.mcpscanner.cvetargets.run.ArmSchedule;
 import com.mcpscanner.cvetargets.shared.SharedTargetArm;
 import com.mcpscanner.cvetargets.shared.SharedTargetArms;
@@ -18,13 +24,16 @@ import org.opentest4j.TestAbortedException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.Mockito.mock;
@@ -39,7 +48,7 @@ class ScheduledArmTestsTest {
     void submitsEveryArmBeforeAnyTestWaitsSoArmsOverlapUpToTheParallelism() {
         CountDownLatch allArmsRunning = new CountDownLatch(2);
         try (ArmSchedule schedule = new ArmSchedule(2)) {
-            List<DynamicNode> tests = new ScheduledArmTests(schedule).forTargets(List.of(target()),
+            List<DynamicNode> tests = new ScheduledArmTests(schedule, durations()).forTargets(List.of(target()),
                     (target, arm) -> Optional.of(() -> {
                         allArmsRunning.countDown();
                         awaitQuietly(allArmsRunning);
@@ -53,7 +62,7 @@ class ScheduledArmTestsTest {
     @Test
     void anArmWithoutAPlanIsSkippedAndAFailedArmFailsItsTest() {
         try (ArmSchedule schedule = new ArmSchedule(1)) {
-            List<DynamicTest> arms = armTests(new ScheduledArmTests(schedule).forTargets(List.of(target()),
+            List<DynamicTest> arms = armTests(new ScheduledArmTests(schedule, durations()).forTargets(List.of(target()),
                     (target, arm) -> arm.name().equals("vulnerable") ? Optional.empty() : Optional.of(this::failed)));
 
             assertThrows(TestAbortedException.class, arms.get(0).getExecutable());
@@ -69,7 +78,7 @@ class ScheduledArmTestsTest {
         List<SharedTargetArm> shared = SharedTargetArms.of(new TargetRepository(root).load(TargetSelection.everything()));
         AtomicInteger plans = new AtomicInteger();
         try (ArmSchedule schedule = new ArmSchedule(1)) {
-            ScheduledArmTests scheduled = new ScheduledArmTests(schedule);
+            ScheduledArmTests scheduled = new ScheduledArmTests(schedule, durations());
             List<DynamicNode> tests = scheduled.forSharedArms(shared, arm -> () -> {
                 plans.incrementAndGet();
                 return arm.members().stream().map(member -> result(member.target().manifest().check(),
@@ -93,7 +102,7 @@ class ScheduledArmTestsTest {
     @Test
     void reportsAnArmWhoseRunThrewAndAnArmWithoutAPlanSoNoArmIsMissingFromTheSummary() {
         try (ArmSchedule schedule = new ArmSchedule(1)) {
-            ScheduledArmTests scheduled = new ScheduledArmTests(schedule);
+            ScheduledArmTests scheduled = new ScheduledArmTests(schedule, durations());
             List<DynamicTest> arms = armTests(scheduled.forTargets(List.of(target()),
                     (target, arm) -> arm.name().equals("vulnerable") ? Optional.empty() : Optional.of(() -> {
                         throw new IllegalStateException("harness crashed");
@@ -110,6 +119,51 @@ class ScheduledArmTestsTest {
             assertThat(scheduled.completedResults()).filteredOn(result -> result.arm().equals("fixed"))
                     .singleElement().satisfies(result -> assertThat(result.error()).contains("harness crashed"));
         }
+    }
+
+    @Test
+    void submitsTheLongestRecordedArmFirstButKeepsTheTestsInDeclaredOrder() {
+        LoadedTarget target = target();
+        new ArmDurations(durationsFile(), message -> { }).record(ran(target, "fixed", 900_000));
+        new ArmDurations(durationsFile(), message -> { }).record(ran(target, "vulnerable", 60_000));
+        List<String> started = new CopyOnWriteArrayList<>();
+        try (ArmSchedule schedule = new ArmSchedule(1)) {
+            List<DynamicTest> arms = armTests(new ScheduledArmTests(schedule, durations()).forTargets(List.of(target),
+                    (loaded, arm) -> Optional.of(() -> {
+                        started.add(arm.name());
+                        return passed();
+                    })));
+
+            assertThat(arms).extracting(DynamicNode::getDisplayName).containsExactly("vulnerable", "fixed");
+            arms.forEach(arm -> assertDoesNotThrow(arm.getExecutable()));
+            assertThat(started).containsExactly("fixed", "vulnerable");
+        }
+    }
+
+    @Test
+    void recordsHowLongEachArmRanOnceItCompletes() {
+        LoadedTarget target = target();
+        try (ArmSchedule schedule = new ArmSchedule(1)) {
+            List<DynamicTest> arms = armTests(new ScheduledArmTests(schedule, durations()).forTargets(List.of(target),
+                    (loaded, arm) -> Optional.of(() -> ran(loaded, arm.name(), 42_000))));
+            arms.forEach(arm -> assertDoesNotThrow(arm.getExecutable()));
+        }
+
+        assertThat(durations().recorded(new ArmKey("check-a", "target-one", "fixed"))).hasValue(42_000);
+    }
+
+    private ArmDurations durations() {
+        return new ArmDurations(durationsFile(), message -> { });
+    }
+
+    private Path durationsFile() {
+        return root.resolve("history").resolve("durations.json");
+    }
+
+    private static ArmResult ran(LoadedTarget target, String arm, long durationMillis) {
+        return new ArmResult(target.manifest().check(), target.manifest().id(), arm, "direct", ArmRole.FIXED, "1.0.0",
+                ExpectedOutcome.of(Outcome.SILENT), Outcome.SILENT, true, "ok", List.of(), 1, 0, ProbeTally.NONE,
+                durationMillis, "2026-11-19T00:00:00Z", null, null, null, null, Map.of(), null);
     }
 
     private static ArmResult result(String check, String target, String arm) {

@@ -10,6 +10,8 @@ import com.mcpscanner.checks.shared.oauth.RedirectTrail;
 import com.mcpscanner.checks.shared.oauth.SameOriginRedirects;
 
 import java.net.URI;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 final class UnattendedAuthorizer {
@@ -20,15 +22,26 @@ final class UnattendedAuthorizer {
     private final AuthorizationServer server;
 
     UnattendedAuthorizer(OAuthHttp http, AuthorizationServer server) {
-        this.redirects = SameOriginRedirects.carryingCookies(http, MAX_REDIRECTS);
+        this(SameOriginRedirects.carryingCookies(http, MAX_REDIRECTS), server);
+    }
+
+    UnattendedAuthorizer(SameOriginRedirects redirects, AuthorizationServer server) {
+        this.redirects = redirects;
         this.server = server;
     }
 
     UnattendedAuthorization authorize(ProbeClient client) {
+        return authorize(client, server.scope());
+    }
+
+    UnattendedAuthorization authorize(ProbeClient client, Optional<String> scope) {
         Pkce pkce = Pkce.generate();
         String state = UUID.randomUUID().toString();
-        URI request = AuthorizationParameters.withQuery(server.authorizationEndpoint(),
-                AuthorizationParameters.of(server, "code", client.clientId(), client.callback(), state, pkce));
+        Map<String, String> parameters =
+                AuthorizationParameters.of(server, "code", client.clientId(), client.callback(), state, pkce);
+        parameters.remove("scope");
+        scope.ifPresent(requested -> parameters.put("scope", requested));
+        URI request = AuthorizationParameters.withQuery(server.authorizationEndpoint(), parameters);
         return redirects.follow(request, client::isCallback)
                 .map(trail -> authorization(trail, client, state, pkce))
                 .orElseGet(UnattendedAuthorization::unanswered);
@@ -42,6 +55,7 @@ final class UnattendedAuthorizer {
                         .map(code -> new IssuedCode(code, pkce)),
                 trail.exchanges(),
                 trail.sessionCreatedBy(),
-                trail.hopLimitReached());
+                trail.hopLimitReached(),
+                trail.stoppedAt());
     }
 }

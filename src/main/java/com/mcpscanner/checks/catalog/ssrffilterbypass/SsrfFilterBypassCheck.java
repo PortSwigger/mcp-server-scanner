@@ -82,8 +82,8 @@ public final class SsrfFilterBypassCheck implements InsertionPointCheck, Connect
             log.notRunOncePerLoad(subject, NO_SERVER_ADDRESS);
             return List.of();
         }
-        return rateLimited.run(subject, http, guarded -> {
-            probe(new FieldProbe(base, insertionPoint, field.get(), guarded, subject), collaborator.get());
+        return rateLimited.run(subject, http, sends -> {
+            probe(new FieldProbe(base, insertionPoint, field.get(), sends, subject), collaborator.get());
             return List.of();
         });
     }
@@ -99,8 +99,8 @@ public final class SsrfFilterBypassCheck implements InsertionPointCheck, Connect
     }
 
     private void probe(FieldProbe probe, Ipv4Literal collaborator) {
-        FieldSender sender = new FieldSender(probe.point(), probe.http());
-        LeadSearch search = new LeadFinder(sender, probe.targetPort()).search();
+        FieldSender confirmer = probe.confirmer();
+        LeadSearch search = new LeadFinder(probe.prober(), confirmer, probe.targetPort()).search();
         if (search.stopped().isPresent()) {
             log.notRun(probe.subject(), search.stopped().get());
             return;
@@ -110,7 +110,7 @@ public final class SsrfFilterBypassCheck implements InsertionPointCheck, Connect
             return;
         }
         List<ControlledLead> controlled = watch.probing(payloads ->
-                ControlledLead.send(sender, collaborator, search.leads(), payloads));
+                ControlledLead.send(confirmer, collaborator, search.leads(), payloads));
         if (controlled.size() < search.leads().size()) {
             log.notRun(probe.subject(), NO_PAYLOAD);
         }
@@ -121,7 +121,7 @@ public final class SsrfFilterBypassCheck implements InsertionPointCheck, Connect
         if (controlled.isEmpty()) {
             return;
         }
-        TargetPage page = TargetPage.fetch(probe.http(), probe.base().request());
+        TargetPage page = TargetPage.fetch(probe.sends().confirmations(), probe.base().request());
         ReportedFields connectionFields = reported.get();
         HttpRequestResponse base = watch.kept(probe.base());
         Refusal keptRefusal = new Refusal(kept(refusal.evidence()), refusal.signature());

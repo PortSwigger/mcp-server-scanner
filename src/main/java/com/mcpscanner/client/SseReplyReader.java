@@ -1,6 +1,7 @@
 package com.mcpscanner.client;
 
 import com.mcpscanner.mcp.BoundedBodyReader;
+import com.mcpscanner.mcp.RawSseFrame;
 import com.mcpscanner.mcp.SseFrameReader;
 
 import java.io.BufferedInputStream;
@@ -24,7 +25,7 @@ final class SseReplyReader implements AutoCloseable {
 
     SseReplyReader(InputStream stream, ThreadPoolExecutor executor, Duration timeout) {
         this.stream = stream;
-        this.frames = SseFrameReader.over(new BufferedInputStream(stream), EVENT_LIMITS);
+        this.frames = SseFrameReader.capturing(new BufferedInputStream(stream), EVENT_LIMITS);
         this.executor = executor;
         this.timeout = timeout;
         beginReplyWait();
@@ -35,7 +36,12 @@ final class SseReplyReader implements AutoCloseable {
     }
 
     String nextEvent() {
-        Future<String> read = executor.submit(this::readEvent);
+        RawSseFrame frame = nextFrame();
+        return frame == null ? null : frame.text();
+    }
+
+    RawSseFrame nextFrame() {
+        Future<RawSseFrame> read = executor.submit(this::readFrame);
         try {
             return read.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
         } catch (TimeoutException failure) {
@@ -54,8 +60,8 @@ final class SseReplyReader implements AutoCloseable {
         }
     }
 
-    private String readEvent() throws IOException {
-        return frames.nextFrame();
+    private RawSseFrame readFrame() throws IOException {
+        return frames.nextRawFrame();
     }
 
     @Override

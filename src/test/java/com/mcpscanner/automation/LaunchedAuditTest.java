@@ -116,6 +116,7 @@ class LaunchedAuditTest {
         when(issue.severity()).thenReturn(AuditIssueSeverity.HIGH);
         when(issue.confidence()).thenReturn(AuditIssueConfidence.FIRM);
         when(issue.definition().typeIndex()).thenReturn(typeIndex);
+        when(issue.requestResponses()).thenReturn(List.of());
         return issue;
     }
 }

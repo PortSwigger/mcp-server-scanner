@@ -20,14 +20,14 @@ final class OAuthAuthorizationConsentIssues {
     }
 
     private AuditIssue issue(ConsentFinding finding) {
-        FindingKind kind = finding.kind();
+        ConsentIssueKind kind = finding.kind();
         return AuditIssue.auditIssue(
                 kind.issueName(),
                 detail(finding),
                 kind.remediation(),
                 finding.location().toString(),
                 kind.severity(),
-                kind.confidence(),
+                finding.confidence(),
                 IssueMetadataRenderer.background(descriptor.issueBackground(), descriptor.cwes(),
                         descriptor.references()),
                 null,

@@ -1,7 +1,11 @@
 package com.mcpscanner.cvetargets.burp;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mcpscanner.automation.AuditPathCanaryCommand;
+import com.mcpscanner.automation.AuditPathCanaryReport;
 import com.mcpscanner.automation.AuditSnapshot;
+import com.mcpscanner.automation.AuthProbeCommand;
+import com.mcpscanner.automation.AuthProbeReport;
 import com.mcpscanner.automation.AutomationServer;
 import com.mcpscanner.automation.CheckAccessCommand;
 import com.mcpscanner.automation.CheckAccessStatus;
@@ -19,11 +23,13 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Optional;
 
-final class HttpBurpAutomation implements BurpAutomation, SendLatencyCanary {
+final class HttpBurpAutomation implements BurpAutomation, SendLatencyCanary, AuthProbeCanary, AuditSendCanary {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Duration SCAN_ALL_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration SEND_CANARY_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration AUTH_PROBE_TIMEOUT = Duration.ofMinutes(1);
+    private static final Duration AUDIT_PATH_CANARY_TIMEOUT = Duration.ofMinutes(11);
     private static final Duration AUDIT_TIMEOUT = Duration.ofSeconds(30);
     private static final int NOT_FOUND = 404;
 
@@ -51,6 +57,17 @@ final class HttpBurpAutomation implements BurpAutomation, SendLatencyCanary {
     @Override
     public SendCanaryReport sendCanary(SendCanaryCommand command) {
         return parsed(post("/send-canary", command, SEND_CANARY_TIMEOUT), SendCanaryReport.class, "Send canary");
+    }
+
+    @Override
+    public AuditPathCanaryReport auditPathCanary(AuditPathCanaryCommand command) {
+        return parsed(post("/audit-path-canary", command, AUDIT_PATH_CANARY_TIMEOUT), AuditPathCanaryReport.class,
+                "Audit path canary");
+    }
+
+    @Override
+    public AuthProbeReport authProbe(AuthProbeCommand command) {
+        return parsed(post("/auth-probe", command, AUTH_PROBE_TIMEOUT), AuthProbeReport.class, "Auth probe");
     }
 
     @Override

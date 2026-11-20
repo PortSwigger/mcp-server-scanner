@@ -1,8 +1,7 @@
 package com.mcpscanner.checks.shared.probe;
 
 import burp.api.montoya.http.message.HttpRequestResponse;
-
-import java.util.Objects;
+import com.mcpscanner.checks.shared.jsonrpc.ReplyBody;
 
 public final class ServerErrorAnswer {
 
@@ -20,8 +19,6 @@ public final class ServerErrorAnswer {
     }
 
     public static boolean reproduces(HttpRequestResponse first, HttpRequestResponse repeat) {
-        return of(first) && of(repeat)
-                && first.response().statusCode() == repeat.response().statusCode()
-                && Objects.equals(first.response().bodyToString(), repeat.response().bodyToString());
+        return of(first) && of(repeat) && ReplyBody.sameAnswer(first.response(), repeat.response());
     }
 }

@@ -26,6 +26,7 @@ public final class UpstreamExchangeStore implements UpstreamExchanges {
     static final long MAX_BODY_BYTES = 32L * 1024 * 1024;
     static final long MAX_RETAINED_BYTES = 8L * 1024 * 1024;
     static final int MAX_RETAINED_EXCHANGES = MAX_EXCHANGES / 2;
+    static final int MAX_KEPT_RESOLVED = 10_000;
     private static final int ID_BYTES = 16;
 
     private final int maxExchanges;
@@ -34,11 +35,12 @@ public final class UpstreamExchangeStore implements UpstreamExchanges {
     private final int maxRetainedExchanges;
     private final McpEventLog eventLog;
     private final SecureRandom random = new SecureRandom();
-    private final ExchangeEvidence evidence = new ExchangeEvidence();
     private final Map<String, RecordedExchange> exchanges = new LinkedHashMap<>();
     private final Map<String, Integer> holds = new HashMap<>();
     private final Map<String, Integer> retentionsHolding = new HashMap<>();
     private final Set<Retention> retentions = new LinkedHashSet<>();
+    private final PinnedBases pinnedBases = new PinnedBases();
+    private final KeptResolvedExchanges keptResolved = new KeptResolvedExchanges(MAX_KEPT_RESOLVED);
     private long bodyBytes;
     private long retainedBytes;
 
@@ -88,8 +90,32 @@ public final class UpstreamExchangeStore implements UpstreamExchanges {
     }
 
     @Override
-    public Optional<HttpRequestResponse> upstreamOf(HttpRequestResponse proxied) {
-        return exchangeIdOf(proxied).flatMap(this::find).map(evidence::of);
+    public List<HttpRequestResponse> upstreamOf(HttpRequestResponse proxied) {
+        return exchangeIdOf(proxied).map(this::evidenceOf).orElse(List.of());
+    }
+
+    @Override
+    public void keepResolved(HttpRequestResponse proxied, List<HttpRequestResponse> items) {
+        exchangeIdOf(proxied).ifPresent(id -> keptResolved.keep(id, items));
+    }
+
+    private List<HttpRequestResponse> evidenceOf(String id) {
+        return lookUp(id).map(RecordedExchange::evidence).orElseGet(() -> keptResolved.of(id));
+    }
+
+    private synchronized Optional<RecordedExchange> lookUp(String id) {
+        pinnedBases.markUsed(id);
+        return find(id);
+    }
+
+    synchronized void keepBase(String id) {
+        if (!exchanges.containsKey(id)) {
+            return;
+        }
+        if (!pinnedBases.isPinned(id)) {
+            hold(id);
+        }
+        release(pinnedBases.pin(id, exchanges.get(id).bodyBytes()));
     }
 
     private static Optional<String> exchangeIdOf(HttpRequestResponse proxied) {

@@ -44,9 +44,9 @@ public final class SocketHttpTransport {
             OutputStream out = socket.getOutputStream();
             out.write(request.bytes());
             out.flush();
-            BufferedInputStream in = new BufferedInputStream(
-                    new DeadlineInputStream(socket, Instant.now().plus(readTimeout)));
-            return new WireExchange(socket, WireResponse.read(in, request.method()));
+            SocketTap tap = new SocketTap(request, new BufferedInputStream(
+                    new DeadlineInputStream(socket, Instant.now().plus(readTimeout))));
+            return new WireExchange(socket, WireResponse.read(tap.read(), request.method()), tap);
         } catch (IOException | RuntimeException failure) {
             socket.close();
             throw failure;

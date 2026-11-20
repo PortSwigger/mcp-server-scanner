@@ -15,6 +15,7 @@ import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +31,8 @@ class UpstreamEvidenceTest {
     private static final String TARGET_URL = "https://mcp.example.test/mcp";
 
     private final Map<HttpRequestResponse, HttpRequestResponse> upstream = new IdentityHashMap<>();
-    private final UpstreamEvidence evidence = new UpstreamEvidence(proxied -> Optional.ofNullable(upstream.get(proxied)));
+    private final Map<HttpRequestResponse, List<HttpRequestResponse>> legacySse = new IdentityHashMap<>();
+    private final UpstreamEvidence evidence = new UpstreamEvidence(this::lookup);
 
     @BeforeEach
     void setUp() {
@@ -95,6 +97,20 @@ class UpstreamEvidenceTest {
         assertThat(marked(swapped.response().toByteArray(), swapped.responseMarkers())).containsExactly("PROOF");
     }
 
+    @Test
+    void keepsTheUpstreamExchangesTruncationNote() {
+        HttpRequestResponse proxied = exchange(PROXY_URL, "proxied");
+        HttpRequestResponse target = com.mcpscanner.http.evidence.WireRecord.ofSocket(
+                HttpService.httpService(TARGET_URL),
+                "POST /mcp HTTP/1.1\r\nHost: mcp.example.test\r\n\r\n{}".getBytes(StandardCharsets.ISO_8859_1),
+                "HTTP/1.1 200 OK\r\n\r\nabc".getBytes(StandardCharsets.ISO_8859_1), true).evidence();
+        upstream.put(proxied, target);
+
+        HttpRequestResponse swapped = evidence.translate(issue(TARGET_URL, proxied)).requestResponses().get(0);
+
+        assertThat(swapped.annotations().notes()).isEqualTo(target.annotations().notes()).isNotBlank();
+    }
+
     private static List<String> marked(burp.api.montoya.core.ByteArray message, List<Marker> markers) {
         String text = new String(message.getBytes(), java.nio.charset.StandardCharsets.UTF_8);
         return markers.stream().map(marker -> text.substring(marker.range().startIndexInclusive(),
@@ -145,7 +161,7 @@ class UpstreamEvidenceTest {
     void filesASwappedIssueUnderTheStableFormOfTheUpstreamUrl() {
         HttpRequestResponse proxied = exchange(PROXY_URL, "proxied");
         upstream.put(proxied, exchange("https://mcp.example.test/mcp/sessions/77", "target"));
-        UpstreamExchanges stable = ((UpstreamExchanges) p -> Optional.ofNullable(upstream.get(p)))
+        UpstreamExchanges stable = ((UpstreamExchanges) this::lookup)
                 .filingIssuesUnder(url -> url.replaceAll("/sessions/\\d+$", "/sessions"));
 
         AuditIssue translated = new UpstreamEvidence(stable).translate(issue(PROXY_URL, proxied));
@@ -192,6 +208,78 @@ class UpstreamEvidenceTest {
 
         assertThat(translated.get(0).requestResponses().get(0).request()).isSameAs(target.request());
         assertThat(translated.get(1)).isSameAs(untouched);
+    }
+
+    @Test
+    void aLegacySseExchangeBecomesThePostThenTheStreamEventWithThePayloadMarkedInTheFirstAndTheProofInTheLast() {
+        HttpRequestResponse proxied = TextMarkers.inResponse(TextMarkers.inRequest(
+                real(PROXY_URL, "{\"id\":1,\"q\":\"PAYLOAD\"}", "{\"r\":\"PROOF\"}"), List.of("PAYLOAD")),
+                List.of("PROOF"));
+        HttpRequestResponse post = real(TARGET_URL + "/messages", "{\"id\":\"mcp-9\",\"q\":\"PAYLOAD\"}", "");
+        HttpRequestResponse event = HttpRequestResponse.httpRequestResponse(
+                HttpRequest.httpRequestFromUrl(TARGET_URL + "/sse"),
+                HttpResponse.httpResponse("HTTP/1.1 200 OK\r\n\r\nevent: message\r\ndata: {\"r\":\"PROOF\"}\r\n\r\n"));
+        legacySse.put(proxied, List.of(post, event));
+
+        AuditIssue translated = evidence.translate(issue(TARGET_URL, proxied));
+
+        List<HttpRequestResponse> items = translated.requestResponses();
+        assertThat(items).hasSize(2);
+        assertThat(items.get(0).request()).isSameAs(post.request());
+        assertThat(marked(items.get(0).request().toByteArray(), items.get(0).requestMarkers())).containsExactly("PAYLOAD");
+        assertThat(items.get(0).responseMarkers()).isEmpty();
+        assertThat(items.get(1).request()).isSameAs(event.request());
+        assertThat(items.get(1).requestMarkers()).isEmpty();
+        assertThat(marked(items.get(1).response().toByteArray(), items.get(1).responseMarkers())).containsExactly("PROOF");
+    }
+
+    @Test
+    void anIssueWithASplitExchangeSaysOnceHowEachExchangeIsShown() {
+        HttpRequestResponse base = exchange(PROXY_URL, "base");
+        HttpRequestResponse probe = exchange(PROXY_URL, "probe");
+        legacySse.put(base, List.of(exchange(TARGET_URL, "post"), exchange(TARGET_URL, "event")));
+        legacySse.put(probe, List.of(exchange(TARGET_URL, "post"), exchange(TARGET_URL, "event")));
+
+        AuditIssue translated = evidence.translate(issue(TARGET_URL, base, probe));
+
+        assertThat(translated.requestResponses()).hasSize(4);
+        assertThat(translated.detail()).isEqualTo("Detail" + SplitExchangeNote.DETAIL_SENTENCE);
+    }
+
+    @Test
+    void anIssueWhoseDetailAlreadySaysHowExchangesAreSplitIsNotToldAgain() {
+        HttpRequestResponse proxied = exchange(PROXY_URL, "proxied");
+        legacySse.put(proxied, List.of(exchange(TARGET_URL, "post"), exchange(TARGET_URL, "event")));
+        AuditIssue said = issue(TARGET_URL, proxied);
+        lenient().when(said.detail()).thenReturn("Detail" + SplitExchangeNote.DETAIL_SENTENCE);
+
+        assertThat(evidence.translate(said).detail()).isEqualTo("Detail" + SplitExchangeNote.DETAIL_SENTENCE);
+    }
+
+    @Test
+    void aSingleItemSwapLeavesTheDetailAsWritten() {
+        HttpRequestResponse proxied = exchange(PROXY_URL, "proxied");
+        upstream.put(proxied, exchange(TARGET_URL, "target"));
+
+        assertThat(evidence.translate(issue(TARGET_URL, proxied)).detail()).isEqualTo("Detail");
+    }
+
+    @Test
+    void resolvesAProxiedExchangeToEveryUpstreamItemOrToItselfWhenNoneIsStored() {
+        HttpRequestResponse proxied = exchange(PROXY_URL, "proxied");
+        HttpRequestResponse unknown = exchange(PROXY_URL, "unknown");
+        HttpRequestResponse post = exchange(TARGET_URL, "post");
+        HttpRequestResponse event = exchange(TARGET_URL, "event");
+        legacySse.put(proxied, List.of(post, event));
+
+        assertThat(evidence.resolved(proxied)).extracting(HttpRequestResponse::request)
+                .containsExactly(post.request(), event.request());
+        assertThat(evidence.resolved(unknown)).containsExactly(unknown);
+    }
+
+    private List<HttpRequestResponse> lookup(HttpRequestResponse proxied) {
+        return legacySse.containsKey(proxied) ? legacySse.get(proxied)
+                : Optional.ofNullable(upstream.get(proxied)).map(List::of).orElse(List.of());
     }
 
     private static HttpRequestResponse exchange(String url, String body) {

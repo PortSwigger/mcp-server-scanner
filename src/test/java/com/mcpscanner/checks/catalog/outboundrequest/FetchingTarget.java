@@ -7,10 +7,13 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.mcpscanner.checks.shared.collaborator.FakeCollaborator;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -22,13 +25,16 @@ import static org.mockito.Mockito.when;
 final class FetchingTarget {
 
     private static final Pattern PAYLOAD_HOST = Pattern.compile("([a-z0-9]+)\\." + Pattern.quote(FakeCollaborator.DOMAIN));
+    private static final Pattern URL_USER_INFO = Pattern.compile("\"url\":\"https?://([^@\"/]+)@");
 
     private final FakeCollaborator collaborator;
     private final List<HttpRequest> received = new ArrayList<>();
     private Predicate<HttpRequest> fetches = request -> false;
-    private InteractionType interactionType = InteractionType.HTTP;
+    private Predicate<HttpRequest> fetchesOverHttp = request -> true;
     private Map<String, String> forwardedHeaders = Map.of();
     private int answeredBeforeRateLimit = Integer.MAX_VALUE;
+    private boolean authenticatesWithUrlUserInfo;
+    private boolean quotaSpent;
 
     FetchingTarget(FakeCollaborator collaborator) {
         this.collaborator = collaborator;
@@ -40,12 +46,26 @@ final class FetchingTarget {
     }
 
     FetchingTarget resolvingOnly() {
-        this.interactionType = InteractionType.DNS;
+        return fetchingOverHttpOnlyWhen(request -> false);
+    }
+
+    FetchingTarget fetchingOverHttpOnlyWhen(Predicate<HttpRequest> condition) {
+        this.fetchesOverHttp = condition;
         return this;
     }
 
     FetchingTarget forwarding(Map<String, String> headers) {
         this.forwardedHeaders = headers;
+        return this;
+    }
+
+    FetchingTarget authenticatingWithUrlUserInfo() {
+        this.authenticatesWithUrlUserInfo = true;
+        return this;
+    }
+
+    FetchingTarget spendingQuota() {
+        this.quotaSpent = true;
         return this;
     }
 
@@ -76,18 +96,28 @@ final class FetchingTarget {
         if (fetches.test(request)) {
             Matcher matcher = PAYLOAD_HOST.matcher(textOf(request));
             while (matcher.find()) {
-                interact(FakeCollaborator.payload(matcher.group(1)));
+                interact(FakeCollaborator.payload(matcher.group(1)), fetchesOverHttp.test(request),
+                        userInfoAuthorization(request));
             }
         }
-        return OutboundFixtures.exchange(request);
+        return quotaSpent ? HttpRequestResponse.httpRequestResponse(request, OutboundFixtures.quotaSpent())
+                : OutboundFixtures.exchange(request);
     }
 
-    private void interact(CollaboratorPayload payload) {
-        if (interactionType == InteractionType.DNS) {
+    private Optional<String> userInfoAuthorization(HttpRequest request) {
+        Matcher userInfo = URL_USER_INFO.matcher(request.bodyToString());
+        return Optional.of(userInfo).filter(found -> authenticatesWithUrlUserInfo && found.find())
+                .map(found -> "Basic " + Base64.getEncoder()
+                        .encodeToString((found.group(1) + ":").getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private void interact(CollaboratorPayload payload, boolean overHttp, Optional<String> authorization) {
+        if (!overHttp) {
             collaborator.interact(payload, InteractionType.DNS);
             return;
         }
         Map<String, String> headers = new LinkedHashMap<>(forwardedHeaders);
+        authorization.ifPresent(value -> headers.put("Authorization", value));
         headers.put("Host", payload.toString());
         HttpRequest fetch = OutboundFixtures.post("http://" + payload + "/", headers, "");
         collaborator.interactOverHttp(payload, HttpRequestResponse.httpRequestResponse(fetch, null));

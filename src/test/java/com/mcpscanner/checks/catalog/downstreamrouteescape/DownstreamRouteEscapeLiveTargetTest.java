@@ -10,6 +10,7 @@ import com.mcpscanner.checks.api.CheckKind;
 import com.mcpscanner.checks.api.CheckRunner;
 import com.mcpscanner.checks.api.CheckServices;
 import com.mcpscanner.checks.api.McpCheck;
+import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.scan.McpInsertionPointProvider;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.mcpscanner.testutil.RecordingRealHttp;
@@ -51,7 +52,10 @@ class DownstreamRouteEscapeLiveTargetTest {
             assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.INFORMATION);
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
             assertThat(issue.detail()).contains("params.arguments.id").contains("../").contains(".../");
-            assertThat(issue.requestResponses()).hasSize(8);
+            assertThat(issue.requestResponses()).hasSize(3);
+            assertThat(issue.requestResponses().get(1).request().bodyToString()).contains("\"id\":\"../\"");
+            assertThat(issue.requestResponses().get(1).requestMarkers()).isNotEmpty();
+            assertThat(issue.requestResponses().get(2).request().bodyToString()).contains("\"id\":\".../\"");
         }
     }
 
@@ -99,6 +103,20 @@ class DownstreamRouteEscapeLiveTargetTest {
         try (RouteModelServer server = new RouteModelServer(RouteModelServer.PathBuilding.ENCODED_SEGMENT)) {
             assertThat(runner.run(check, baseRequests(server))).isEmpty();
             assertThat(server.requests.get()).isGreaterThan(baseRequests(server).size());
+        }
+    }
+
+    @Test
+    void aValueUsedAsALocalDirectoryIsNotReportedAsARouteEscapeAndSaysWhy() throws IOException {
+        try (RouteModelServer server = new RouteModelServer(RouteModelServer.PathBuilding.RAW_JOIN)) {
+            McpEventLog eventLog = new McpEventLog(null);
+            List<AuditIssue> issues = runner.run(new DownstreamRouteEscapeCheck(eventLog),
+                    List.of(call(server, "commit_in", "{\"directory\":\"test\"}")));
+
+            assertThat(issues).isEmpty();
+            assertThat(eventLog.snapshot()).extracting(McpEventLog.LogEntry::message)
+                    .anyMatch(line -> line.contains("params.arguments.directory")
+                            && line.contains("resolves as a local directory path"));
         }
     }
 

@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 final class StreamPrefix implements HttpResponse.BodySubscriber<StreamPrefix> {
 
-    record Read(byte[] bytes, boolean ended) {
+    record Read(byte[] bytes, boolean ended, boolean capped) {
     }
 
     private final int maxBytes;
@@ -23,6 +23,7 @@ final class StreamPrefix implements HttpResponse.BodySubscriber<StreamPrefix> {
     private final CompletableFuture<Boolean> ended = new CompletableFuture<>();
     private final CompletableFuture<Flow.Subscription> subscription = new CompletableFuture<>();
     private final AtomicBoolean cancelled = new AtomicBoolean();
+    private boolean cut;
 
     StreamPrefix(int maxBytes) {
         this.maxBytes = maxBytes;
@@ -69,7 +70,7 @@ final class StreamPrefix implements HttpResponse.BodySubscriber<StreamPrefix> {
     Read await(Duration window) throws InterruptedException {
         try {
             boolean serverEnded = endedWithin(window);
-            return new Read(snapshot(), serverEnded);
+            return new Read(snapshot(), serverEnded, wasCut());
         } finally {
             cancel();
         }
@@ -91,8 +92,13 @@ final class StreamPrefix implements HttpResponse.BodySubscriber<StreamPrefix> {
             byte[] chunk = new byte[take];
             buffer.get(chunk);
             bytes.write(chunk, 0, take);
+            cut |= buffer.hasRemaining();
         }
         return bytes.size() >= maxBytes;
+    }
+
+    private synchronized boolean wasCut() {
+        return cut;
     }
 
     private synchronized byte[] snapshot() {

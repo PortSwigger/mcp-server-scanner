@@ -232,7 +232,9 @@ class SseProxyHttpConnectionTest {
         HttpClient raw = mock(HttpClient.class);
         SseProxyServer proxy = TestSseProxies.builder(session).httpClient(raw).build();
         try {
-            var result = proxy.serve(request("not json", managedHeaders(proxy, Map.of("MCP-Protocol-Version", "stale", "Mcp-Method", "tools/call"))));
+            var result = proxy.serve(request("not json", managedHeaders(proxy, Map.of("MCP-Protocol-Version", "stale", "Mcp-Method", "tools/call",
+                    com.mcpscanner.mcp.ScannerSentinels.FRAMED_OPERATION_HEADER, com.mcpscanner.mcp.FramedOperation.encode(
+                            Map.of("MCP-Protocol-Version", "stale", "Mcp-Method", "tools/call"))))));
             assertThat(result.getStatus().getRequestStatus()).isEqualTo(400);
             var operation = org.mockito.ArgumentCaptor.forClass(com.mcpscanner.core.protocol.McpRequests.Request.class);
             verify(session).prepareHttpOperation(operation.capture());

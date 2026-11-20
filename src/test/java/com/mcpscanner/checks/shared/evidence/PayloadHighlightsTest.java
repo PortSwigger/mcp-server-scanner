@@ -2,6 +2,7 @@ package com.mcpscanner.checks.shared.evidence;
 
 import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.core.Marker;
+import burp.api.montoya.core.Range;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
@@ -42,6 +43,24 @@ class PayloadHighlightsTest {
 
         assertThat(texts(marked.request().toByteArray(), marked.requestMarkers()))
                 .containsExactly("\"http://abc\\\"123.oastify.com/\"");
+    }
+
+    @Test
+    void marksAShortPayloadWhereItWasInsertedRatherThanItsFirstOccurrence() {
+        String body = "{\"jsonrpc\":\"2.0\",\"params\":{\"arguments\":{\"path\":\"a/./b\"}}}";
+        HttpRequest built = HttpRequest.httpRequestFromUrl("https://mcp.example.test/mcp").withMethod("POST")
+                .withBody(body);
+        int inserted = built.toByteArray().toString().indexOf("a/./b") + 2;
+        List<Range> highlight = List.of(Range.range(inserted, inserted + 1));
+        AuditInsertionPoint segment = mock(AuditInsertionPoint.class);
+        when(segment.buildHttpRequestWithPayload(org.mockito.ArgumentMatchers.any())).thenReturn(built);
+        when(segment.issueHighlights(org.mockito.ArgumentMatchers.any())).thenReturn(highlight);
+        HttpRequestResponse sent = HttpRequestResponse.httpRequestResponse(built, null);
+
+        HttpRequestResponse marked = PayloadHighlights.ofPayload(sent, segment, ".");
+
+        assertThat(marked.requestMarkers()).singleElement()
+                .satisfies(marker -> assertThat(marker.range().startIndexInclusive()).isEqualTo(inserted));
     }
 
     @Test

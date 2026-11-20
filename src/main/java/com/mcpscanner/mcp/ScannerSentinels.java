@@ -32,13 +32,16 @@ public final class ScannerSentinels {
 
     public static final String ROUTED_HEADER = "X-Mcp-Scanner-Routed";
 
+    public static final String FRAMED_OPERATION_HEADER = "X-Mcp-Scanner-Framed-Operation";
+
     public static final String SENTINEL_VALUE = "1";
 
     public static final Set<String> ROUTES_TO_PROXY = McpHeaders.caseInsensitive(
             AUDIT_CAPABILITY_HEADER, STRIP_AUTH_HEADER, IDENTITY_HEADER);
 
     public static final Set<String> STRIPPED_BEFORE_UPSTREAM = McpHeaders.caseInsensitive(
-            AUDIT_CAPABILITY_HEADER, STRIP_AUTH_HEADER, IDENTITY_HEADER, KEEP_SESSION_HEADER, ROUTED_HEADER);
+            AUDIT_CAPABILITY_HEADER, STRIP_AUTH_HEADER, IDENTITY_HEADER, KEEP_SESSION_HEADER, ROUTED_HEADER,
+            FRAMED_OPERATION_HEADER);
 
     public static final Set<String> ALL = withStrippedBeforeUpstream(
             DIRECT_DELIVERY_HEADER, GENERATED_REGISTRATION_HEADER, EXCHANGE_HEADER);

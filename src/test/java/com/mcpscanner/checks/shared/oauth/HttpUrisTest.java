@@ -89,4 +89,19 @@ class HttpUrisTest {
     void pathWithoutTrailingSlashKeepsTheRawPath(String uri, String path) {
         assertThat(HttpUris.pathWithoutTrailingSlash(URI.create(uri))).isEqualTo(path);
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://as.example.com/authorize", "HTTPS://10.0.0.5/authorize",
+            "http://127.0.0.1:8000/authorize", "http://localhost/authorize", "http://LOCALHOST:9000/",
+            "http://[::1]:8080/authorize", "http://127.4.5.6/authorize"})
+    void secureOrLoopbackWhenHttpsOrALoopbackHost(String uri) {
+        assertThat(HttpUris.isSecureOrLoopback(URI.create(uri))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://as.example.com/authorize", "http://10.0.0.5/authorize",
+            "http://192.168.1.10:8080/authorize", "http://localhost.example.com/", "http://128.0.0.1/"})
+    void notSecureOrLoopbackOverPlainHttpToAnyOtherHost(String uri) {
+        assertThat(HttpUris.isSecureOrLoopback(URI.create(uri))).isFalse();
+    }
 }

@@ -3,6 +3,7 @@ package com.mcpscanner.mcp;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.Collection;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -17,6 +18,8 @@ public final class ResendableRequests {
             McpMethods.RESOURCES_LIST, McpMethods.RESOURCE_TEMPLATES_LIST, McpMethods.PROMPTS_LIST,
             McpMethods.RESOURCES_READ, McpMethods.PROMPTS_GET, McpMethods.COMPLETION_COMPLETE);
 
+    private static final Set<String> SAFE_HTTP_METHODS = Set.of("GET", "HEAD", "OPTIONS");
+
     private volatile Map<String, McpToolDefinition> readOnlyTools = Map.of();
 
     public void learn(Collection<McpToolDefinition> tools) {
@@ -28,6 +31,13 @@ public final class ResendableRequests {
 
     public void forget() {
         readOnlyTools = Map.of();
+    }
+
+    public boolean resendable(String httpMethod, String body) {
+        if (body == null || body.isEmpty()) {
+            return SAFE_HTTP_METHODS.contains(Objects.requireNonNullElse(httpMethod, "").toUpperCase(Locale.ROOT));
+        }
+        return resendable(body);
     }
 
     public boolean resendable(String jsonRpcBody) {

@@ -18,6 +18,7 @@ final class HttpForwardRequests {
 
     private final McpScannerSession scannerSession;
     private final McpOperationFraming.Framer operationFramer;
+    private final OperationHeaderFraming operationHeaderFraming = new OperationHeaderFraming();
 
     HttpForwardRequests(McpScannerSession scannerSession, McpOperationFraming.Framer operationFramer) {
         this.scannerSession = scannerSession;
@@ -46,14 +47,13 @@ final class HttpForwardRequests {
         return headers;
     }
 
-    static Map<String, String> withOperationHeaders(Map<String, String> incoming, Map<String, String> framed) {
-        if (framed.isEmpty()) {
-            return incoming;
-        }
-        Map<String, String> headers = new HashMap<>(incoming != null ? incoming : Map.of());
-        headers.keySet().removeIf(McpHeaders::isOperationHeader);
-        headers.putAll(framed);
-        return headers;
+    Map<String, String> operationHeaders(Map<String, String> outgoing, Map<String, String> framed,
+                                         Map<String, String> incoming) {
+        return operationHeaderFraming.frame(outgoing, framed, incoming);
+    }
+
+    private static Map<String, String> incoming(Map<String, String> headers) {
+        return headers != null ? headers : Map.of();
     }
 
     private boolean isModern() {
@@ -62,7 +62,8 @@ final class HttpForwardRequests {
 
     private McpRequests.Request modernRequest(String body, Map<String, String> headers) {
         var adapted = ModernRequestAdapter.adapt(body, operationFramer);
-        return new McpRequests.Request(adapted.body(), withOperationHeaders(headers, adapted.headers()));
+        return new McpRequests.Request(adapted.body(), operationHeaders(incoming(headers),
+                adapted.headers(), incoming(headers)));
     }
 
     private void applyForwardHeaders(Map<String, String> forwardHeaders, Map<String, String> requestHeaders) {

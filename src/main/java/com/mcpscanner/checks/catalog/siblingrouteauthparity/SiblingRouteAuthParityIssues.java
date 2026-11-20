@@ -32,8 +32,9 @@ final class SiblingRouteAuthParityIssues {
                         finding.route().variant().candidate().value()))
                 .paragraph("JSON-RPC method: " + method + ". The unauthenticated response listed the same items "
                         + "as the authenticated request, which is the first request in the evidence; the anonymous "
-                        + "request to the main route was refused before and after it. Only the catalog listing was "
-                        + "tested.")
+                        + "request to the main route was refused before and after it: the second request in the "
+                        + "evidence is that refusal, and the repeat after it is not attached. Only the catalog listing "
+                        + "was tested.")
                 .build();
     }
 }

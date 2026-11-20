@@ -10,9 +10,9 @@ public final class ActiveCallbackListeners implements CallbackListenerFactory {
     private final Set<CallbackListener> active = ConcurrentHashMap.newKeySet();
 
     @Override
-    public CallbackListener start(int port, String path) throws IOException {
+    public CallbackListener start(String host, int port, String path) throws IOException {
         active.removeIf(CallbackListener::isClosed);
-        CallbackListener listener = CallbackListener.start(port, path);
+        CallbackListener listener = CallbackListener.start(host, port, path);
         active.add(listener);
         return listener;
     }

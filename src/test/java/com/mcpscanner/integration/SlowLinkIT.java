@@ -3,6 +3,7 @@ package com.mcpscanner.integration;
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import com.mcpscanner.access.AccessSnapshot;
 import com.mcpscanner.auth.NoAuthStrategy;
 import com.mcpscanner.checks.api.CheckCatalog;
 import com.mcpscanner.checks.api.CheckServices;
@@ -40,6 +41,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 
 @Tag("slow-link")
 @EnabledIfEnvironmentVariable(named = "MCP_E2E_IT", matches = "1")
@@ -51,6 +53,7 @@ class SlowLinkIT {
     private static final int EXTENSION_SCAN_WORKERS = (int) ResourceCap.EXTENSION_SCAN_WORKERS.defaultValue();
     private static final int EXTENSION_SCAN_EFFECTIVE_CONCURRENCY = 5;
     private static final int CHECK_ACCESS_EFFECTIVE_CONCURRENCY = 3;
+    private static final int WRITE_REPLAYS_RUN_ONE_AT_A_TIME = 1;
     private static final int COLLECT_IDS_EFFECTIVE_CONCURRENCY = 7;
     private static final String USER_INFO_CALL = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
             + "\"params\":{\"name\":\"user_info\",\"arguments\":{\"username\":\"alice\"}}}";
@@ -77,13 +80,24 @@ class SlowLinkIT {
     }
 
     @Test
-    void checkAccessOverEveryItemFinishesWithinItsRoundTripBudget() throws Exception {
+    void checkAccessOverEveryReadItemFinishesWithinItsRoundTripBudget() throws Exception {
+        timeCheckAccess("Check access over every read item", CHECK_ACCESS_EFFECTIVE_CONCURRENCY,
+                CheckAccessFixture::checkReadItems);
+    }
+
+    @Test
+    void checkAccessOverEveryWriteItemFinishesWithinOneRoundTripPerRequest() throws Exception {
+        timeCheckAccess("Check access over every write item", WRITE_REPLAYS_RUN_ONE_AT_A_TIME,
+                CheckAccessFixture::checkWriteItems);
+    }
+
+    private static void timeCheckAccess(String operation, int concurrency,
+                                        Function<CheckAccessFixture, AccessSnapshot> check) throws Exception {
         try (DelayingRelay relay = DelayingRelay.listening(ONE_WAY_DELAY);
              McpCheckItSupport.RunningServer server = behind(relay,
                      CheckAccessFixture.startServer("vulnerable", advertising(relay)));
              CheckAccessFixture access = CheckAccessFixture.prepare(endpoint(relay))) {
-            stopwatch(relay, server).time("Check access over every item",
-                    CHECK_ACCESS_EFFECTIVE_CONCURRENCY, SLACK, access::checkAllItems);
+            stopwatch(relay, server).time(operation, concurrency, SLACK, () -> check.apply(access));
         }
     }
 

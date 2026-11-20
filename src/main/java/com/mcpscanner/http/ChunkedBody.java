@@ -5,12 +5,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 public final class ChunkedBody {
 
     private static final String CHUNKED = "chunked";
     private static final int MAX_SIZE_DIGITS = 8;
     private static final long INVALID_SIZE = -1;
+    private static final Pattern CUT_SIZE_LINE = Pattern.compile("[0-9a-fA-F]{0,8}(;[^\\r\\n]*)?\\r?");
+    private static final Pattern CUT_DATA_END = Pattern.compile("\\r?");
 
     private final byte[] framed;
     private final ByteArrayOutputStream decoded = new ByteArrayOutputStream();
@@ -35,15 +38,26 @@ public final class ChunkedBody {
 
     private Optional<byte[]> decode() {
         while (true) {
-            long size = nextChunkSize();
+            Optional<String> sizeLine = nextLine();
+            if (sizeLine.isEmpty()) return cutWhere(CUT_SIZE_LINE);
+            long size = parseSize(sizeLine.get());
             if (size == INVALID_SIZE) return Optional.empty();
-            if (size == 0) return trailersEndTheBody() ? Optional.of(decoded.toByteArray()) : Optional.empty();
-            if (!copyChunk(size)) return Optional.empty();
+            if (size == 0) return afterLastChunk();
+            if (size > framed.length - position) return completeChunksSoFar();
+            copyChunk(size);
+            Optional<String> dataEnd = nextLine();
+            if (dataEnd.isEmpty()) return cutWhere(CUT_DATA_END);
+            if (!dataEnd.get().isEmpty()) return Optional.empty();
         }
     }
 
-    private long nextChunkSize() {
-        return nextLine().map(ChunkedBody::parseSize).orElse(INVALID_SIZE);
+    private Optional<byte[]> cutWhere(Pattern framingPrefix) {
+        String rest = new String(framed, position, framed.length - position, StandardCharsets.ISO_8859_1);
+        return framingPrefix.matcher(rest).matches() ? completeChunksSoFar() : Optional.empty();
+    }
+
+    private Optional<byte[]> completeChunksSoFar() {
+        return decoded.size() == 0 ? Optional.empty() : Optional.of(decoded.toByteArray());
     }
 
     private static long parseSize(String sizeLine) {
@@ -57,27 +71,28 @@ public final class ChunkedBody {
         return digits.chars().allMatch(c -> Character.digit(c, 16) >= 0);
     }
 
-    private boolean copyChunk(long size) {
-        if (size > framed.length - position) return false;
+    private void copyChunk(long size) {
         decoded.write(framed, position, (int) size);
         position += (int) size;
-        return nextLine().filter(String::isEmpty).isPresent();
     }
 
-    private boolean trailersEndTheBody() {
+    private Optional<byte[]> afterLastChunk() {
         Optional<String> line;
         while ((line = nextLine()).isPresent()) {
-            if (line.get().isEmpty()) return position == framed.length;
-            if (line.get().indexOf(':') <= 0) return false;
+            if (line.get().isEmpty()) {
+                return position == framed.length ? Optional.of(decoded.toByteArray()) : Optional.empty();
+            }
+            if (line.get().indexOf(':') <= 0) return Optional.empty();
         }
-        return false;
+        return completeChunksSoFar();
     }
 
     private Optional<String> nextLine() {
-        for (int end = position; end + 1 < framed.length; end++) {
-            if (framed[end] == '\r' && framed[end + 1] == '\n') {
-                String line = new String(framed, position, end - position, StandardCharsets.ISO_8859_1);
-                position = end + 2;
+        for (int end = position; end < framed.length; end++) {
+            if (framed[end] == '\n') {
+                int lineEnd = end > position && framed[end - 1] == '\r' ? end - 1 : end;
+                String line = new String(framed, position, lineEnd - position, StandardCharsets.ISO_8859_1);
+                position = end + 1;
                 return Optional.of(line);
             }
         }
