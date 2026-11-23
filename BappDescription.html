@@ -1,8 +1,7 @@
 <p>
   Security-tests Model Context Protocol (MCP) servers. The extension discovers a server's tools, resources, resource
-  templates and prompts, builds JSON-RPC 2.0 requests with fuzzable insertion points, and runs its own MCP checks
-  against them, either on its own scan engine or in a Burp audit alongside Burp Scanner's built-in active checks. It is
-  intended for operators auditing MCP servers they own or are authorized to test.
+  templates and prompts, builds JSON-RPC 2.0 requests with fuzzable insertion points, and runs them through Burp's
+  active and passive scanners. It is intended for operators auditing MCP servers they own or are authorized to test.
 </p>
 
 <h2>Features</h2>
@@ -13,25 +12,14 @@
   <li>Handles the authentication your target uses: none, a bearer token, custom headers, or OAuth 2.1 with PKCE,
     including pre-registered clients, Client ID Metadata Documents and dynamic client registration.</li>
   <li>Runs scan checks that can be toggled individually, covering unauthenticated request execution, command
-    injection, SQL injection, file path traversal, out-of-band requests, SSRF filter bypass, Origin/Host admission and
-    CORS, session binding and lifecycle, cross-client response leaks, JWT validation, and OAuth refresh, redirect,
-    consent and authorization flaws, including dynamic client registration that accepts a redirect URI on any
-    host.</li>
-  <li>Optionally tests OAuth consent with your own sign-in: with Burp's cookies for the authorization server, or your
-    browser right after an OAuth sign-in at Connect, it finds consent that is skipped for a signed-in user, remembered
-    by client name, redirect host or client ID prefix, or not asked again for a broader scope. It is off by default
-    and turned on per project with "Test OAuth consent with my sign-in". It registers and deletes probe OAuth clients
-    and may obtain a token in your name, which it revokes.</li>
+    injection, file path traversal, out-of-band requests, session binding and lifecycle, cross-client response leaks,
+    JWT validation, and OAuth refresh, redirect and authorization flaws.</li>
   <li>Tests access control between users: define a primary user and compared users, each with their own credentials,
-    owned IDs and private markers, then find where a lower-privilege user, a caller with no credential or a caller
-    with a fake token the server never issued can list or call tools or read results that belong to someone
-    else.</li>
-  <li>Reports each issue with only the exchanges that prove it, as the raw exchange with the target, credentials
-    included, so you can send it straight to Repeater.</li>
-  <li>Sends any discovered tool, resource, template or prompt to Repeater or Organizer, with the primary user's
-    credentials and session headers applied automatically.</li>
-  <li>Settings follow the Burp project; "Save as my defaults" makes new projects start with your own choices.</li>
-  <li>The source repository includes a deliberately vulnerable test server so you can try the checks end to end.</li>
+    owned IDs and private markers, then find where a lower-privilege or anonymous user can call tools or read results
+    that belong to someone else.</li>
+  <li>Sends any discovered tool, resource, template or prompt to Repeater, with the primary user's credentials and
+    session headers applied automatically.</li>
+  <li>Ships with a deliberately vulnerable test server so you can try the checks end to end.</li>
 </ul>
 
 <h2>Usage</h2>
@@ -39,23 +27,14 @@
   <li>Open the MCP Server Scanner tab, enter the server endpoint and click Connect. Leave Transport on Auto unless you
     need to force a protocol.</li>
   <li>If the server requires authentication, provide a bearer token, headers or an OAuth sign-in when prompted, or
-    configure users in the Users section.</li>
-  <li>Review the discovered tools, resources, templates and prompts, and enable or disable checks in the Checks
-    section.</li>
+    configure users in the Users tab.</li>
+  <li>Review the discovered tools, resources, templates and prompts, and enable or disable checks in the Scan Checks
+    tab.</li>
   <li>Click Scan to run the selected checks. Findings are reported as Burp issues.</li>
-  <li>To test access control, open the Access tab, optionally run Collect IDs to gather the IDs each user owns, then
-    run Check access. It always compares with No credential and a Fake token; add compared users in the Users section
-    and tick Compare to include them.</li>
+  <li>To test access control, add compared users in the Users tab, tick the users to compare, then run Check access from
+    the Access tab.</li>
 </ol>
 
-<h2>Requirements</h2>
 <p>
-  Burp Suite Community can connect (including OAuth), browse, ask the server for values and send requests to Repeater
-  and Organizer. Scanning, Check access, Collect IDs and the signed-in consent test need Burp Suite Professional. Burp
-  Collaborator is required for out-of-band checks.
-</p>
-
-<p>
-  Issue evidence is the raw exchange, so a Burp project file holding these issues can contain tokens and secrets.
-  Treat it as sensitive.
+  Burp Collaborator is required for out-of-band checks.
 </p>
