@@ -5,9 +5,9 @@ RepoName: mcp-server-scanner
 ScreenVersion: 2.2.0
 SerialVersion: 7
 MinPlatformVersion: 29
-ProOnly: True
+ProOnly: False
 Author: Peter Hendy, PortSwigger
 ShortDescription: Scans Model Context Protocol servers for security vulnerabilities.
 EntryPoint: mcp-server-scanner-extension-2.2.0-all.jar
 BuildCommand: ./gradlew shadowJar
-SupportedProducts: Pro
+SupportedProducts: Pro, Community
