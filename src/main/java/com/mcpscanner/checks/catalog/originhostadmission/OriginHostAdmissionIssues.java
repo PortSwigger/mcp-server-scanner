@@ -8,7 +8,6 @@ import com.mcpscanner.checks.issue.IssueBodyBuilder;
 import com.mcpscanner.checks.issue.IssueMetadataRenderer;
 import com.mcpscanner.checks.shared.stream.StreamEvidenceNote;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -79,12 +78,9 @@ final class OriginHostAdmissionIssues {
     }
 
     private static List<Evidence> evidence(TrialOutcome outcome, List<ProbeObservation> admitted) {
-        List<Evidence> evidence = new ArrayList<>();
-        evidence.add(new Evidence("the baseline request", outcome.baseline()));
-        admitted.forEach(observation -> evidence.add(
-                new Evidence("the " + observation.probe().label() + " probe", observation.exchange())));
-        outcome.control().ifPresent(control -> evidence.add(new Evidence("the control request", control)));
-        return evidence;
+        ProbeObservation firstAdmitted = admitted.get(0);
+        return List.of(new Evidence("the baseline request", outcome.baseline()),
+                new Evidence("the " + firstAdmitted.probe().label() + " probe", firstAdmitted.exchange()));
     }
 
     private record Evidence(String name, HttpRequestResponse exchange) {

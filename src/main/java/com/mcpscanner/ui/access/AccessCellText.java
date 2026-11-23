@@ -56,8 +56,11 @@ final class AccessCellText {
         return flagged(cell, String.join(SEPARATOR, parts));
     }
 
-    static String anonymous(AccessCell cell) {
-        return flagged(cell, outcomeOrPending(cell));
+    static String synthetic(AccessCell cell) {
+        List<String> parts = new ArrayList<>();
+        listing(cell.listing()).ifPresent(parts::add);
+        parts.add(outcomeOrPending(cell));
+        return flagged(cell, String.join(SEPARATOR, parts));
     }
 
     static String outcome(AccessOutcome outcome) {

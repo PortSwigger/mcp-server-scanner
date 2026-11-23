@@ -14,10 +14,11 @@ import com.mcpscanner.checks.shared.scancontext.ScanNotices;
 import com.mcpscanner.http.CountingHttp;
 import com.mcpscanner.http.ThreadTallies;
 import com.mcpscanner.http.UpstreamEvidence;
-import com.mcpscanner.http.UpstreamExchanges;
+import com.mcpscanner.http.evidence.ReportedEvidence;
 import com.mcpscanner.identity.discovery.PreComparisonDiscovery;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.McpToolDefinition;
+import com.mcpscanner.mcp.ScannerSentinels;
 import com.mcpscanner.mcp.ToolHarm;
 
 import java.util.List;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
@@ -48,37 +50,24 @@ public final class CheckAccessRunner {
     private final AccessRuns runs;
     private final McpEventLog eventLog;
     private final UpstreamEvidence upstreamEvidence;
+    private final ReportedEvidence reportedEvidence = new ReportedEvidence(ScannerSentinels.ALL);
     private final Supplier<AccessSnapshot> results;
     private final PreComparisonDiscovery discovery;
+    private final ListingAudit listingAudit;
 
     public CheckAccessRunner(AccessComparison comparison, Http http, OwnerRequests requests,
                              Consumer<AuditIssue> issueSink, WriteReplays writeReplays, AccessRuns runs,
                              McpEventLog eventLog) {
-        this(comparison, http, requests, issueSink, writeReplays, runs, eventLog, UpstreamExchanges.NONE);
+        this(comparison, http, requests, issueSink, writeReplays, runs, eventLog, CheckAccessOptions.DEFAULTS);
     }
 
     public CheckAccessRunner(AccessComparison comparison, Http http, OwnerRequests requests,
                              Consumer<AuditIssue> issueSink, WriteReplays writeReplays, AccessRuns runs,
-                             McpEventLog eventLog, UpstreamExchanges upstreamExchanges) {
-        this(comparison, http, requests, issueSink, writeReplays, runs, eventLog, upstreamExchanges,
-                () -> new AccessSnapshot(false, List.of(), List.of()));
-    }
-
-    public CheckAccessRunner(AccessComparison comparison, Http http, OwnerRequests requests,
-                             Consumer<AuditIssue> issueSink, WriteReplays writeReplays, AccessRuns runs,
-                             McpEventLog eventLog, UpstreamExchanges upstreamExchanges,
-                             Supplier<AccessSnapshot> results) {
-        this(comparison, http, requests, issueSink, writeReplays, runs, eventLog, upstreamExchanges, results,
-                PreComparisonDiscovery.NONE);
-    }
-
-    public CheckAccessRunner(AccessComparison comparison, Http http, OwnerRequests requests,
-                             Consumer<AuditIssue> issueSink, WriteReplays writeReplays, AccessRuns runs,
-                             McpEventLog eventLog, UpstreamExchanges upstreamExchanges,
-                             Supplier<AccessSnapshot> results, PreComparisonDiscovery discovery) {
-        this.discovery = discovery;
-        this.results = results;
-        this.upstreamEvidence = new UpstreamEvidence(upstreamExchanges);
+                             McpEventLog eventLog, CheckAccessOptions options) {
+        this.listingAudit = options.listingAudit();
+        this.discovery = options.discovery();
+        this.results = options.results();
+        this.upstreamEvidence = new UpstreamEvidence(options.upstreamExchanges());
         this.comparison = comparison;
         this.http = http;
         this.requests = requests;
@@ -97,7 +86,17 @@ public final class CheckAccessRunner {
         }
         writeReplays.confirm(writes);
         List<AccessRow> queued = List.copyOf(rows);
-        return Optional.of(runs.start(run -> runAll(queued, run, listener)));
+        return Optional.of(runs.start(run -> runSurvivingCrash(queued, run, listener)));
+    }
+
+    private void runSurvivingCrash(List<AccessRow> queued, AccessRun run, AccessRunListener listener) {
+        try {
+            runAll(queued, run, listener);
+        } catch (RuntimeException crash) {
+            eventLog.error("Check access failed: " + reasonOf(crash), crash);
+            listener.finished(new AccessRunSummary(0, queued.size(), 0, run.cancelled(),
+                    Optional.of("Check access failed: " + reasonOf(crash))));
+        }
     }
 
     private void runAll(List<AccessRow> queued, AccessRun run, AccessRunListener listener) {
@@ -107,25 +106,45 @@ public final class CheckAccessRunner {
         List<AccessRow> rows = currentRows(queued, knownBeforeDiscovery);
         TooManyRequestsStop guarded = guarded(run);
         ThreadTallies perItem = new ThreadTallies();
-        Http counted = CountingHttp.counting(guarded, perItem);
+        Http counted = CountingHttp.counting(new InFlightLimit(guarded), perItem);
         RepeatedFailure failures = new RepeatedFailure();
         RunTally tally = new RunTally(rows.size(), listener);
-        try (AccessComparisonRun comparisons = comparison.begin(counted)) {
-            Function<AccessRow, RowOutcome> work = row -> perItem.measure(
-                    "Check access " + row.item().key().name(), eventLog::debug,
-                    () -> checkRow(row, guarded, counted, comparisons));
+        try (AccessComparisonRun comparisons = comparison.begin(counted);
+             IdentityWorkers identities = new IdentityWorkers()) {
+            ItemCheck check = new ItemCheck(guarded, counted, comparisons, perItem);
             BiConsumer<AccessRow, RowOutcome> completed = (row, outcome) ->
                     tally.completed(outcome, stopReasonAfter(row, outcome, failures, guarded));
             BooleanSupplier continuing = () -> !run.cancelled() && !tally.stopped();
-            ParallelItems.run(readRows(rows), work, completed, continuing);
+            ParallelItems.run(readRows(rows), check.comparingIdentitiesOn(perItem.carrying(identities.executor())),
+                    completed, continuing);
             for (ToolHarm harm : REPLAY_ORDER) {
-                ParallelItems.run(rowsOf(rows, harm), SEQUENTIAL, work, completed, continuing);
+                ParallelItems.run(rowsOf(rows, harm), SEQUENTIAL, check.comparingIdentitiesOn(Runnable::run),
+                        completed, continuing);
             }
         }
-        AccessRunSummary summary = tally.summary(run.cancelled() || Thread.currentThread().isInterrupted());
+        boolean cancelled = run.cancelled() || Thread.currentThread().isInterrupted();
+        if (!cancelled) {
+            tally.raised(raiseListingIssues());
+        }
+        AccessRunSummary summary = tally.summary(cancelled);
         logEnd(summary, tally.stopReason());
         logUnconfirmedSameResults(rows);
         listener.finished(summary);
+    }
+
+    private int raiseListingIssues() {
+        try {
+            List<AuditIssue> issues = reportable(listingAudit.issues());
+            issues.forEach(issueSink);
+            return issues.size();
+        } catch (RuntimeException failure) {
+            eventLog.warn("Check access could not compare tool listings: " + reasonOf(failure));
+            return 0;
+        }
+    }
+
+    private List<AuditIssue> reportable(List<AuditIssue> issues) {
+        return reportedEvidence.of(upstreamEvidence.translate(issues));
     }
 
     private List<AccessRow> currentRows(List<AccessRow> queued, Set<AccessItemKey> knownBeforeDiscovery) {
@@ -183,26 +202,47 @@ public final class CheckAccessRunner {
         return repeated;
     }
 
-    private RowOutcome checkRow(AccessRow row, TooManyRequestsStop guarded, Http counted,
-                                AccessComparisonRun comparisons) {
+    private final class ItemCheck {
+
+        private final TooManyRequestsStop guarded;
+        private final Http counted;
+        private final AccessComparisonRun comparisons;
+        private final ThreadTallies perItem;
+
+        ItemCheck(TooManyRequestsStop guarded, Http counted, AccessComparisonRun comparisons, ThreadTallies perItem) {
+            this.guarded = guarded;
+            this.counted = counted;
+            this.comparisons = comparisons;
+            this.perItem = perItem;
+        }
+
+        Function<AccessRow, RowOutcome> comparingIdentitiesOn(Executor identities) {
+            return row -> perItem.measure("Check access " + row.item().key().name(), eventLog::debug,
+                    () -> checkRow(row, this, identities));
+        }
+    }
+
+    private RowOutcome checkRow(AccessRow row, ItemCheck check, Executor identities) {
         if (!writeReplays.permits(row.item().key())) {
             eventLog.info("Check access skipped " + row.item().key().name() + ": write replay is no longer confirmed");
             return RowOutcome.checked(0);
         }
         HttpRequestResponse base;
         try {
-            base = counted.sendRequest(requests.forOwner(row));
+            base = check.counted.sendRequest(requests.forOwner(row));
         } catch (AccessRunStopped stopped) {
             return RowOutcome.checked(0);
         } catch (RuntimeException failure) {
             return RowOutcome.unreachable(reasonOf(failure));
         }
-        return guarded.reason().isPresent() ? RowOutcome.checked(0) : compare(row, base, comparisons);
+        return check.guarded.reason().isPresent() ? RowOutcome.checked(0)
+                : compare(row, base, check.comparisons, identities);
     }
 
-    private RowOutcome compare(AccessRow row, HttpRequestResponse base, AccessComparisonRun comparisons) {
+    private RowOutcome compare(AccessRow row, HttpRequestResponse base, AccessComparisonRun comparisons,
+                               Executor identities) {
         try {
-            List<AuditIssue> issues = upstreamEvidence.translate(comparisons.compare(base));
+            List<AuditIssue> issues = reportable(comparisons.compare(base, identities));
             issues.forEach(issueSink);
             return RowOutcome.checked(issues.size());
         } catch (AccessRunStopped stopped) {

@@ -40,11 +40,19 @@ class AnonymousExecutionTierTest {
         return ProbeExchange.of(server.exchange(SimulatedMcpServer.request(body, Map.of())));
     }
 
-    private Optional<Finding> judgeOperation(SimulatedMcpServer server) {
-        AnonymousExecutionTier probing = new AnonymousExecutionTier(oracle, enforcement, new EnforcementProbe(
+    private static ProbeExchange anonymousAttempts(SimulatedMcpServer server, String body) {
+        return ProbeExchange.of(server.exchange(SimulatedMcpServer.request(body, Map.of())),
+                server.exchange(SimulatedMcpServer.request(body, Map.of())));
+    }
+
+    private AnonymousExecutionTier tierProbing(SimulatedMcpServer server) {
+        return new AnonymousExecutionTier(oracle, enforcement, new EnforcementProbe(
                 new ProbeChannel(server.http(), 10), new AuthVariantSuite(
                         () -> new BearerTokenAuthStrategy("valid-token"), "canary")));
-        return probing.judge(subject(server, SimulatedMcpServer.toolCall()),
+    }
+
+    private Optional<Finding> judgeOperation(SimulatedMcpServer server) {
+        return tierProbing(server).judge(subject(server, SimulatedMcpServer.toolCall()),
                 anonymous(server, SimulatedMcpServer.toolCall()));
     }
 
@@ -100,6 +108,43 @@ class AnonymousExecutionTierTest {
         judgeOperation(server);
 
         assertThat(server.received()).hasSize(before + 2);
+    }
+
+    @Test
+    void anOperationFindingAttachesTheBaselineAndOnlyTheFinalAnonymousReply() {
+        SimulatedMcpServer server = SimulatedMcpServer.open();
+        AuditSubject subject = subject(server, SimulatedMcpServer.toolCall());
+        ProbeExchange anonymous = anonymousAttempts(server, SimulatedMcpServer.toolCall());
+
+        Finding finding = tierProbing(server).judge(subject, anonymous).orElseThrow();
+
+        assertThat(finding.kind()).isEqualTo(FindingKind.ANONYMOUS_EXECUTION);
+        assertThat(finding.evidence()).containsExactly(subject.baseline(), anonymous.last());
+    }
+
+    @Test
+    void anEnforcementFindingAttachesTheBaselineTheFinalAnonymousReplyAndTheEnforcementLast() {
+        SimulatedMcpServer server = SimulatedMcpServer.open().challengingAnonymousPing();
+        AuditSubject subject = subject(server, SimulatedMcpServer.toolCall());
+        ProbeExchange anonymous = anonymousAttempts(server, SimulatedMcpServer.toolCall());
+
+        Finding finding = tierProbing(server).judge(subject, anonymous).orElseThrow();
+
+        assertThat(finding.kind()).isEqualTo(FindingKind.ANONYMOUS_EXECUTION_DESPITE_ENFORCEMENT);
+        assertThat(finding.evidence()).hasSize(3).startsWith(subject.baseline(), anonymous.last());
+        assertThat(finding.evidence().get(2).response().statusCode()).isEqualTo((short) 401);
+    }
+
+    @Test
+    void aCatalogFindingAttachesTheBaselineAndOnlyTheFinalAnonymousReply() {
+        SimulatedMcpServer server = SimulatedMcpServer.open();
+        AuditSubject subject = subject(server, SimulatedMcpServer.toolsList());
+        ProbeExchange anonymous = anonymousAttempts(server, SimulatedMcpServer.toolsList());
+
+        Finding finding = tier.judge(subject, anonymous).orElseThrow();
+
+        assertThat(finding.kind()).isEqualTo(FindingKind.ANONYMOUS_CATALOG);
+        assertThat(finding.evidence()).containsExactly(subject.baseline(), anonymous.last());
     }
 
     @Test

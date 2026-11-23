@@ -2,9 +2,11 @@ package com.mcpscanner.ui.access;
 
 import com.mcpscanner.access.AccessCell;
 import com.mcpscanner.access.AccessRow;
+import com.mcpscanner.access.ListingState;
 import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.checks.api.AccessOutcome;
 import com.mcpscanner.checks.api.Principal;
+import com.mcpscanner.checks.api.crossidentity.SyntheticLabel;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +22,7 @@ final class AccessDetailText {
         if (column instanceof AccessColumn.Identity identity) {
             return identity(row, identity.principal());
         }
-        return column instanceof AccessColumn.Anonymous ? anonymous(row) : item(row);
+        return column instanceof AccessColumn.Synthetic synthetic ? synthetic(row, synthetic) : item(row);
     }
 
     private static String item(AccessRow row) {
@@ -56,20 +58,31 @@ final class AccessDetailText {
         return String.join("\n", lines);
     }
 
-    private static String anonymous(AccessRow row) {
-        AccessCell cell = row.anonymous();
-        String outcome = cell.outcome().map(value -> anonymousOutcome(row, cell, value))
-                .orElse("Not called yet. Check access also replays this " + method(row) + " with no credentials.");
-        return String.join("\n", name(row) + " — Anonymous (no credentials)", BULLET + outcome,
-                BULLET + expectation(row) + verdict(cell));
+    private static String synthetic(AccessRow row, AccessColumn.Synthetic column) {
+        AccessCell cell = row.synthetic(column.principalId());
+        String outcome = cell.outcome().map(value -> syntheticOutcome(row, cell, value, column.withThe()))
+                .orElse("Not called yet. Check access also replays this " + method(row) + " "
+                        + lowered(column.withThe()) + ".");
+        List<String> lines = new ArrayList<>();
+        lines.add(name(row) + " — " + column.described());
+        if (cell.listing() != ListingState.NO_LISTING) {
+            lines.add(BULLET + listing(row, cell, column.title()));
+        }
+        lines.add(BULLET + outcome);
+        lines.add(BULLET + expectation(row) + verdict(cell));
+        return String.join("\n", lines);
     }
 
     private static String listing(AccessRow row, AccessCell cell, Principal principal) {
+        return listing(row, cell, principal.name());
+    }
+
+    private static String listing(AccessRow row, AccessCell cell, String lister) {
         String list = row.item().key().kind() == AccessItemKey.Kind.TOOL ? "tools/list" : "resources/list";
         return switch (cell.listing()) {
-            case LISTED -> "Listed in " + principal.name() + "'s own " + list + ".";
-            case HIDDEN -> "Not in " + principal.name() + "'s own " + list + ".";
-            case NOT_DISCOVERED, NO_LISTING -> principal.name() + "'s own " + list + " has not been discovered.";
+            case LISTED -> "Listed in " + lister + "'s own " + list + ".";
+            case HIDDEN -> "Not in " + lister + "'s own " + list + ".";
+            case NOT_DISCOVERED, NO_LISTING -> lister + "'s own " + list + " has not been discovered.";
         };
     }
 
@@ -87,16 +100,20 @@ final class AccessDetailText {
                 + " and compares it with " + owner + ".");
     }
 
-    private static String anonymousOutcome(AccessRow row, AccessCell cell, AccessOutcome outcome) {
+    private static String syntheticOutcome(AccessRow row, AccessCell cell, AccessOutcome outcome, String withThe) {
         return switch (outcome) {
-            case SAME_RESULT -> "Without credentials the call returned the same result as " + row.owner().name()
+            case SAME_RESULT -> withThe + " the call returned the same result as " + row.owner().name()
                     + ". Scan this item with the unauthenticated request execution check to report it.";
-            case DIFFERENT_RESULT -> "Without credentials the call succeeded with a different result.";
-            case REFUSED -> "Without credentials the call was refused, so this is not an unauthenticated-access issue.";
-            case SKIPPED_WRITE -> "Not compared without credentials.";
-            case NOT_RUN -> notCompared(cell, "Not compared without credentials");
-            case ERROR -> "The anonymous replay got no answer.";
+            case DIFFERENT_RESULT -> withThe + " the call succeeded with a different result.";
+            case REFUSED -> withThe + " the call was refused, so this is not an unauthenticated-access issue.";
+            case SKIPPED_WRITE -> "Not compared " + lowered(withThe) + ".";
+            case NOT_RUN -> notCompared(cell, "Not compared " + lowered(withThe));
+            case ERROR -> "The call " + lowered(withThe) + " got no answer.";
         };
+    }
+
+    private static String lowered(String phrase) {
+        return Character.toLowerCase(phrase.charAt(0)) + phrase.substring(1);
     }
 
     private static String unconfirmedSameResult(AccessRow row, Principal principal) {
@@ -126,8 +143,8 @@ final class AccessDetailText {
 
     private static String summary(AccessRow row) {
         if (!row.checked()) {
-            return "Not called yet. Check access replays this " + method(row) + " as each identity and Anonymous "
-                    + "and compares the results with " + row.owner().name() + "'s.";
+            return "Not called yet. Check access replays this " + method(row) + " as each compared user, "
+                    + SyntheticLabel.ALWAYS_COMPARED + ", and compares the results with " + row.owner().name() + "'s.";
         }
         long anomalies = row.anomalies();
         String breaches = anomalies == 0 ? "No identity reaches it against the expectation."

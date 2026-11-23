@@ -39,7 +39,7 @@ class SseStreamReaderExitLoggingTest {
         reader.adopt(upstream);
         reader.start();
         upstream.awaitReading();
-        CompletableFuture<String> waiting = replies.expect("7");
+        CompletableFuture<StreamedReply> waiting = replies.expect("7");
 
         reader.stop();
 

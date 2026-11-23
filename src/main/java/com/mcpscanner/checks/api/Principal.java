@@ -17,7 +17,9 @@ public record Principal(
     public static final String PRIMARY_ID = "primary";
     public static final String PRIMARY_NAME = "Primary";
     public static final String ANONYMOUS_ID = "anonymous";
-    public static final String ANONYMOUS_NAME = "Anonymous";
+    public static final String ANONYMOUS_NAME = "No credential";
+    public static final String FAKE_TOKEN_ID = "fake-token";
+    public static final String FAKE_TOKEN_NAME = "Fake token";
 
     public Principal {
         Objects.requireNonNull(id, "id must not be null");
@@ -45,6 +47,11 @@ public record Principal(
 
     public static Principal anonymous() {
         return new Principal(ANONYMOUS_ID, ANONYMOUS_NAME, PrincipalRole.LOWER, Map::of, Optional.empty(), Map.of());
+    }
+
+    public static Principal fakeToken(Supplier<Map<String, String>> fabricatedHeaders) {
+        return new Principal(FAKE_TOKEN_ID, FAKE_TOKEN_NAME, PrincipalRole.LOWER, fabricatedHeaders, Optional.empty(),
+                Map.of());
     }
 
     public static boolean isAnonymous(String principalId) {

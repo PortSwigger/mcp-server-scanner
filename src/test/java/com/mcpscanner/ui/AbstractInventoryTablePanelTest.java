@@ -32,7 +32,7 @@ class AbstractInventoryTablePanelTest {
         }
 
         @Override
-        protected StubDetailPanel createDetailPanel() {
+        protected StubDetailPanel createDetailPanel(InventoryTicks ticks) {
             return stubDetail;
         }
     };

@@ -1,27 +1,39 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.burpsuite.BurpSuite;
+import burp.api.montoya.core.BurpSuiteEdition;
+import burp.api.montoya.core.Version;
+import burp.api.montoya.collaborator.Collaborator;
 import burp.api.montoya.collaborator.CollaboratorClient;
 import burp.api.montoya.extension.Extension;
 import burp.api.montoya.extension.ExtensionUnloadingHandler;
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.handler.HttpHandler;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
 import burp.api.montoya.persistence.Persistence;
 import burp.api.montoya.scanner.Scanner;
+import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.scancheck.ActiveScanCheck;
 import burp.api.montoya.scanner.scancheck.PassiveScanCheck;
 import burp.api.montoya.scanner.scancheck.ScanCheckType;
 import burp.api.montoya.ui.UserInterface;
 import com.mcpscanner.config.RedirectMode;
+import com.mcpscanner.http.BareRequests;
 import com.mcpscanner.checks.registry.ManagedCheck;
 import com.mcpscanner.proxy.McpHttpHandler;
 import com.mcpscanner.scan.McpInsertionPointProvider;
 import com.mcpscanner.scan.request.GeneratedRegistrationCleanupHandler;
+import com.mcpscanner.testutil.MontoyaTestFactory;
+import com.mcpscanner.testutil.SwingTree;
 import com.mcpscanner.ui.SettingsPanel;
+import com.mcpscanner.ui.access.AccessPanel;
 import com.mcpscanner.ui.scans.ScansPanel;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,12 +45,16 @@ import java.awt.*;
 import java.lang.reflect.Field;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.AbstractButton;
 import javax.swing.JComboBox;
+import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -50,6 +66,7 @@ class McpScannerExtensionTest {
     @Mock private Extension extension;
     @Mock private Scanner scanner;
     @Mock private BurpSuite burpSuite;
+    @Mock private Version version;
     @Mock private UserInterface userInterface;
     @Mock private Http http;
     @Mock private Logging logging;
@@ -58,16 +75,24 @@ class McpScannerExtensionTest {
 
     private McpScannerExtension sut;
 
+    @BeforeAll
+    static void installMontoyaOutsideTheStrictStubbingSession() {
+        MontoyaTestFactory.install();
+    }
+
     @BeforeEach
     void setUp() {
         when(api.extension()).thenReturn(extension);
         when(api.scanner()).thenReturn(scanner);
         lenient().when(api.burpSuite()).thenReturn(burpSuite);
+        when(burpSuite.version()).thenReturn(version);
+        when(version.edition()).thenReturn(BurpSuiteEdition.PROFESSIONAL);
         when(api.userInterface()).thenReturn(userInterface);
         when(api.http()).thenReturn(http);
         when(api.logging()).thenReturn(logging);
         when(api.persistence()).thenReturn(persistence);
         when(persistence.extensionData()).thenReturn(persistedObject);
+        when(persistence.preferences()).thenReturn(new InMemoryPreferences());
 
         sut = new McpScannerExtension();
     }
@@ -169,6 +194,52 @@ class McpScannerExtensionTest {
     }
 
     @Test
+    void theSuiteTabHoldsTheCheckAccessTabWithCollectIds() {
+        sut.initialize(api);
+
+        ArgumentCaptor<Component> tab = ArgumentCaptor.forClass(Component.class);
+        verify(userInterface).registerSuiteTab(eq("MCP Server Scanner"), tab.capture());
+        AccessPanel access = findComponent(tab.getValue(), AccessPanel.class);
+        assertThat(access).isNotNull();
+        assertThat(SwingTree.descendants(access)).filteredOn(AbstractButton.class::isInstance)
+                .map(button -> ((AbstractButton) button).getText()).contains("Collect IDs");
+    }
+
+    @Test
+    void theRegisteredOutOfBandCheckReachesBurpCollaborator() {
+        Collaborator collaborator = mock(Collaborator.class);
+        when(api.collaborator()).thenReturn(collaborator);
+        when(persistedObject.getBoolean(anyString())).thenReturn(null);
+        sut.initialize(api);
+
+        catchThrowable(() -> registeredCheck("outbound-request")
+                .doCheck(toolsCallWithAUrlArgument(), urlArgument(), http));
+
+        verify(collaborator).createClient();
+    }
+
+    private ActiveScanCheck registeredCheck(String id) {
+        ArgumentCaptor<ActiveScanCheck> checks = ArgumentCaptor.forClass(ActiveScanCheck.class);
+        verify(scanner, atLeastOnce()).registerActiveScanCheck(checks.capture(), any(ScanCheckType.class));
+        return checks.getAllValues().stream().filter(activeManagedWithId(id)::matches).findFirst().orElseThrow();
+    }
+
+    private static HttpRequestResponse toolsCallWithAUrlArgument() {
+        HttpRequest request = BareRequests.fromUrl("https://mcp.example.test/mcp")
+                .withMethod("POST").withHeader("Content-Type", "application/json")
+                .withBody("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                        + "\"params\":{\"name\":\"fetch\",\"arguments\":{\"url\":\"https://a.example\"}}}");
+        return HttpRequestResponse.httpRequestResponse(request, null);
+    }
+
+    private static AuditInsertionPoint urlArgument() {
+        AuditInsertionPoint point = mock(AuditInsertionPoint.class);
+        lenient().when(point.name()).thenReturn("MCP field: params.arguments.url");
+        lenient().when(point.baseValue()).thenReturn("https://a.example");
+        return point;
+    }
+
+    @Test
     void registersGlobalSettingsPanelOnEdtThatPersistsChanges() throws Exception {
         AtomicReference<String> savedMode = new AtomicReference<>();
         when(persistedObject.getString(any(String.class))).thenAnswer(invocation ->
@@ -196,6 +267,28 @@ class McpScannerExtensionTest {
         SwingUtilities.invokeAndWait(() ->
                 findComponent(globalSettings, JComboBox.class).setSelectedItem(RedirectMode.ALWAYS));
         verify(persistedObject).setString("mcp.redirect.mode", "ALWAYS");
+    }
+
+    @Test
+    void registersSettingsWithTheScanSections() {
+        sut.initialize(api);
+
+        ArgumentCaptor<burp.api.montoya.ui.settings.SettingsPanel> settings =
+                ArgumentCaptor.forClass(burp.api.montoya.ui.settings.SettingsPanel.class);
+        verify(userInterface).registerSettingsPanel(settings.capture());
+
+        assertThat(settings.getValue().keywords()).contains("Collect IDs", "Extension scan", "Workers");
+        assertThat(SwingTree.descendants((Container) settings.getValue().uiComponent()))
+                .filteredOn(JLabel.class::isInstance).map(label -> ((JLabel) label).getText())
+                .contains("Scan warnings", "Extension scan workers", "Collect IDs requests per user");
+    }
+
+    @Test
+    void logsThatScanningIsEnabledInProfessional() {
+        sut.initialize(api);
+
+        verify(logging, times(1)).logToOutput(
+                "Burp Suite Professional: scanning, Check access and Collect IDs are enabled");
     }
 
     private static <T extends Component> T findComponent(Component root, Class<T> componentType) {

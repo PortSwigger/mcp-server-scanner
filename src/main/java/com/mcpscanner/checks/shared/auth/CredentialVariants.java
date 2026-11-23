@@ -14,8 +14,6 @@ public final class CredentialVariants implements AuthVariantGenerator {
 
     static final String GARBAGE_TOKEN = "not_a_real_token_12345";
     static final String GARBAGE_CREDENTIAL = "not_a_real_credential_12345";
-    private static final String FABRICATED_PREFIX = "invalid_";
-    private static final String COOKIE = "Cookie";
 
     private final Supplier<AuthStrategy> authStrategy;
     private final String canary;
@@ -47,10 +45,10 @@ public final class CredentialVariants implements AuthVariantGenerator {
     }
 
     public AuthVariant fabricatedCredential() {
-        String value = FABRICATED_PREFIX + canary;
-        return customHeaderNames().stream().findFirst()
-                .map(header -> header(header, "fabricated", value))
-                .orElseGet(() -> authorization("fabricated-bearer", "Bearer " + value));
+        FabricatedCredential fabricated = FabricatedCredential.of(authStrategy.get(), canary);
+        return fabricated.customHeader()
+                .map(header -> header(header, "fabricated", fabricated.value()))
+                .orElseGet(() -> authorization("fabricated-bearer", fabricated.value()));
     }
 
     public AuthVariant noCredentials() {
@@ -72,8 +70,6 @@ public final class CredentialVariants implements AuthVariantGenerator {
     }
 
     private List<String> customHeaderNames() {
-        return authStrategy.get().contributedHeaderNames().stream()
-                .filter(name -> !AuthHeaderNames.AUTHORIZATION.equalsIgnoreCase(name) && !COOKIE.equalsIgnoreCase(name))
-                .toList();
+        return CustomCredentialHeaders.of(authStrategy.get());
     }
 }

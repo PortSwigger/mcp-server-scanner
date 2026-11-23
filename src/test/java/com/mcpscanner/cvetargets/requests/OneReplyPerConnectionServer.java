@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -16,7 +17,7 @@ final class OneReplyPerConnectionServer implements AutoCloseable {
     private static final String REUSED_CONNECTION_REPLY = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n"
             + "Content-Length: 0\r\n\r\n";
 
-    private final ServerSocket socket = new ServerSocket(0);
+    private final ServerSocket socket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
     private final Thread acceptor = new Thread(this::acceptConnections);
 
     OneReplyPerConnectionServer() throws IOException {

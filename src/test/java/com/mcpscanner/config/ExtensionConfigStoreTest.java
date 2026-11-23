@@ -1,5 +1,7 @@
 package com.mcpscanner.config;
 
+import com.mcpscanner.ExtensionMetadata;
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.core.oauth.RegistrationMode;
@@ -39,7 +41,8 @@ class ExtensionConfigStoreTest {
     void setUp() {
         store = mock(PersistedObject.class);
         logging = mock(Logging.class);
-        config = new ExtensionConfigStore(store, logging);
+        config = new ExtensionConfigStore(store, new InMemoryPreferences(), logging);
+        clearInvocations(store);
     }
 
     @Test
@@ -47,7 +50,7 @@ class ExtensionConfigStoreTest {
         when(store.getBoolean("mcp.oauth.skip_dcr")).thenReturn(true);
         when(store.getString("mcp.oauth.issuer")).thenReturn("https://issuer.example");
         when(store.getString("mcp.oauth.client_id")).thenReturn("existing-client");
-        config = new ExtensionConfigStore(store, logging);
+        config = new ExtensionConfigStore(store, new InMemoryPreferences(), logging);
 
         assertThat(config.oauthRegistrationMode()).isEqualTo(RegistrationMode.PRE_REGISTERED);
         assertThat(config.oauthIssuer()).isEqualTo("https://issuer.example");
@@ -60,7 +63,7 @@ class ExtensionConfigStoreTest {
     void unknownSavedRegistrationModeFallsBackToAutoWithoutActivatingOldClient() {
         when(store.getString("mcp.oauth.registration_mode")).thenReturn("FUTURE_MODE");
         when(store.getBoolean("mcp.oauth.skip_dcr")).thenReturn(true);
-        config = new ExtensionConfigStore(store, logging);
+        config = new ExtensionConfigStore(store, new InMemoryPreferences(), logging);
 
         assertThat(config.oauthRegistrationMode()).isEqualTo(RegistrationMode.AUTO);
         verify(store).setString("mcp.oauth.registration_mode", "AUTO");
@@ -70,7 +73,7 @@ class ExtensionConfigStoreTest {
     void readingTheRegistrationModeNeverWritesTheStore() {
         when(store.getBoolean("mcp.oauth.skip_dcr")).thenReturn(true);
         when(store.getString("mcp.oauth.issuer")).thenReturn("https://issuer.example");
-        config = new ExtensionConfigStore(store, logging);
+        config = new ExtensionConfigStore(store, new InMemoryPreferences(), logging);
         clearInvocations(store);
 
         assertThat(config.oauthRegistrationMode()).isEqualTo(RegistrationMode.PRE_REGISTERED);
@@ -417,7 +420,7 @@ class ExtensionConfigStoreTest {
         when(store.stringKeys()).thenReturn(Set.of(legacyTokenKey, clientUriKey, "mcp.endpoint"));
         when(store.getString(anyString())).thenReturn("saved-token");
 
-        config = new ExtensionConfigStore(store, logging);
+        config = new ExtensionConfigStore(store, new InMemoryPreferences(), logging);
 
         verify(store).deleteString(legacyTokenKey);
         verify(store, never()).deleteString(clientUriKey);
@@ -540,6 +543,26 @@ class ExtensionConfigStoreTest {
         config.saveClientIdentity(identity);
         verify(store).setString("mcp.client.name", "acme");
         verify(store).setString("mcp.client.oauth.client_name", "MCP Server Scanner");
+    }
+
+    @Test
+    void aProjectSavedWithAnEmptySoftwareIdLoadsAndSavesTheExtensionsSoftwareId() {
+        when(store.getString("mcp.client.oauth.software_id")).thenReturn("");
+
+        ClientIdentity identity = config.clientIdentity();
+        config.saveClientIdentity(identity);
+
+        assertThat(identity.value(ClientIdentityField.SOFTWARE_ID)).isEqualTo(ExtensionMetadata.SOFTWARE_ID);
+        verify(store).setString("mcp.client.oauth.software_id", ExtensionMetadata.SOFTWARE_ID);
+    }
+
+    @Test
+    void aStoredSoftwareIdRoundTripsUnchanged() {
+        when(store.getString("mcp.client.oauth.software_id")).thenReturn("acme-id");
+
+        config.saveClientIdentity(config.clientIdentity());
+
+        verify(store).setString("mcp.client.oauth.software_id", "acme-id");
     }
 
     @Test

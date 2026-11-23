@@ -43,7 +43,7 @@ final class DeletedSessionProbe {
                     + control.map(PingReplies::statusOf).orElse("no response") + ")"));
         }
         String deletedId = session.sessionId().orElseThrow();
-        return terminate(session).flatMap(delete -> reuse(new DeletedSessionReuse(before.get(), refused.get(), delete,
+        return terminate(session).flatMap(delete -> reuse(new DeletedSessionReuse(refused.get(), delete,
                 ping.answered(session), streams.probe(deletedId, enforcement.unissuedId()))));
     }
 

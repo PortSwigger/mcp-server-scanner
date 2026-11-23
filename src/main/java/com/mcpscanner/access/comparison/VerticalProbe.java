@@ -1,9 +1,12 @@
 package com.mcpscanner.access.comparison;
 
+import burp.api.montoya.http.message.HttpRequestResponse;
 import com.mcpscanner.checks.api.PrincipalListings;
+import com.mcpscanner.checks.api.crossidentity.OperationReply;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 final class VerticalProbe {
 
@@ -16,15 +19,17 @@ final class VerticalProbe {
     }
 
     boolean run(IdentityReach reach) {
-        return reportReached(reach, "operation_level:disallowed_identity_reached", this::disallowedObservation);
+        return reportReached(reach, "operation_level:disallowed_identity_reached", this::disallowedObservation,
+                List.of(reach.finalReply()));
     }
 
-    boolean runRefusedAtCapturedVersion(IdentityReach reach) {
+    boolean runRefusedAtCapturedVersion(IdentityReach reach, OperationReply capturedRefusal) {
         return reportReached(reach, "operation_level:refused_at_captured_protocol_version",
-                this::versionGatedObservation);
+                this::versionGatedObservation, List.of(capturedRefusal, reach.finalReply()));
     }
 
-    private boolean reportReached(IdentityReach reach, String decision, Observation observation) {
+    private boolean reportReached(IdentityReach reach, String decision, Observation observation,
+                                  List<OperationReply> identityReplies) {
         if (!reach.ownerResultReached()) {
             return false;
         }
@@ -35,10 +40,13 @@ final class VerticalProbe {
         boolean marker = probe.ownerMarkerConfirms(reach.finalReply());
         probe.decide(decision);
         probe.report(FindingKind.OPERATION_AVAILABLE, "operation", hidden || marker,
-                observation.describe(reach, hidden, marker),
-                List.of(probe.owner().exchange(), probe.anonymous().reply().exchange(),
-                        reach.finalReply().exchange()));
+                observation.describe(reach, hidden, marker), evidence(identityReplies));
         return true;
+    }
+
+    private List<HttpRequestResponse> evidence(List<OperationReply> identityReplies) {
+        return Stream.concat(Stream.of(probe.owner(), probe.anonymous().reply()), identityReplies.stream())
+                .map(OperationReply::exchange).toList();
     }
 
     private String versionGatedObservation(IdentityReach reach, boolean hidden, boolean marker) {

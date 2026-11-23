@@ -23,6 +23,7 @@ import com.mcpscanner.checks.shared.scancontext.CurrentScan;
 import com.mcpscanner.checks.shared.scancontext.ScanContext;
 import com.mcpscanner.checks.shared.scancontext.ScanNotices;
 import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.ScanQueueBypass;
 import com.mcpscanner.http.ConnectionReusingHttp;
 import com.mcpscanner.http.CountingHttp;
 import com.mcpscanner.http.RequestTally;
@@ -30,6 +31,8 @@ import com.mcpscanner.http.ExchangeLease;
 import com.mcpscanner.http.RetainingHttp;
 import com.mcpscanner.http.UpstreamEvidence;
 import com.mcpscanner.http.UpstreamExchanges;
+import com.mcpscanner.http.evidence.ReportedEvidence;
+import com.mcpscanner.mcp.ScannerSentinels;
 import com.mcpscanner.logging.Counted;
 import com.mcpscanner.logging.McpEventLog;
 
@@ -51,11 +54,13 @@ public abstract class McpCheckAdapter<C extends McpCheck> implements ActiveScanC
     private final C check;
     private final CheckInstrumentation instrumentation;
     private final UpstreamEvidence upstreamEvidence;
+    private final ReportedEvidence reportedEvidence = new ReportedEvidence(ScannerSentinels.ALL);
     private final ConnectionReuse connectionReuse;
     private final IssueDestination issuesBurpWouldDrop;
     private final CheckLog log;
     private final ScanNotices auditNotices;
     private final ProbeCalls probeCalls;
+    private final ScanQueueBypass scanQueueBypass;
 
     protected McpCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, C check) {
         this(settings, eventLog, check, CheckInstrumentation.NONE);
@@ -90,6 +95,15 @@ public abstract class McpCheckAdapter<C extends McpCheck> implements ActiveScanC
                               CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
                               ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop,
                               ScanNotices auditNotices, ProbeCalls probeCalls) {
+        this(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                auditNotices, probeCalls, ScanQueueBypass.NONE);
+    }
+
+    protected McpCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, C check,
+                              CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
+                              ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop,
+                              ScanNotices auditNotices, ProbeCalls probeCalls, ScanQueueBypass scanQueueBypass) {
+        this.scanQueueBypass = Objects.requireNonNull(scanQueueBypass, "scanQueueBypass must not be null");
         this.probeCalls = Objects.requireNonNull(probeCalls, "probeCalls must not be null");
         this.issuesBurpWouldDrop = Objects.requireNonNull(issuesBurpWouldDrop, "issuesBurpWouldDrop must not be null");
         this.auditNotices = Objects.requireNonNull(auditNotices, "auditNotices must not be null");
@@ -152,7 +166,8 @@ public abstract class McpCheckAdapter<C extends McpCheck> implements ActiveScanC
             return Optional.empty();
         }
         noteMissingReply(baseRequestResponse);
-        return Optional.of(new StreamingRefusalWatch(ConnectionReusingHttp.around(http, connectionReuse)));
+        return Optional.of(new StreamingRefusalWatch(
+                scanQueueBypass.around(ConnectionReusingHttp.aroundScanSends(http, connectionReuse))));
     }
 
     private void noteMissingReply(HttpRequestResponse baseRequestResponse) {
@@ -183,8 +198,8 @@ public abstract class McpCheckAdapter<C extends McpCheck> implements ActiveScanC
     }
 
     private List<AuditIssue> reportable(List<AuditIssue> translated) {
-        SentinelFreeEvidence.noteStillProxied(translated, log);
-        return SentinelFreeEvidence.of(translated);
+        ProxyHopNotice.noteStillProxied(translated, log);
+        return reportedEvidence.of(translated);
     }
 
     private void warnIfProbesWereResent(StreamingRefusalWatch watch) {
@@ -269,6 +284,14 @@ public abstract class McpCheckAdapter<C extends McpCheck> implements ActiveScanC
                 && !probeCalls.fuzzesAddedLeaf(baseRequestResponse, insertionPoint)) {
             return Optional.of(SkipReason.notApplicable("a probe call fuzzes only the argument it added; the rest"
                     + " is fuzzed on its base call"));
+        }
+        if (!runsOncePerCall() && probeCalls.isPassengerMetaEnvelopePoint(baseRequestResponse, insertionPoint)) {
+            return Optional.of(SkipReason.notApplicable("request metadata (_meta) is fuzzed once per server, on"
+                    + " another request of this scan"));
+        }
+        if (!runsOncePerCall() && probeCalls.fuzzesOnlyWhatTheProxyDrops(baseRequestResponse, insertionPoint)) {
+            return Optional.of(SkipReason.notApplicable("the scanner's proxy sends the server its own URL query, JSON-RPC id"
+                    + " and transport headers, so a payload there never reaches the server"));
         }
         return claim(baseRequestResponse);
     }

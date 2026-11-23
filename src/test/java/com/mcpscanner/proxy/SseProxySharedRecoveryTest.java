@@ -962,7 +962,7 @@ class SseProxySharedRecoveryTest {
         private WireResponse(int status, T body, Map<String, List<String>> headers) {
             this(status, body, HttpHeaders.of(headers, (a, b) -> true));
         }
-        public HttpRequest request() { return null; }
+        public HttpRequest request() { return HttpRequest.newBuilder(uri()).GET().build(); }
         public Optional<HttpResponse<T>> previousResponse() { return Optional.empty(); }
         public Optional<SSLSession> sslSession() { return Optional.empty(); }
         public URI uri() { return URI.create("http://upstream/sse"); }

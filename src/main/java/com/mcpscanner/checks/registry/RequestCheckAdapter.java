@@ -7,6 +7,7 @@ import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import com.mcpscanner.checks.api.RequestCheck;
 import com.mcpscanner.checks.shared.scancontext.ScanNotices;
 import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.ScanQueueBypass;
 import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 
@@ -43,8 +44,16 @@ public final class RequestCheckAdapter extends McpCheckAdapter<RequestCheck> {
     public RequestCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, RequestCheck check,
                 CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
                 ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices, ProbeCalls probeCalls) {
+        this(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                auditNotices, probeCalls, ScanQueueBypass.NONE);
+    }
+
+    public RequestCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, RequestCheck check,
+                CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
+                ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices,
+                ProbeCalls probeCalls, ScanQueueBypass scanQueueBypass) {
         super(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
-                auditNotices, probeCalls);
+                auditNotices, probeCalls, scanQueueBypass);
     }
 
     @Override

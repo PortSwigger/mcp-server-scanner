@@ -10,6 +10,10 @@ import com.mcpscanner.access.AccessComparison;
 import com.mcpscanner.access.AccessComparisonRun;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -24,6 +28,7 @@ public final class RecordingComparison implements AccessComparison {
     final AtomicInteger begun = new AtomicInteger();
     final AtomicInteger closed = new AtomicInteger();
     final AtomicBoolean interrupted = new AtomicBoolean();
+    final Map<String, Boolean> identitiesOffTheItemThread = new ConcurrentHashMap<>();
     private final CountDownLatch release = new CountDownLatch(1);
     private volatile boolean holding;
     private volatile boolean citeBase;
@@ -54,8 +59,9 @@ public final class RecordingComparison implements AccessComparison {
         begun.incrementAndGet();
         return new AccessComparisonRun() {
             @Override
-            public List<AuditIssue> compare(HttpRequestResponse ownerExchange) {
+            public List<AuditIssue> compare(HttpRequestResponse ownerExchange, Executor identities) {
                 compared.add(ownerExchange.request());
+                identitiesOffTheItemThread.put(ownerExchange.request().bodyToString(), offThisThread(identities));
                 mostInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
                 try {
                     awaitRelease();
@@ -73,6 +79,11 @@ public final class RecordingComparison implements AccessComparison {
                 closed.incrementAndGet();
             }
         };
+    }
+
+    private static boolean offThisThread(Executor identities) {
+        Thread item = Thread.currentThread();
+        return CompletableFuture.supplyAsync(() -> Thread.currentThread() != item, identities).join();
     }
 
     private void awaitRelease() {

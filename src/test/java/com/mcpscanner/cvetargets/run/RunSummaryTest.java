@@ -23,7 +23,7 @@ class RunSummaryTest {
     Path root;
 
     @Test
-    void listsEveryArmWithItsVerdictOtherCheckIssuesAndWhyItCouldNotRun() throws IOException {
+    void listsEveryArmWithItsVerdictDurationOtherCheckIssuesAndWhyItCouldNotRun() throws IOException {
         IssueSummary outbound = new IssueSummary("MCP outbound request", AuditIssueSeverity.MEDIUM,
                 AuditIssueConfidence.FIRM, "http://127.0.0.1:1", "detail");
         ArmResult judged = new ArmResult("check-b", "target-two", "fixed", "burp", ArmRole.FIXED, "1.0.1",
@@ -49,6 +49,7 @@ class RunSummaryTest {
         assertThat(arms.get(1).path("passed").asBoolean()).isTrue();
         assertThat(arms.get(1).path("otherCheckIssues").path("check-a").get(0).asText())
                 .isEqualTo("MCP outbound request");
+        assertThat(arms.get(1).path("durationMillis").asLong()).isEqualTo(10);
         assertThat(arms.get(1).path("result").asText()).isEqualTo("check-b/target-two/fixed.json");
     }
 }

@@ -99,6 +99,7 @@ class OAuthRegistrationFormTest {
 
     private static OAuthRegistrationForm form(RegistrationMode mode, String issuer, String clientId, String secret,
                                               String clientIssuer, String metadataUrl, int port) {
-        return new OAuthRegistrationForm(issuer, List.of("read"), mode, clientId, secret, clientIssuer, metadataUrl, port);
+        return new OAuthRegistrationForm(issuer, List.of("read"), com.mcpscanner.auth.oauth.ScopeSelection.none(), mode, clientId, secret,
+                clientIssuer, metadataUrl, port);
     }
 }

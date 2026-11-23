@@ -21,6 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class SqlInjectionCheckTest {
 
+    private static final String BROKEN_LINE_COMMENT = " - -";
+
     private final SqliteDatabase database = new SqliteDatabase();
     private final DatabaseTools tools = new DatabaseTools(database);
     private final McpEventLog eventLog = new McpEventLog(null);
@@ -45,7 +47,7 @@ class SqlInjectionCheckTest {
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
             assertThat(issue.detail()).contains("get_all_items").contains("params.arguments.table_name")
                     .contains("SQL line comment");
-            assertThat(issue.requestResponses()).hasSize(14);
+            assertThat(issue.requestResponses()).hasSize(3);
         });
     }
 
@@ -150,6 +152,27 @@ class SqlInjectionCheckTest {
                 tools.splicedTableName().apply(table).text() + " request " + calls[0]++);
 
         assertThat(audit(tool("get_all_items", "table_name", "notes", volatileSplice))).isEmpty();
+    }
+
+    @Test
+    void reportsAHitWhoseReplySaysTheRateLimitQuotaIsSpent() {
+        SimulatedDatabaseServer server = tool("get_all_items", "table_name", "notes", tools.splicedTableName())
+                .spendingQuotaFromValue(value -> value.contains(BROKEN_LINE_COMMENT));
+
+        assertThat(audit(server)).singleElement()
+                .satisfies(issue -> assertThat(issue.name()).isEqualTo("MCP SQL injection"));
+    }
+
+    @Test
+    void stopsProbingOnceAReplySaysTheRateLimitQuotaIsSpent() {
+        SimulatedDatabaseServer unlimited = tool("find_note", "title", "first", tools.boundTitle());
+        SimulatedDatabaseServer spent = tool("find_note", "title", "first", tools.boundTitle())
+                .spendingQuotaFromValue(value -> true);
+
+        assertThat(audit(unlimited)).isEmpty();
+        assertThat(audit(spent)).isEmpty();
+        assertThat(spent.receivedValues()).hasSize(1).hasSizeLessThan(unlimited.receivedValues().size());
+        assertThat(skipLines()).noneMatch(line -> line.contains("consecutive probes got no response"));
     }
 
     private SimulatedDatabaseServer tool(String name, String argument, String baseValue,

@@ -1,7 +1,5 @@
 package com.mcpscanner.checks.catalog.filetraversal;
 
-import burp.api.montoya.http.message.HttpRequestResponse;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -72,19 +70,26 @@ final class FindingClassifier {
         List<ClassifiedRead> shown = reads.subList(0, Math.min(reads.size(), MAX_READS_PER_FINDING));
         List<String> rejectedLiterals = new ArrayList<>();
         List<String> observations = new ArrayList<>();
-        List<HttpRequestResponse> evidence = new ArrayList<>();
         for (ClassifiedRead classified : shown) {
             classified.rejectedTwin().ifPresent(twin -> {
                 rejectedLiterals.add(twin.sentValue());
                 observations.add("Rejected literal path: " + twin.sentValue());
-                evidence.add(twin.exchange());
             });
-            ConfirmedRead read = classified.read();
-            observations.add(describe(read));
-            evidence.add(read.candidate().exchange());
-            read.controls().forEach(control -> evidence.add(control.exchange()));
+            observations.add(describe(classified.read()));
         }
-        return new Finding(kind, rejectedLiterals.stream().distinct().toList(), observations, evidence);
+        List<TraversalAttempt> attached = attached(shown.get(0));
+        observations.add("Attached requests, in order: "
+                + String.join(", ", attached.stream().map(TraversalAttempt::sentValue).toList()) + ".");
+        return new Finding(kind, rejectedLiterals.stream().distinct().toList(), observations,
+                attached.stream().map(TraversalAttempt::exchange).toList());
+    }
+
+    private static List<TraversalAttempt> attached(ClassifiedRead classified) {
+        List<TraversalAttempt> attached = new ArrayList<>();
+        classified.rejectedTwin().ifPresent(attached::add);
+        attached.add(classified.read().candidate());
+        attached.add(classified.read().missingFileTwin());
+        return attached;
     }
 
     private static String describe(ConfirmedRead read) {

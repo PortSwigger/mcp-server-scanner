@@ -51,6 +51,44 @@ class OutcomeJudgeTest {
     }
 
     @Test
+    void silenceIgnoresAnIssueTheArmDeclaresItAlsoReports() {
+        ExpectedOutcome silentButDeclared = ExpectedOutcome.of(Outcome.SILENT).alsoReporting(List.of("Origin admitted"));
+
+        Verdict verdict = judge.judge(silentButDeclared, List.of(FIRM_ORIGIN), REACHED);
+
+        assertThat(verdict.passed()).isTrue();
+        assertThat(verdict.explanation()).isEqualTo(
+                "expected SILENT (also reports=[Origin admitted]), observed 0 matching of 0 undeclared issues");
+    }
+
+    @Test
+    void anUndeclaredIssueStillBreaksSilence() {
+        ExpectedOutcome silentButDeclared = ExpectedOutcome.of(Outcome.SILENT).alsoReporting(List.of("Origin admitted"));
+
+        assertThat(judge.judge(silentButDeclared, List.of(FIRM_ORIGIN, issueOf(AuditIssueSeverity.LOW)), REACHED)
+                .passed()).isFalse();
+    }
+
+    @Test
+    void aDeclaredIssueThatIsNotReportedFailsTheArm() {
+        ExpectedOutcome silentButDeclared = ExpectedOutcome.of(Outcome.SILENT).alsoReporting(List.of("Origin admitted"));
+
+        Verdict verdict = judge.judge(silentButDeclared, List.of(), REACHED);
+
+        assertThat(verdict.passed()).isFalse();
+        assertThat(verdict.explanation()).endsWith(", but the declared issue Origin admitted was not reported");
+    }
+
+    @Test
+    void fireNeedsAnIssueBesidesTheDeclaredOnes() {
+        ExpectedOutcome fireButDeclared = ExpectedOutcome.of(Outcome.FIRE).alsoReporting(List.of("Origin admitted"));
+
+        assertThat(judge.judge(fireButDeclared, List.of(FIRM_ORIGIN), REACHED).passed()).isFalse();
+        assertThat(judge.judge(fireButDeclared, List.of(FIRM_ORIGIN, issueOf(AuditIssueSeverity.LOW)), REACHED)
+                .passed()).isTrue();
+    }
+
+    @Test
     void silenceAboveASeverityFloorAllowsOnlyIssuesBelowIt() {
         ExpectedOutcome silentFromLow = new ExpectedOutcome(Outcome.SILENT, null, null, null, AuditIssueSeverity.LOW, null);
 

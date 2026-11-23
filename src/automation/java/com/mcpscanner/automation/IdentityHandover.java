@@ -1,6 +1,7 @@
 package com.mcpscanner.automation;
 
 import com.mcpscanner.access.WriteReplayConfirmations;
+import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.checks.api.AccessExpectation;
 import com.mcpscanner.checks.api.AccessItemKey;
 import com.mcpscanner.identity.Identity;
@@ -31,9 +32,9 @@ public final class IdentityHandover {
         this.itemSeeds = itemSeeds;
     }
 
-    void beforeConnect(CommandIdentities identities, CommandAuth connectAsAuth) {
+    void beforeConnect(CommandIdentities identities, CommandAuth connectAsAuth, AuthStrategy connectAsCredential) {
         registry.otherUsers().forEach(other -> registry.remove(other.id()));
-        identities.primaryUser().ifPresent(user -> becomeConnectAs(user, connectAsAuth));
+        identities.primaryUser().ifPresent(user -> becomeConnectAs(user, connectAsAuth, connectAsCredential));
         identities.others().forEach(this::addCompared);
     }
 
@@ -43,10 +44,10 @@ public final class IdentityHandover {
         itemSeeds.accept(identities.itemSeeds());
     }
 
-    private void becomeConnectAs(CommandUser user, CommandAuth auth) {
+    private void becomeConnectAs(CommandUser user, CommandAuth auth, AuthStrategy credential) {
         Identity connectAs = described(registry.primaryUser(), user, auth);
         registry.update(connectAs);
-        registry.setCredential(connectAs.id(), auth.strategy());
+        registry.setCredential(connectAs.id(), credential);
     }
 
     private void addCompared(CommandUser user) {

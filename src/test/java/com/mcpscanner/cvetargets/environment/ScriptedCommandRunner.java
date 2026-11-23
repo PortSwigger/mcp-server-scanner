@@ -3,17 +3,17 @@ package com.mcpscanner.cvetargets.environment;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 final class ScriptedCommandRunner implements CommandRunner {
 
     private final Map<String, CommandResult> scripted = new LinkedHashMap<>();
     private final Map<String, Deque<CommandResult>> sequences = new LinkedHashMap<>();
-    final List<List<String>> commands = new ArrayList<>();
+    final List<List<String>> commands = new CopyOnWriteArrayList<>();
 
     ScriptedCommandRunner on(String subcommand, int exitCode, String output) {
         scripted.put(subcommand, new CommandResult(List.of(subcommand), exitCode, output));

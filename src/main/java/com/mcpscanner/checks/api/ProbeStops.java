@@ -24,6 +24,10 @@ public final class ProbeStops {
         return channel.exhausted() && reportedExhaustion();
     }
 
+    public boolean notRunIfConfirmationBarred() {
+        return channel.barsConfirmation() && reportedExhaustion();
+    }
+
     public boolean reportedExhaustion() {
         Optional<SkipReason> exhaustion = exhaustion();
         exhaustion.ifPresent(reason -> log.notRun(subject, reason));
@@ -37,6 +41,7 @@ public final class ProbeStops {
     private SkipReason reasonFor(ProbeChannel.Exhaustion exhaustion) {
         return switch (exhaustion) {
             case RATE_LIMITED -> SkipReason.rateLimited();
+            case QUOTA_SPENT -> SkipReason.quotaSpent();
             case BUDGET_SPENT -> SkipReason.budgetExhausted(channel.budget() + " probe requests");
         };
     }

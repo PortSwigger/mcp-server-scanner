@@ -41,6 +41,57 @@ class McpReplyTest {
     }
 
     @Test
+    void skipsAServerToClientRequestCarryingAnIdBeforeTheReply() {
+        McpReply reply = McpReply.in(response("text/event-stream",
+                "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"s1\",\"method\":\"ping\"}\n\n"
+                        + "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"ok\":true}}\n\n"));
+
+        assertThat(reply.answered()).isTrue();
+        assertThat(reply.result().path("ok").asBoolean()).isTrue();
+    }
+
+    @Test
+    void ofAnExchangePrefersTheReplyCarryingTheRequestId() {
+        String body = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"n\":4}}\n\n"
+                + "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"n\":5}}\n\n";
+
+        McpReply reply = McpReply.of(HttpRequestResponse.httpRequestResponse(request(CALL),
+                response("text/event-stream", body)));
+
+        assertThat(reply.result().path("n").asInt()).isEqualTo(5);
+    }
+
+    @Test
+    void ofAnExchangeFallsBackToTheReplyWhenNoIdMatches() {
+        McpReply reply = McpReply.of(exchange(CALL, "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700}}"));
+
+        assertThat(reply.errorCode()).isEqualTo(-32700);
+        assertThat(McpReply.of(null).answered()).isFalse();
+    }
+
+    @Test
+    void readsAChunkFramedJsonReplyBody() {
+        String json = "{\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"ok\":true}}";
+        McpReply reply = McpReply.in(HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                + "Transfer-Encoding: chunked\r\n\r\n6\r\n" + json.substring(0, 6) + "\r\n"
+                + Integer.toHexString(json.length() - 6) + "\r\n" + json.substring(6) + "\r\n0\r\n\r\n"));
+
+        assertThat(reply.result().path("ok").asBoolean()).isTrue();
+    }
+
+    @Test
+    void readsAnSseReplyWhoseDataLineSpansTwoChunksOfAStreamCutAfterTheReply() {
+        String data = "data: {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"ok\":true}}\n\n";
+        String first = "event: message\n" + data.substring(0, 20);
+        String second = data.substring(20);
+        McpReply reply = McpReply.in(HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                + "Transfer-Encoding: chunked\r\n\r\n" + Integer.toHexString(first.length()) + "\r\n" + first + "\r\n"
+                + Integer.toHexString(second.length()) + "\r\n" + second));
+
+        assertThat(reply.result().path("ok").asBoolean()).isTrue();
+    }
+
+    @Test
     void aBatchMalformedOrMissingReplyBodyHasNoMessage() {
         assertThat(McpReply.in(response("application/json", "[{\"id\":5,\"result\":{}}]")).message()).isEmpty();
         assertThat(McpReply.in(response("application/json", "not json")).message()).isEmpty();

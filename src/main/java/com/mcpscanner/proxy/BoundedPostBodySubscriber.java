@@ -2,6 +2,7 @@ package com.mcpscanner.proxy;
 
 import com.mcpscanner.mcp.BoundedBodyReader;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
@@ -13,6 +14,7 @@ import java.util.concurrent.Flow;
 final class BoundedPostBodySubscriber implements HttpResponse.BodySubscriber<String> {
     private final HttpResponse.BodySubscriber<String> delegate =
             HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8);
+    private final ByteArrayOutputStream received = new ByteArrayOutputStream();
     private Flow.Subscription subscription;
     private int receivedBytes;
     private boolean finished;
@@ -41,7 +43,19 @@ final class BoundedPostBodySubscriber implements HttpResponse.BodySubscriber<Str
             }
             receivedBytes += chunk.remaining();
         }
+        chunks.forEach(this::keep);
         delegate.onNext(chunks);
+    }
+
+    synchronized byte[] received() {
+        return received.toByteArray();
+    }
+
+    private synchronized void keep(ByteBuffer chunk) {
+        ByteBuffer copy = chunk.duplicate();
+        byte[] bytes = new byte[copy.remaining()];
+        copy.get(bytes);
+        received.write(bytes, 0, bytes.length);
     }
 
     @Override

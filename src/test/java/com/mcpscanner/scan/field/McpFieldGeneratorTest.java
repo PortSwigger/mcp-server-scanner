@@ -289,6 +289,55 @@ class McpFieldGeneratorTest {
     }
 
 
+    @Test
+    void aPassengerOfAScanKeepsEveryFieldAndHeaderButItsMetaEnvelope() {
+        MetaEnvelopeRegistry envelopes = new MetaEnvelopeRegistry();
+        envelopes.hold(TOOL_CALL, MetaEnvelopeRegistry.Role.PASSENGER);
+
+        List<AuditInsertionPoint> fields = withEnvelopes(envelopes).fieldsOf(request(TOOL_CALL, mcpHeaders()));
+
+        assertThat(names(fields)).containsExactlyElementsOf(names(withHeaders.fieldsOf(request(TOOL_CALL, mcpHeaders())))
+                .stream().filter(name -> !name.startsWith("MCP field: params._meta.")).toList());
+        assertThat(names(fields)).contains("MCP field: params.arguments.url", "MCP header: Mcp-Session-Id");
+    }
+
+    @Test
+    void theCarrierOfAScanHasItsMetaEnvelopeFuzzed() {
+        MetaEnvelopeRegistry envelopes = new MetaEnvelopeRegistry();
+        envelopes.hold(TOOL_CALL, MetaEnvelopeRegistry.Role.CARRIER);
+
+        assertThat(names(withEnvelopes(envelopes).fieldsOf(request(TOOL_CALL, Map.of()))))
+                .contains("MCP field: params._meta.progressToken");
+    }
+
+    @Test
+    void aRequestNoScanHoldsHasItsMetaEnvelopeFuzzed() {
+        MetaEnvelopeRegistry envelopes = new MetaEnvelopeRegistry();
+        envelopes.hold("some other body", MetaEnvelopeRegistry.Role.PASSENGER);
+
+        assertThat(names(withEnvelopes(envelopes).fieldsOf(request(TOOL_CALL, Map.of()))))
+                .contains("MCP field: params._meta.progressToken");
+    }
+
+    @Test
+    void aPassengerResourceReadKeepsItsTemplateVariables() {
+        String read = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/read\",\"params\":"
+                + "{\"uri\":\"file:///docs/name\",\"_meta\":{\"k\":\"v\"}}}";
+        TemplateExpansionRegistry templates = new TemplateExpansionRegistry();
+        templates.record(com.mcpscanner.scan.UriTemplateExpansion.expand("file:///docs/{name}"));
+        MetaEnvelopeRegistry envelopes = new MetaEnvelopeRegistry();
+        envelopes.hold(read, MetaEnvelopeRegistry.Role.PASSENGER);
+
+        assertThat(names(new McpFieldGenerator(() -> false, templates, BurpNativeJsonRpcFields.ABSENT,
+                new AddedArgumentRegistry(), envelopes).fieldsOf(request(read, Map.of()))))
+                .containsExactly("MCP field: params.uri", "MCP template variable: name");
+    }
+
+    private static McpFieldGenerator withEnvelopes(MetaEnvelopeRegistry envelopes) {
+        return new McpFieldGenerator(() -> true, new TemplateExpansionRegistry(), BurpNativeJsonRpcFields.ABSENT,
+                new AddedArgumentRegistry(), envelopes);
+    }
+
     private static List<String> names(List<AuditInsertionPoint> fields) {
         return fields.stream().map(AuditInsertionPoint::name).toList();
     }

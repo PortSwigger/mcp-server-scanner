@@ -1,7 +1,11 @@
 package com.mcpscanner.checks.catalog.downstreamrouteescape;
 
+import com.mcpscanner.testutil.SpentRateLimitQuota;
+import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.responses.HttpResponse;
+
+import java.util.List;
 
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -36,6 +40,13 @@ final class Replies {
         HttpRequestResponse exchange = mock(HttpRequestResponse.class);
         lenient().when(exchange.response()).thenReturn(response);
         return exchange;
+    }
+
+    static HttpRequestResponse spentQuota(HttpRequestResponse reply) {
+        List<HttpHeader> spent = SpentRateLimitQuota.mockedHeaders();
+        HttpResponse response = reply.response();
+        lenient().when(response.headers()).thenReturn(spent);
+        return reply;
     }
 
     static HttpRequestResponse noResponse() {

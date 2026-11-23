@@ -7,7 +7,6 @@ import com.mcpscanner.mcp.McpObjectMapper;
 final class ClientMetadataDocument {
 
     private static final String CLIENT_HOME = "https://mcp-scanner.example.com";
-    private static final String SOFTWARE_ID = "8d0f3c5e-2a71-4b9e-a6d4-5f1c9e7b3a20";
 
     private ClientMetadataDocument() {}
 
@@ -24,7 +23,7 @@ final class ClientMetadataDocument {
         metadata.putArray("contacts").add("security@mcp-scanner.example.com");
         metadata.put("tos_uri", CLIENT_HOME + "/terms");
         metadata.put("policy_uri", CLIENT_HOME + "/privacy");
-        metadata.put("software_id", SOFTWARE_ID);
+        metadata.put("software_id", ExtensionMetadata.SOFTWARE_ID);
         metadata.put("software_version", ExtensionMetadata.VERSION);
         metadata.put("initiate_login_uri", CLIENT_HOME + "/login");
         return metadata;

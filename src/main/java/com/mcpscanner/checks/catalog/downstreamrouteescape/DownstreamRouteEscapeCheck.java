@@ -10,6 +10,7 @@ import com.mcpscanner.checks.api.CheckDescriptor;
 import com.mcpscanner.checks.api.CheckLog;
 import com.mcpscanner.checks.api.InsertionPointCheck;
 import com.mcpscanner.checks.api.RateLimitedProbing;
+import com.mcpscanner.checks.api.RateLimitedSends;
 import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.api.SkipSubject;
 import com.mcpscanner.checks.issue.IssueIdentity;
@@ -25,12 +26,18 @@ public final class DownstreamRouteEscapeCheck implements InsertionPointCheck {
     private static final SkipReason NOT_A_CALL =
             SkipReason.notApplicable("not a tools/call, prompts/get or resources/read");
     private static final SkipReason NO_REPLY = SkipReason.prerequisiteMissing("the server gave no reply to the base call");
+    private static final SkipReason LOCAL_DIRECTORY = SkipReason.notApplicable("the value resolves as a local "
+            + "directory path, not a downstream route: " + String.join(" and ", LocalDirectoryOracle.EXISTING_DIRECTORIES)
+            + " were accepted and " + LocalDirectoryOracle.MISSING_DIRECTORY
+            + " was answered like the non-traversal values");
 
     private final CheckLog log;
     private final RateLimitedProbing rateLimited;
     private final ReplySignature signatures = new ReplySignature(new PayloadMask());
     private final CallRequests calls = new CallRequests();
-    private final RouteDifferential differential = new RouteDifferential(signatures, new RejectionWording());
+    private final AcceptedReply accepted = new AcceptedReply(signatures, new RejectionWording());
+    private final RouteDifferential differential = new RouteDifferential(signatures, accepted);
+    private final LocalDirectoryOracle localDirectories = new LocalDirectoryOracle(signatures, accepted);
     private final DownstreamRouteEscapeIssues issues =
             new DownstreamRouteEscapeIssues(DownstreamRouteEscapeDescriptor.DESCRIPTOR);
     private final List<RouteProbe> probes = RouteProbeCatalog.standard();
@@ -59,7 +66,7 @@ public final class DownstreamRouteEscapeCheck implements InsertionPointCheck {
             log.notRun(subject, skip.get());
             return List.of();
         }
-        return rateLimited.run(subject, http, guarded -> probe(baseRequestResponse, insertionPoint, guarded));
+        return rateLimited.run(subject, http, sends -> probe(subject, baseRequestResponse, insertionPoint, sends));
     }
 
     @Override
@@ -80,17 +87,25 @@ public final class DownstreamRouteEscapeCheck implements InsertionPointCheck {
         return Optional.empty();
     }
 
-    private List<AuditIssue> probe(HttpRequestResponse base, AuditInsertionPoint insertionPoint, Http http) {
-        ValueSender sender = value -> http.sendRequest(
-                insertionPoint.buildHttpRequestWithPayload(ByteArray.byteArray(value)));
-        return firstDifference(sender)
-                .map(difference -> List.of(issues.issueFor(base, insertionPoint, difference)))
-                .orElse(List.of());
+    private List<AuditIssue> probe(String subject, HttpRequestResponse base, AuditInsertionPoint insertionPoint,
+                                   RateLimitedSends sends) {
+        RouteSenders senders = new RouteSenders(valueSender(insertionPoint, sends.probes()),
+                valueSender(insertionPoint, sends.confirmations()));
+        Optional<RouteDifference> difference = firstDifference(senders);
+        if (difference.isPresent() && localDirectories.explains(difference.get(), senders.confirmations())) {
+            log.notRun(subject, LOCAL_DIRECTORY);
+            return List.of();
+        }
+        return difference.map(found -> List.of(issues.issueFor(base, insertionPoint, found))).orElse(List.of());
     }
 
-    private Optional<RouteDifference> firstDifference(ValueSender sender) {
+    private static ValueSender valueSender(AuditInsertionPoint insertionPoint, Http http) {
+        return value -> http.sendRequest(insertionPoint.buildHttpRequestWithPayload(ByteArray.byteArray(value)));
+    }
+
+    private Optional<RouteDifference> firstDifference(RouteSenders senders) {
         for (RouteProbe probe : probes) {
-            Optional<RouteDifference> difference = differential.run(probe, sender);
+            Optional<RouteDifference> difference = differential.run(probe, senders);
             if (difference.isPresent()) {
                 return difference;
             }

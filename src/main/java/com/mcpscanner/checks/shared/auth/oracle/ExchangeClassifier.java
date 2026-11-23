@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import com.mcpscanner.checks.shared.jsonrpc.JsonRpcEnvelope;
 import com.mcpscanner.checks.shared.jsonrpc.JsonRpcMessages;
 import com.mcpscanner.checks.shared.jsonrpc.McpReply;
+import com.mcpscanner.checks.shared.jsonrpc.ReplyBody;
 
 import java.util.Optional;
 import java.util.Set;
@@ -24,7 +25,7 @@ final class ExchangeClassifier {
         JsonRpcEnvelope request = JsonRpcEnvelope.of(exchange.request());
         HttpResponse response = exchange.response();
         int status = response.statusCode();
-        String body = response.bodyToString();
+        String body = ReplyBody.text(response);
         if (REFUSAL_STATUSES.contains(status) || RefusalText.refusesBody(body, JsonRpcMessages.in(body))) {
             return ExchangeOutcome.refused(status);
         }
@@ -46,7 +47,7 @@ final class ExchangeClassifier {
         if (!BLOCK_PAGE_STATUSES.contains((int) exchange.response().statusCode())) {
             return true;
         }
-        return !HTML_PAGE.matcher(exchange.response().bodyToString()).lookingAt();
+        return !HTML_PAGE.matcher(ReplyBody.text(exchange.response())).lookingAt();
     }
 
     boolean isNotification(HttpRequestResponse exchange) {

@@ -34,7 +34,7 @@ final class Confirmation {
         }
         return Verdict.confirmed(new Finding(survey.slot(), forms(survey),
                 survey.independentlyCorroborated() ? AuditIssueConfidence.FIRM : AuditIssueConfidence.TENTATIVE,
-                evidence(survey, baseline, rounds)));
+                evidence(survey, baseline)));
     }
 
     private ConfirmationRound round(ProbeField field, ValueSlot slot, SyntaxForm form, int round) {
@@ -47,21 +47,15 @@ final class Confirmation {
     }
 
     private static Probe resend(ProbeField field) {
-        return field.send(ValueSlot.whole(field.original()), field.original());
+        return field.confirm(ValueSlot.whole(field.original()), field.original());
     }
 
     private static List<SyntaxForm> forms(SlotSurvey survey) {
         return survey.separations().stream().map(Separation::form).toList();
     }
 
-    private static List<HttpRequestResponse> evidence(SlotSurvey survey, Probe baseline,
-                                                      List<ConfirmationRound> rounds) {
-        Stream<Probe> surveyed = survey.separations().stream()
-                .flatMap(separation -> Stream.of(separation.equivalent(), separation.falsifier()));
-        Stream<Probe> confirmed = rounds.stream().flatMap(round -> round.probes().stream());
-        return Stream.of(Stream.of(baseline), surveyed, confirmed)
-                .flatMap(probes -> probes)
-                .map(Probe::exchange)
-                .toList();
+    private static List<HttpRequestResponse> evidence(SlotSurvey survey, Probe baseline) {
+        Separation triggering = survey.sqlSpecific().orElseThrow();
+        return Stream.of(baseline, triggering.equivalent(), triggering.falsifier()).map(Probe::exchange).toList();
     }
 }

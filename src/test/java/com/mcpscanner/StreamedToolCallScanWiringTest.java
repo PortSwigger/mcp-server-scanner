@@ -64,7 +64,7 @@ class StreamedToolCallScanWiringTest {
     private static ScanRun scanThroughBurp(StreamingCampaignServer server) throws Exception {
         try (server; WiredExtension extension = WiredExtension.sendingThroughBurp()) {
             extension.scanTool(connect(extension, server).get(0));
-            return new ScanRun(extension.burpOutput(), extension.burpErrors());
+            return new ScanRun(extension.everyLogLineOnceTheScanFinished(), extension.burpErrors());
         }
     }
 

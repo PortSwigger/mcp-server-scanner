@@ -1,5 +1,6 @@
 package com.mcpscanner.access.mining;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.config.ExtensionConfigStore;
@@ -32,7 +33,7 @@ class SavedMiningProjectCompatibilityTest {
         saved.setString("mcp.mining.passes", "4");
         saved.setString("mcp.mining.write_tools", "{\"mode\":\"SELECTED\",\"selected\":[\"archive_document\"]}");
         saved.setBoolean("mcp.mining.mined_in_write_tools", true);
-        ExtensionConfigStore config = new ExtensionConfigStore(saved, mock(Logging.class));
+        ExtensionConfigStore config = new ExtensionConfigStore(saved, new InMemoryPreferences(), mock(Logging.class));
 
         MiningPreferences preferences = new MiningPreferences(config);
         assertThat(preferences.passes()).isEqualTo(4);

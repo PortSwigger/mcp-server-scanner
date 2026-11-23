@@ -12,7 +12,8 @@ public final class StreamEvidenceNote {
 
     private static final String SENT_OUTSIDE_BURP = "The scanner sent %s with its own HTTP client, outside Burp, "
             + "because Burp does not pass streamed replies to extensions; where the server answered with an event "
-            + "stream, the evidence response holds the JSON-RPC reply the scanner read from it.";
+            + "stream, the evidence response is the event stream exactly as received, up to the JSON-RPC reply the "
+            + "scanner read from it.";
     private static final String EVERY_REQUEST = "these requests";
 
     private StreamEvidenceNote() {

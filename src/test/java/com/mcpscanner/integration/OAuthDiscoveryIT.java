@@ -4,6 +4,7 @@ import com.mcpscanner.auth.oauth.discovery.DiscoveredMetadata;
 import com.mcpscanner.auth.oauth.discovery.DiscoverySource;
 import com.mcpscanner.auth.oauth.discovery.OAuthMetadataDiscoverer;
 import com.mcpscanner.auth.oauth.safety.SuspiciousDestinationGate;
+import com.mcpscanner.testutil.ClosedPort;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.mcpscanner.testutil.RecordingRealHttp;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,7 +13,6 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -54,7 +54,7 @@ class OAuthDiscoveryIT {
 
             RecordingRealHttp realHttp = new RecordingRealHttp(McpCheckItSupport.realHttpClient());
             DiscoveredMetadata result = OAuthMetadataDiscoverer
-                    .defaultInstance(realHttp, null, ALLOW_LOOPBACK)
+                    .defaultInstance(realHttp, null, ALLOW_LOOPBACK, () -> true)
                     .discover(URI.create("http://" + HOST + ":" + port + "/mcp"));
 
             assertThat(result.source()).isIn(DiscoverySource.WWW_AUTHENTICATE_HEADER, DiscoverySource.PRM_WELL_KNOWN);
@@ -66,9 +66,7 @@ class OAuthDiscoveryIT {
     }
 
     private static int findFreePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
-        }
+        return ClosedPort.onLoopback();
     }
 
     private static Process startTestServer(int port) throws IOException {

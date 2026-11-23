@@ -22,17 +22,33 @@ public final class SlotLimitedEnvironment implements TargetEnvironment {
 
     @Override
     public ReservedArm reserve(LoadedTarget target, TargetArm arm) {
-        ArmSlot slot = slots.acquire(target.displayName() + "/" + arm.name(),
-                MachineSlots.slotsFor(target.manifest().footprintMb()));
-        return new ReservedArm(() -> startHolding(slot, target, arm), slot::close);
+        ReservedArm reserved = delegate.reserve(target, arm);
+        ArmSlot slot = slotFor(target, arm, reserved);
+        return new ReservedArm(() -> startHolding(slot, reserved), () -> releaseBoth(slot, reserved));
     }
 
-    private RunningArm startHolding(ArmSlot slot, LoadedTarget target, TargetArm arm) {
+    private ArmSlot slotFor(LoadedTarget target, TargetArm arm, ReservedArm reserved) {
         try {
-            return new SlottedArm(delegate.start(target, arm), slot);
+            return slots.acquire(target.displayName() + "/" + arm.name(),
+                    MachineSlots.slotsFor(target.manifest().footprintMb()));
+        } catch (RuntimeException | Error acquireFailure) {
+            reserved.close();
+            throw acquireFailure;
+        }
+    }
+
+    private RunningArm startHolding(ArmSlot slot, ReservedArm reserved) {
+        try {
+            return new SlottedArm(reserved.start(), slot);
         } catch (RuntimeException | Error startFailure) {
             releaseAfter(slot, startFailure);
             throw startFailure;
+        }
+    }
+
+    private static void releaseBoth(ArmSlot slot, ReservedArm reserved) {
+        try (slot) {
+            reserved.close();
         }
     }
 

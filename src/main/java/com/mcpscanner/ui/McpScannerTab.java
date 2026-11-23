@@ -12,9 +12,6 @@ import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.scan.MinedArguments;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.scan.McpRepeaterRequestFactory;
-import com.mcpscanner.scan.ScanInventory;
-import com.mcpscanner.scan.ScanMode;
-import com.mcpscanner.scan.ScanPlanner;
 import com.mcpscanner.scan.ScanSession;
 import com.mcpscanner.scan.request.RequestGenerator;
 import com.mcpscanner.access.WriteReplayApproval;
@@ -44,7 +41,6 @@ import com.mcpscanner.ui.state.UiConnectionState;
 import com.mcpscanner.ui.state.UiSideEffect;
 import com.mcpscanner.ui.state.UiStateReducer;
 import com.mcpscanner.ui.widgets.CopyableSecret;
-import com.mcpscanner.ui.widgets.Edt;
 import com.mcpscanner.ui.widgets.ScrollableForm;
 import com.mcpscanner.ui.widgets.SideDrawer;
 import com.mcpscanner.ui.widgets.TitledPanel;
@@ -63,7 +59,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Executor;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.time.Clock;
@@ -98,15 +93,12 @@ public class McpScannerTab extends JPanel {
     private final AuthDiscoveryReports authDiscoveryReports;
     private final CredentialOriginGuard credentialOrigin;
     private final MinedValueOriginGuard minedValueOrigin;
-    private final ScanLaunchPresenter scans;
+    private final Optional<ScanSection> scanSection;
+    private final ScanFeature scanFeature;
 
     private final ConnectionHeader header = new ConnectionHeader();
-    private final InventoryPanels inventory = new InventoryPanels();
+    private final InventoryPanels inventory;
     private final InventoryTabs inventoryTabs = new InventoryTabs();
-    private final ScanActivityPanel scanActivity;
-    private final ScanModeSelector scanModeSelector;
-    private final ScanBar scanBar;
-    private final ScanChecksPanel scanChecksPanel;
     private final AuthenticationOverview authenticationOverview;
     private final CredentialPromptPresenter credentialNeeds = new CredentialPromptPresenter();
     private final CredentialPrompt credentialPrompt;
@@ -120,10 +112,6 @@ public class McpScannerTab extends JPanel {
     private final DisconnectGate disconnects = new DisconnectGate(this::refreshAfterDisconnect);
 
     private final Consumer<McpEventLog.LogEntry> errorAlert = this::alertOnError;
-    private final BiConsumer<String, Boolean> checksSummaryRefresh =
-            (id, enabled) -> SwingUtilities.invokeLater(this::refreshChecksSummary);
-    private final Consumer<ScanMode> scanModeRefresh = mode -> Edt.run(this::onScanModeChanged);
-    private final Runnable requestFamilyRefresh = () -> Edt.run(this::replanScanButton);
     private final Runnable externalDisconnect = () -> SwingUtilities.invokeLater(this::onExternalDisconnect);
     private final Runnable stopGrantFieldsFollowingPrimary;
 
@@ -141,6 +129,7 @@ public class McpScannerTab extends JPanel {
         this.configStore = deps.configStore();
         this.eventLog = deps.eventLog();
         this.serverConfigPanel = deps.serverConfigPanel();
+        this.inventory = new InventoryPanels(deps.inventoryTicks());
         this.credentialOrigin = CredentialOriginGuard.watching(deps.identities().registry(), eventLog,
                 configStore::endpoint);
         this.minedValueOrigin = MinedValueOriginGuard.watching(deps.identities().registry(), eventLog,
@@ -149,35 +138,27 @@ public class McpScannerTab extends JPanel {
                 deps.optionalGrants());
         this.describer = new ConnectionDescriber(serverConfigPanel.oauthConfig(), clientManager::scannerSession);
         this.authDiscoveryReports = new AuthDiscoveryReports(serverConfigPanel.oauthConfig()::lastDiscoveryFor);
-        this.scans = new ScanLaunchPresenter(deps, new ScanPlanner(deps.generationSettings(),
-                inventory::serverCapabilities, () -> clientManager.scannerSession().negotiatedProtocolVersion(),
-                inventory::authorizationServer, deps.scanOwnerArguments()), this, new ScanHost());
-        this.scanActivity = new ScanActivityPanel(deps.scanLauncher()::activity,
-                deps.scanLauncher()::cancelRunningScans, deps.uiReads());
         this.oauthClient = new OAuthClientSection(serverConfigPanel, this::requestDisconnect);
         this.identities = new UsersView(deps.identities(),
                 IdentityConnection.of(this::isConnected, this::isConnecting, this::reconnectAs,
                         this::connectedIdentity), deps.dialogOwner(), this, eventLog::warn, serverConfigPanel, this::openUsers,
-                this::openOAuthClient);
+                this::openOAuthClient, deps.usersMode());
         this.stopGrantFieldsFollowingPrimary = GrantFieldsFollowPrimary.watch(deps.identities().registry(),
                 serverConfigPanel.grantForms());
         this.connectAuth = new PrimaryUserAuthSource(new ServerConfigAuthSource(serverConfigPanel),
                 identities.primaryCredentials());
         this.credentialPrompt = identities.credentialPrompt(new PromptActions());
         this.attemptFactory = new ConnectAttemptFactory(connectAuth);
-        this.scanModeSelector = new ScanModeSelector(deps.scanModeSetting());
-        this.scanBar = new ScanBar(scanActivity, identities.chip(),
-                SupportLinks.create(deps.logging()::logToError), scanModeSelector.button(),
-                new PausedTasksNotice(deps.scanModeSetting()::current, deps.scanLauncher(), eventLog));
-        this.scanChecksPanel = new ScanChecksPanel(deps.checkRegistry(), deps.checkSettings(),
-                deps.logging()::logToError);
+        this.scanSection = deps.scanServices().map(services -> new ScanSection(deps, services, inventory, this,
+                identities.chip(), new ScanHost()));
+        this.scanFeature = scanSection.<ScanFeature>map(section -> section)
+                .orElseGet(() -> new ScanUnavailable(deps.logging()::logToError));
         this.authenticationOverview = createAuthenticationOverview();
         this.loggerPanel = new LoggerPanel(eventLog);
-        this.settingsPanel = new SettingsPanel(configStore);
+        this.settingsPanel = new SettingsPanel(configStore, deps.settingsScope());
         this.drawer = new SideDrawer(inventoryTabs);
-        this.renderer = new ConnectionStateRenderer(new ConnectionStateRenderer.Views(header, scanBar,
-                serverConfigPanel, inventory, inventoryTabs, oauthClient, scanActivity),
-                deps.checkRegistry(), deps.scanModeSetting()::current, new RenderHost());
+        this.renderer = new ConnectionStateRenderer(new ConnectionStateRenderer.Views(header, scanFeature.view(),
+                serverConfigPanel, inventory, inventoryTabs, oauthClient), new RenderHost());
         assemble();
     }
 
@@ -190,16 +171,12 @@ public class McpScannerTab extends JPanel {
     }
 
     public void shutdown() {
-        deps.scanLauncher().cancelRunningScans();
+        scanFeature.cancelRunningScans();
         serverConfigPanel.shutdown();
         eventLog.unsubscribe(errorAlert);
-        deps.checkSettings().removeListener(checksSummaryRefresh);
-        deps.scanModeSetting().removeListener(scanModeRefresh);
-        deps.generationSettings().removeFamilyListener(requestFamilyRefresh);
         clientManager.removeDisconnectListener(externalDisconnect);
         loggerPanel.dispose();
-        scanChecksPanel.dispose();
-        scanActivity.dispose();
+        scanFeature.shutdown();
         identities.shutdown();
         stopGrantFieldsFollowingPrimary.run();
         accessPanel.ifPresent(AccessPanel::dispose);
@@ -218,8 +195,9 @@ public class McpScannerTab extends JPanel {
         this.sendToDestinations = List.copyOf(destinations);
     }
 
-    public WriteReplayApproval writeReplayApproval() {
-        return writeReplayApproval(new DestructiveScanGate(configStore, deps.destructiveScanPrompt()));
+    public Optional<WriteReplayApproval> writeReplayApproval() {
+        return deps.scanServices().map(services ->
+                writeReplayApproval(new DestructiveScanGate(configStore, services.destructiveScanPrompt())));
     }
 
     private WriteReplayApproval writeReplayApproval(DestructiveScanGate writeReplays) {
@@ -237,15 +215,25 @@ public class McpScannerTab extends JPanel {
     }
 
     public AccessPanel installAccess(AccessServices access) {
+        ScanSection scans = scanSection.orElseThrow(McpScannerTab::professionalOnly);
+        DestructiveScanPrompt prompt = scanServices().destructiveScanPrompt();
         scans.onWritesConfirmed(access.confirmations()::confirm);
         AccessPanel panel = new AccessPanel(access, new AccessApprovals(
-                writeReplayApproval(DestructiveScanGate.forCheckAccess(configStore, deps.destructiveScanPrompt())),
-                new MiningWriteConfirmation(deps.destructiveScanPrompt()::askLines, this)),
+                writeReplayApproval(DestructiveScanGate.forCheckAccess(configStore, prompt)),
+                new MiningWriteConfirmation(prompt::askLines, this)),
                 this::repeater, eventLog::error);
         scans.gateLaunches(panel.mineFirst());
         panel.setIdentityShortcuts(new IdentitySectionShortcuts());
         accessPanel = Optional.of(installTitled(panel));
         return panel;
+    }
+
+    private ScanServices scanServices() {
+        return deps.scanServices().orElseThrow(McpScannerTab::professionalOnly);
+    }
+
+    private static IllegalStateException professionalOnly() {
+        return new IllegalStateException(ScanUnavailable.NOTE);
     }
 
     public void installScans(ScansServices services) {
@@ -273,11 +261,11 @@ public class McpScannerTab extends JPanel {
         serverConfigPanel.oauthConfig().setEndpointSupplier(() -> header.endpointField().getText().trim());
         configureDrawer();
         header.showConnectionIdentity(identities.connectionIdentityLine());
-        header.showPrimaryPicker(identities.picker());
+        identities.picker().ifPresent(header::showPrimaryPicker);
         header.showCredentialPrompt(credentialPrompt);
         add(header, BorderLayout.NORTH);
         add(drawer, BorderLayout.CENTER);
-        add(scanBar, BorderLayout.SOUTH);
+        add(scanFeature.bar(), BorderLayout.SOUTH);
         wireHeader();
         wireSubscriptions();
         refreshIdentityIndicators();
@@ -287,7 +275,7 @@ public class McpScannerTab extends JPanel {
     private void configureInventory() {
         inventory.bindSendTo(new SendToMenu(() -> sendToDestinations, this::sendToUnavailableReason,
                 deps.logging()::logToError, () -> sendToShortcuts), repeaterRequests());
-        inventory.bindScans(scans.itemScanner(), deps.scanModeSetting()::current);
+        scanFeature.bindInventory();
         inventory.bindCompletion(ValueCompletion.forClient(clientManager, this::isConnected, deps.dialogOwner()));
         inventory.tools().setSelectionPersistence(configStore, this::activeEndpoint);
         inventory.addTo(inventoryTabs);
@@ -300,14 +288,14 @@ public class McpScannerTab extends JPanel {
     }
 
     private void configureDrawer() {
-        drawer.addSection(CHECKS_SECTION, 'K', scanChecksPanel);
+        scanFeature.addChecksSection(drawer);
         drawer.addSection(USERS_SECTION, 'U', identities.section());
         drawer.addSection(CLIENT_SECTION, 'I', ScrollableForm.wrap(ClientTab.of(new ClientIdentityPanel(configStore),
                 oauthClient)));
-        drawer.addSection(REQUESTS_SECTION, 'R', new RequestFamiliesPanel(deps.generationSettings()));
+        scanFeature.addRequestsSection(drawer);
         drawer.addSection(LOG_SECTION, 'L', loggerPanel);
         drawer.addSection(SETTINGS_SECTION, 'T', ScrollableForm.wrap(settingsPanel));
-        drawer.expand(CHECKS_SECTION);
+        scanFeature.openDefaultSection(drawer);
     }
 
     private void seedFromConfig() {
@@ -337,16 +325,10 @@ public class McpScannerTab extends JPanel {
         header.transportCombo().addActionListener(e -> Optional.ofNullable(selectedTransport())
                 .ifPresent(selected -> configStore.setTransport(selected.name())));
         header.connectButton().addActionListener(e -> onPrimary());
-        scanBar.scanButton().addActionListener(e -> scans.scanSelection(inventory.selection()));
-        scanBar.checksSummary().addActionListener(e -> drawer.expand(CHECKS_SECTION));
     }
 
     private void wireSubscriptions() {
         eventLog.subscribe(errorAlert);
-        deps.checkSettings().addListener(checksSummaryRefresh);
-        deps.scanModeSetting().addListener(scanModeRefresh);
-        deps.generationSettings().addFamilyListener(requestFamilyRefresh);
-        scans.onRequestsCounted(renderer::refreshScanButton);
         inventory.onSelectionChange(renderer::refreshScanButton);
         clientManager.addDisconnectListener(externalDisconnect);
         identities.onChange(this::refreshIdentityIndicators);
@@ -376,8 +358,7 @@ public class McpScannerTab extends JPanel {
 
     private void refreshPrimaryHint() {
         boolean idle = !(state instanceof UiConnectionState.Connected || state instanceof UiConnectionState.Connecting);
-        header.showPrimaryHint(idle ? "Connect, discovery and Scan run as the primary user, "
-                + identities.primaryName() + "." : null);
+        header.showPrimaryHint(idle ? identities.primaryHint() : null);
     }
 
     private void refreshCredentialPrompt() {
@@ -393,25 +374,15 @@ public class McpScannerTab extends JPanel {
         credentialNeeds.connectStarted();
         renderer.refreshPrimaryReadiness();
         if (hostChanged) {
-            serverConfigPanel.oauthConfig().clearAutoDiscoveredOAuth();
+            serverConfigPanel.oauthConfig().forgetPreviousServer();
         }
         serverConfigPanel.oauthConfig().onEndpointChanged();
         renderer.refreshScanButton();
     }
 
-    private void refreshChecksSummary() {
-        renderer.refreshChecksSummary();
-    }
-
     private void replanScanButton() {
-        scans.forgetPlannedCounts();
+        scanFeature.view().forgetPlannedCounts();
         renderer.refreshScanButton();
-    }
-
-    private void onScanModeChanged() {
-        scanModeSelector.refresh();
-        renderer.refreshScanButton();
-        renderer.refreshChecksSummary();
     }
 
     private void alertOnError(McpEventLog.LogEntry entry) {
@@ -448,7 +419,7 @@ public class McpScannerTab extends JPanel {
     }
 
     private void reconnectAs(Runnable switchUser) {
-        deps.scanLauncher().cancelRunningScans();
+        scanFeature.cancelRunningScans();
         switchUser.run();
         reconnect();
     }
@@ -480,7 +451,7 @@ public class McpScannerTab extends JPanel {
 
     private void onAuthTerminallyFailed() {
         requireEdt();
-        deps.scanLauncher().cancelRunningScans();
+        scanFeature.cancelRunningScans();
         eventLog.error("OAuth token refresh was rejected; the connection was closed");
         identities.primaryCredentials().sessionRejected();
         dispatch(UiAction.AuthTerminallyFailed.INSTANCE);
@@ -695,7 +666,7 @@ public class McpScannerTab extends JPanel {
         }
     }
 
-    private final class ScanHost implements ScanLaunchPresenter.Host {
+    private final class ScanHost implements ScanSection.Host {
         @Override
         public UiConnectionState state() {
             return state;
@@ -717,14 +688,8 @@ public class McpScannerTab extends JPanel {
         }
 
         @Override
-        public void scanStarting() {
-            renderer.showScanStarting();
-        }
-
-        @Override
-        public void scanSettled() {
+        public void refreshScanButton() {
             renderer.refreshScanButton();
-            scanActivity.refresh();
         }
     }
 
@@ -735,31 +700,11 @@ public class McpScannerTab extends JPanel {
         }
 
         @Override
-        public boolean isConnected() {
-            return McpScannerTab.this.isConnected();
-        }
-
-        @Override
-        public boolean scanInFlight() {
-            return scans.inFlight();
-        }
-
-        @Override
         public Optional<String> connectBlocker() {
             if (disconnects.isDisconnecting()) {
                 return Optional.of(DISCONNECTING);
             }
             return connectAuth.connectBlocker();
-        }
-
-        @Override
-        public Optional<PlannedRequests> plannedRequests(ScanInventory selection) {
-            return scans.plannedRequests(selection);
-        }
-
-        @Override
-        public void forgetPlannedCounts() {
-            scans.forgetPlannedCounts();
         }
     }
 

@@ -37,7 +37,22 @@ final class Outcomes {
         return reply.success() ? AccessOutcome.DIFFERENT_RESULT : AccessOutcome.REFUSED;
     }
 
-    void record(Principal principal, AccessOutcome outcome) {
+    static AccessOutcome synthetic(OperationReply reply, OperationReply owner) {
+        if (owner.substantive() || !reply.answered()) {
+            return compared(reply, owner);
+        }
+        return reply.success() ? AccessOutcome.DIFFERENT_RESULT : AccessOutcome.REFUSED;
+    }
+
+    void recordSynthetic(Principal principal, AccessOutcome outcome) {
+        if (Principal.isAnonymous(principal.id())) {
+            recordAnonymous(outcome);
+        } else {
+            record(principal, outcome);
+        }
+    }
+
+    synchronized void record(Principal principal, AccessOutcome outcome) {
         ledger.record(item, principal.id(), outcome);
         recorded.put(principal.name(), outcome);
     }
@@ -46,12 +61,12 @@ final class Outcomes {
         principals.forEach(principal -> record(principal, outcome));
     }
 
-    void recordAnonymous(AccessOutcome outcome) {
+    synchronized void recordAnonymous(AccessOutcome outcome) {
         ledger.recordAnonymous(item, outcome);
         recorded.put(ANONYMOUS, outcome);
     }
 
-    void recordNotCompared(String reason) {
+    synchronized void recordNotCompared(String reason) {
         ledger.recordNotCompared(item, reason);
         notCompared = Optional.of(reason);
     }
@@ -60,7 +75,7 @@ final class Outcomes {
         ledger.recordFinding(item, principal.id(), finding);
     }
 
-    String summary() {
+    synchronized String summary() {
         String outcomes = recorded.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining(", ", "outcomes ", ""));
         return notCompared.map(reason -> "not compared: " + reason + "; " + outcomes).orElse(outcomes);

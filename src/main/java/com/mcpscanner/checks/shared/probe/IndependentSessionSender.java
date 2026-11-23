@@ -3,6 +3,7 @@ package com.mcpscanner.checks.shared.probe;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.mcpscanner.checks.shared.auth.oracle.BaselineEquivalenceOracle;
+import com.mcpscanner.checks.shared.jsonrpc.JsonRpcMessages;
 import com.mcpscanner.checks.shared.session.McpSessionHandshake;
 import com.mcpscanner.checks.shared.session.SessionHeaders;
 import com.mcpscanner.mcp.McpHeaders;
@@ -13,7 +14,7 @@ import java.util.function.Predicate;
 public final class IndependentSessionSender {
 
     static final String INITIALIZE_ID = "anonymous-probe-initialize";
-    private static final int MISSING_SESSION_STATUS = 400;
+    static final int MISSING_SESSION_STATUS = 400;
 
     private final ProbeChannel channel;
     private final BaselineEquivalenceOracle oracle;
@@ -32,6 +33,12 @@ public final class IndependentSessionSender {
         return send(probe, exchange -> rejectedForMissingSession(exchange)
                 || (oracle.refused(exchange) || ServerErrorAnswer.of(exchange))
                 && SessionHeaders.carriedBy(exchange.request()).isEmpty());
+    }
+
+    static boolean opensFreshSession(HttpRequest request) {
+        return request != null && JsonRpcMessages.parsed(request.bodyToString())
+                .map(message -> INITIALIZE_ID.equals(message.path("id").asText(null)))
+                .orElse(false);
     }
 
     private ProbeExchange send(HttpRequest probe, Predicate<HttpRequestResponse> needsFreshSession) {

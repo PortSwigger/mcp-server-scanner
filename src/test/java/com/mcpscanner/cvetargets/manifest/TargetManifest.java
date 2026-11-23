@@ -27,7 +27,9 @@ public record TargetManifest(
         String notes,
         boolean smoke,
         boolean checkAccess,
-        List<Download> downloads) {
+        List<Download> downloads,
+        SignedInSessionSetup signedInSession,
+        boolean startFirst) {
 
     public static final int CURRENT_SCHEMA_VERSION = 1;
     public static final String DEFAULT_COMPOSE_FILE = "compose.yaml";
@@ -49,6 +51,29 @@ public record TargetManifest(
         footprintMb = footprintMb == null ? DEFAULT_FOOTPRINT_MB : footprintMb;
         maxCatalogItems = maxCatalogItems == null ? DEFAULT_MAX_CATALOG_ITEMS : maxCatalogItems;
         downloads = downloads == null ? List.of() : List.copyOf(downloads);
+        signedInSession = signedInSession == null ? SignedInSessionSetup.none() : signedInSession;
+    }
+
+    public TargetManifest(int schemaVersion, String id, String check, String product, List<String> advisories,
+                          SourceReference source, boolean benign, String compose, AuthSetup auth,
+                          ReadinessSpec readiness, Integer readTimeoutSeconds, Integer armTimeoutSeconds,
+                          Integer footprintMb, Integer maxCatalogItems, List<SeedRequest> seeds,
+                          IdentitySetup identities, List<TargetArm> arms, String notes, boolean smoke,
+                          boolean checkAccess, List<Download> downloads, SignedInSessionSetup signedInSession) {
+        this(schemaVersion, id, check, product, advisories, source, benign, compose, auth, readiness,
+                readTimeoutSeconds, armTimeoutSeconds, footprintMb, maxCatalogItems, seeds, identities, arms, notes,
+                smoke, checkAccess, downloads, signedInSession, false);
+    }
+
+    public TargetManifest(int schemaVersion, String id, String check, String product, List<String> advisories,
+                          SourceReference source, boolean benign, String compose, AuthSetup auth,
+                          ReadinessSpec readiness, Integer readTimeoutSeconds, Integer armTimeoutSeconds,
+                          Integer footprintMb, Integer maxCatalogItems, List<SeedRequest> seeds,
+                          IdentitySetup identities, List<TargetArm> arms, String notes, boolean smoke,
+                          boolean checkAccess, List<Download> downloads) {
+        this(schemaVersion, id, check, product, advisories, source, benign, compose, auth, readiness,
+                readTimeoutSeconds, armTimeoutSeconds, footprintMb, maxCatalogItems, seeds, identities, arms, notes,
+                smoke, checkAccess, downloads, null, false);
     }
 
     public TargetManifest(int schemaVersion, String id, String check, String product, List<String> advisories,

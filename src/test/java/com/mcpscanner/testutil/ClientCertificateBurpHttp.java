@@ -10,6 +10,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 
 import javax.net.ssl.SSLContext;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.security.GeneralSecurityException;
@@ -60,7 +61,7 @@ public final class ClientCertificateBurpHttp extends SendOnlyBurpHttp {
     private HttpResponse responseTo(HttpRequest request, RecordingRequestOptions options) {
         try {
             return toBurpResponse(clientFor(requiredRedirectionMode(options)).send(toJdkRequest(request, options),
-                    java.net.http.HttpResponse.BodyHandlers.ofByteArray()));
+                    java.net.http.HttpResponse.BodyHandlers.ofInputStream()));
         } catch (IOException connectionOrHandshakeFailureOrTimeout) {
             return null;
         } catch (InterruptedException interrupted) {
@@ -116,14 +117,16 @@ public final class ClientCertificateBurpHttp extends SendOnlyBurpHttp {
                 : java.net.http.HttpRequest.BodyPublishers.ofByteArray(body);
     }
 
-    private static HttpResponse toBurpResponse(java.net.http.HttpResponse<byte[]> response) {
-        if (isEventStream(response)) {
-            throw new IllegalStateException(STREAMING_REFUSAL);
+    private static HttpResponse toBurpResponse(java.net.http.HttpResponse<InputStream> response) throws IOException {
+        try (InputStream body = response.body()) {
+            if (isEventStream(response)) {
+                throw new IllegalStateException(STREAMING_REFUSAL);
+            }
+            return rawResponse(response.statusCode(), response.headers().map(), body.readAllBytes());
         }
-        return rawResponse(response.statusCode(), response.headers().map(), response.body());
     }
 
-    private static boolean isEventStream(java.net.http.HttpResponse<byte[]> response) {
+    private static boolean isEventStream(java.net.http.HttpResponse<?> response) {
         return response.headers().firstValue("Content-Type")
                 .filter(type -> type.toLowerCase(java.util.Locale.ROOT).startsWith("text/event-stream"))
                 .isPresent();

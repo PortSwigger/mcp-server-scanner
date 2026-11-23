@@ -36,6 +36,11 @@ class MiningSummaryTest {
     }
 
     @Test
+    void theLiveServerWarningNamesTheNoCredentialCaller() {
+        assertThat(MiningSummary.LIVE_SERVER_WARNING).contains("No credential").doesNotContain("Anonymous");
+    }
+
+    @Test
     void theLiveServerWarningAppearsOnlyWhenAToolMayWrite() {
         assertThat(texts(MiningSummary.of(new ToolsToCall(List.of("list"), List.of()))))
                 .doesNotContain(MiningSummary.LIVE_SERVER_WARNING);

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
 public final class MachineSlots {
@@ -27,6 +28,7 @@ public final class MachineSlots {
     private final Pause pause;
     private final Duration reminderInterval;
     private final Consumer<String> log;
+    private final ReentrantLock arrivalOrder = new ReentrantLock(true);
 
     public MachineSlots(Path directory, int count, Pause pause, Duration reminderInterval, Consumer<String> log) {
         if (count < 1) {
@@ -48,6 +50,15 @@ public final class MachineSlots {
     }
 
     public ArmSlot acquire(String armLabel, int wanted) {
+        arrivalOrder.lock();
+        try {
+            return acquireInTurn(armLabel, wanted);
+        } finally {
+            arrivalOrder.unlock();
+        }
+    }
+
+    private ArmSlot acquireInTurn(String armLabel, int wanted) {
         Instant nextReminder = Instant.MIN;
         while (true) {
             Optional<ArmSlot> slot = tryAcquire(wanted);

@@ -6,6 +6,7 @@ import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.shared.session.SessionHeaders;
 
 import java.util.Optional;
+import java.util.concurrent.Executor;
 
 public record ProbeKit(OperationSeed seed, Principal owner, PrincipalRequests requests, PrincipalSessions sessions,
                        ProbeTransport transport, ProbeTriplet triplet, AbsentValues absent, DecisionLog log,
@@ -19,7 +20,13 @@ public record ProbeKit(OperationSeed seed, Principal owner, PrincipalRequests re
 
     public ProbeKit forPrincipal(Principal principal) {
         DecisionLog principalLog = log.about(principal.name());
-        return of(seed, owner, requests, transport.withFreshBudget(principalLog), absent, principalLog, opened);
+        ProbeTransport principalTransport = transport.withFreshBudget(principalLog);
+        return new ProbeKit(seed, owner, requests, new PrincipalSessions(seed, principalTransport, opened),
+                principalTransport, triplet.over(principalTransport, principalLog), absent, principalLog, opened);
+    }
+
+    public ProbeKit armsOn(Executor arms) {
+        return new ProbeKit(seed, owner, requests, sessions, transport, triplet.armsOn(arms), absent, log, opened);
     }
 
     public OperationReply reply(HttpRequest request) {

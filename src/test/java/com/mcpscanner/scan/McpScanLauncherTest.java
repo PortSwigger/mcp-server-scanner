@@ -25,6 +25,7 @@ import com.mcpscanner.mcp.BurpNativeJsonRpcFields;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.scan.field.AddedArgumentRegistry;
 import com.mcpscanner.scan.field.McpFieldGenerator;
+import com.mcpscanner.scan.field.MetaEnvelopeRegistry;
 import com.mcpscanner.scan.field.TemplateExpansionRegistry;
 import com.mcpscanner.scan.request.ClientRegistrationRequestFactory;
 import com.mcpscanner.scan.request.GeneratedScan;
@@ -691,6 +692,61 @@ class McpScanLauncherTest {
 
         holder.completion().complete(holder.snapshot().progress());
         assertThat(addedArguments.isProbe(probeBody)).isFalse();
+    }
+
+    @Test
+    void aScanOfManyToolCallsOffersTheMetaEnvelopeOnExactlyOneRequestUntilItEnds() {
+        EngineScan engineScan = new EngineScan(1, LABEL, Clock.systemUTC(), () -> { }, () -> 0);
+        engineReturns(engineScan);
+        MetaEnvelopeRegistry envelopes = new MetaEnvelopeRegistry();
+        McpScanLauncher launcher = launcherCarryingEnvelopesIn(envelopes, () -> false);
+
+        launcher.launchScan(ScanMode.MCP_ONLY, ENDPOINT, toolCallsWithMeta(3), NO_HEADERS);
+
+        assertThat(metaFieldCounts(envelopes)).containsExactly(1, 0, 0);
+        engineScan.completion().complete(engineScan.snapshot().progress());
+        assertThat(metaFieldCounts(envelopes)).containsExactly(1, 1, 1);
+    }
+
+    @Test
+    void withMetaOnEveryRequestEveryToolCallOffersItsMetaEnvelope() {
+        engineReturns(new EngineScan(1, LABEL, Clock.systemUTC(), () -> { }, () -> 0));
+        MetaEnvelopeRegistry envelopes = new MetaEnvelopeRegistry();
+        McpScanLauncher launcher = launcherCarryingEnvelopesIn(envelopes, () -> true);
+
+        launcher.launchScan(ScanMode.MCP_ONLY, ENDPOINT, toolCallsWithMeta(3), NO_HEADERS);
+
+        assertThat(metaFieldCounts(envelopes)).containsExactly(1, 1, 1);
+    }
+
+    private List<Integer> metaFieldCounts(MetaEnvelopeRegistry envelopes) {
+        McpFieldGenerator fields = new McpFieldGenerator(() -> false, templateExpansions,
+                BurpNativeJsonRpcFields.ABSENT, new AddedArgumentRegistry(), envelopes);
+        return engineBases().stream().map(base -> (int) fields.fieldsOf(base.request()).stream()
+                .filter(point -> point.name().startsWith("MCP field: params._meta.")).count()).toList();
+    }
+
+    private static GeneratedScan toolCallsWithMeta(int count) {
+        List<com.mcpscanner.scan.request.ScanMessage> calls = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            com.fasterxml.jackson.databind.node.ObjectNode params = MAPPER.createObjectNode().put("name", "t" + i);
+            params.putObject("_meta").put("progressToken", "p" + i);
+            calls.add(McpMessage.call(RequestFamily.TOOLS_CALL, "tools/call", params));
+        }
+        return new GeneratedScan(calls, List.of());
+    }
+
+    private McpScanLauncher launcherCarryingEnvelopesIn(MetaEnvelopeRegistry envelopes,
+                                                        java.util.function.BooleanSupplier everyRequest) {
+        return new McpScanLauncher(logging,
+                new ScanRequestRenderer((endpoint, message, sessionHeaders) -> RawHttpRequestStub.fromRaw(
+                        new McpHttpRequestFactory(new AtomicLong()::incrementAndGet, PlainFraming.framer())
+                                .raw(endpoint, message, sessionHeaders)), new ClientRegistrationRequestFactory()),
+                () -> ScanConnection.unbound(baseline -> Map.of()), templateExpansions, new AddedArgumentRegistry(),
+                new MetaEnvelopeCarriers(envelopes, everyRequest, eventLog),
+                ScanDestinations.of(scanner, burpSuite, eventLog,
+                        new EngineScans(engine, new ScanLabels(FixedConnectionFacts.NONE, new McpRequestNames())), () -> { }),
+                new RunningScans(eventLog, burpSuite), PreComparisonDiscovery.NONE);
     }
 
     @Test

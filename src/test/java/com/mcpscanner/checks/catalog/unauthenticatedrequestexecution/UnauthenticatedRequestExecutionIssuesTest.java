@@ -77,4 +77,20 @@ class UnauthenticatedRequestExecutionIssuesTest {
                         "server errors and proxy errors do not count")
                 .doesNotContain("decides who may call it from an address the client supplies");
     }
+
+    @Test
+    void forwardedClientBackgroundSaysTheRepeatedRefusalIsSentButNotAttached() {
+        assertThat(FindingKind.FORWARDED_CLIENT_ADDRESS_TRUSTED.background())
+                .contains("then refused 203.0.113.7 once more",
+                        "that repeat is not attached: the evidence holds the baseline request, the first refusal "
+                                + "and the admitted request");
+    }
+
+    @Test
+    void invalidCredentialBackgroundSaysTheSecondFabricatedValueIsTriedButNotAttached() {
+        assertThat(FindingKind.INVALID_CREDENTIAL_ACCEPTED.background())
+                .contains("again with a second, different fabricated value",
+                        "The evidence holds the baseline request, the refusal without a credential and the result "
+                                + "for the first fabricated value; the second value's request is not attached.");
+    }
 }

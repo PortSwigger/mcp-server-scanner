@@ -20,7 +20,7 @@ final class AccessRowFactory {
         this.outcomes = outcomes;
     }
 
-    AccessRow row(ListedItem listed, List<Principal> principals) {
+    AccessRow row(ListedItem listed, List<Principal> principals, List<Principal> synthetic) {
         AccessItemKey key = listed.item().key();
         Optional<AccessExpectation> stored = expectations.stored(key);
         CredentialCopies copies = new CredentialCopies(listed.owner(), principals);
@@ -28,8 +28,9 @@ final class AccessRowFactory {
         Map<String, AccessCell> cells = new LinkedHashMap<>();
         principals.forEach(principal -> cells.put(principal.id(),
                 cell(listed, principal, expectation, copies.originalOf(principal))));
-        return new AccessRow(listed.item(), listed.owner(), expectation, stored.isEmpty(), cells,
-                anonymousCell(key, expectation));
+        Map<String, AccessCell> syntheticCells = new LinkedHashMap<>();
+        synthetic.forEach(principal -> syntheticCells.put(principal.id(), syntheticCell(listed, principal, expectation)));
+        return new AccessRow(listed.item(), listed.owner(), expectation, stored.isEmpty(), cells, syntheticCells);
     }
 
     private AccessCell cell(ListedItem listed, Principal principal, AccessExpectation expectation,
@@ -45,9 +46,10 @@ final class AccessRowFactory {
                 .withNotComparedReason(outcomes.notCompared(key));
     }
 
-    private AccessCell anonymousCell(AccessItemKey key, AccessExpectation expectation) {
-        var outcome = outcomes.anonymous(key);
-        return AccessCell.of(ListingState.NO_LISTING, outcome, AnomalyRule.anonymousBreaks(expectation, outcome))
+    private AccessCell syntheticCell(ListedItem listed, Principal principal, AccessExpectation expectation) {
+        AccessItemKey key = listed.item().key();
+        var outcome = outcomes.outcome(key, principal.id());
+        return AccessCell.of(listed.listing(principal), outcome, AnomalyRule.anonymousBreaks(expectation, outcome))
                 .withNotComparedReason(outcomes.notCompared(key));
     }
 }

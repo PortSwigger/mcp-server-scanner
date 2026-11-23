@@ -48,6 +48,17 @@ class ReplySignatureTest {
                 .contains("retry 1 of :1 at §host:§port");
     }
 
+    @Test
+    void aChunkFramedNonJsonReplyHasTheSameSignatureAsTheUnframedReply() {
+        ProbeUrl probe = ProbeUrl.loopback("127.0.0.1", 1);
+        String chunked = ReplySignature.of(HttpResponse.httpResponse("HTTP/1.1 502 Bad Gateway\r\n"
+                + "Transfer-Encoding: chunked\r\n\r\n7\r\nblocked\r\n0\r\n\r\n"), probe);
+        String plain = ReplySignature.of(HttpResponse.httpResponse("HTTP/1.1 502 Bad Gateway\r\n"
+                + "Content-Length: 7\r\n\r\nblocked"), probe);
+
+        assertThat(chunked).isEqualTo(plain);
+    }
+
     private static String signature(int id, String text, String host, int port) {
         return ReplySignature.of(HttpResponse.httpResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
                 + "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\""

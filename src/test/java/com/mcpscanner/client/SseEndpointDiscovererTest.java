@@ -1,6 +1,11 @@
 package com.mcpscanner.client;
 
+import burp.api.montoya.http.HttpService;
+import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.logging.Logging;
+import com.mcpscanner.testutil.MontoyaTestFactory;
+import com.mcpscanner.http.evidence.WireRecord;
+import com.mcpscanner.mcp.RawSseFrame;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.config.RedirectMode;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,6 +70,31 @@ class SseEndpointDiscovererTest {
 
         assertThat(result.messageUrl().toString()).isEqualTo("http://127.0.0.1:9000/custom/message");
         assertThat(result.sseStream()).isNotNull();
+    }
+
+    @Test
+    void carriesTheGetThatOpenedTheStreamAndTheStreamsRealStatusAndHeaders() throws Exception {
+        MontoyaTestFactory.install();
+        String frame = "id: 1\r\nevent: message\r\ndata: {}\r\n\r\n";
+        try (McpFixtureServer server = new McpFixtureServer(McpFixtureProfile.sseOnly("2024-11-05"))) {
+            SseEndpointDiscoverer.DiscoveryResult result = new SseEndpointDiscoverer(McpHttpClients.upstream(),
+                    McpEventLog.noop()).discover(URI.create(server.endpoint()),
+                    Map.of("Authorization", "Bearer bob"), DISCOVERY_TIMEOUT);
+
+            try (InputStream ignored = result.sseStream()) {
+                HttpRequestResponse evidence = result.opening().evidenceOf(
+                        WireRecord.unanswered(HttpService.httpService("127.0.0.1", 1, false),
+                                "POST /messages HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".getBytes(StandardCharsets.UTF_8)),
+                        new RawSseFrame("", frame.getBytes(StandardCharsets.UTF_8))).get(1);
+                assertThat(evidence.request().method()).isEqualTo("GET");
+                assertThat(evidence.request().url()).isEqualTo(server.endpoint());
+                assertThat(evidence.request().headerValue("Authorization")).isEqualTo("Bearer bob");
+                assertThat(text(evidence.request().toByteArray())).contains("Host: 127.0.0.1:", "User-Agent: Java-http-client/");
+                assertThat(evidence.response().statusCode()).isEqualTo((short) 200);
+                assertThat(evidence.response().headerValue("Content-Type")).isEqualTo("text/event-stream");
+                assertThat(evidence.response().bodyToString()).isEqualTo(frame);
+            }
+        }
     }
 
     @Test
@@ -362,5 +392,9 @@ class SseEndpointDiscovererTest {
         int bytesRead() {
             return bytesRead;
         }
+    }
+
+    private static String text(burp.api.montoya.core.ByteArray bytes) {
+        return new String(bytes.getBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
     }
 }

@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GenericEvaluatorProbeTest {
 
     private static final ArithmeticCanary CANARY = new ArithmeticCanary(200_000_000L, 300_000_000L);
+    private static final String BASE = SimulatedToolServer.BASE_VALUE;
     private static final ArithmeticCanary FRESH = new ArithmeticCanary(400_000_000L, 500_000_000L);
 
     @BeforeEach
@@ -27,7 +28,6 @@ class GenericEvaluatorProbeTest {
         assertThat(result.finding()).hasValueSatisfying(finding -> {
             assertThat(finding.kind()).isEqualTo(FindingKind.INTERPRETER_COMPUTED_RESULT);
             assertThat(finding.technique()).isEqualTo("Python single-quoted string breakout");
-            assertThat(finding.evidence()).hasSize(5);
         });
     }
 
@@ -54,7 +54,6 @@ class GenericEvaluatorProbeTest {
         assertThat(result.finding()).hasValueSatisfying(finding -> {
             assertThat(finding.kind()).isEqualTo(FindingKind.EVALUATED_ARGUMENT);
             assertThat(finding.technique()).isEqualTo("Python expression");
-            assertThat(finding.evidence()).hasSize(4);
         });
     }
 
@@ -97,6 +96,38 @@ class GenericEvaluatorProbeTest {
     void aReplWhoseArgumentIsNotNamedCodeIsStillOnlyACodeExecutionArgument() {
         assertThat(probe(server("python_repl", "command", ToolBehaviours.pythonEvaluator())).finding())
                 .map(Finding::kind).hasValue(FindingKind.EVALUATED_ARGUMENT);
+    }
+
+    @Test
+    void codeInjectionAttachesTheBaselineTheBreakoutAndTheBareDecoderThatWasNotEvaluated() {
+        SimulatedToolServer server = server("greet", "name", ToolBehaviours.pythonSingleQuotedStringEvaluator());
+
+        Finding finding = probe(server).finding().orElseThrow();
+
+        assertThat(server.valuesSentIn(finding.evidence())).containsExactly(BASE,
+                InterpreterBreakout.PYTHON_SINGLE_QUOTE.payload(BASE, CANARY.result()),
+                InterpreterBreakout.PYTHON_SINGLE_QUOTE.bareDecoder(CANARY.result()));
+    }
+
+    @Test
+    void anEvaluatedBareDecoderAttachesOnlyTheBaselineAndTheBareDecoder() {
+        SimulatedToolServer server = server("ask_llm", "prompt", ToolBehaviours.modelDecodingAnyPythonCharacterCodes());
+
+        Finding finding = probe(server).finding().orElseThrow();
+
+        assertThat(server.valuesSentIn(finding.evidence()))
+                .containsExactly(BASE, InterpreterBreakout.PYTHON_SINGLE_QUOTE.bareDecoder(CANARY.result()));
+    }
+
+    @Test
+    void anEvaluatorFamilyFindingAttachesTheBaselineTheEvaluatedPayloadAndItsLiteralControl() {
+        SimulatedToolServer server = server("evaluate", "expression", ToolBehaviours.pythonEvaluator());
+        String payload = EvaluatorFamily.PYTHON_EXPRESSION.payload(CANARY.result());
+
+        Finding finding = probe(server).finding().orElseThrow();
+
+        assertThat(server.valuesSentIn(finding.evidence()))
+                .containsExactly(BASE, payload, EvaluatorFamily.PYTHON_EXPRESSION.literalControl(payload));
     }
 
     private static SimulatedToolServer server(String tool, String argument, Function<String, ToolReply> behaviour) {

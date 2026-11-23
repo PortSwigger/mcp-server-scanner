@@ -4,6 +4,7 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.mcpscanner.checks.shared.auth.AuthVariant;
 import com.mcpscanner.checks.shared.auth.VariantFamily;
+import com.mcpscanner.checks.shared.jsonrpc.ReplyBody;
 import com.mcpscanner.checks.shared.probe.ProbeExchange;
 
 import java.util.List;
@@ -21,7 +22,7 @@ final class SettledRejection {
             return false;
         }
         return refusedControls.stream().map(SettledRejection::answerOf).filter(Objects::nonNull)
-                .anyMatch(control -> sameAnswer(response, control))
+                .anyMatch(control -> ReplyBody.sameAnswer(response, control))
                 || variant.family() == VariantFamily.PATH && isAbsentRoute(response);
     }
 
@@ -30,14 +31,8 @@ final class SettledRejection {
         return probe.conclusive() && exchange != null ? exchange.response() : null;
     }
 
-    private static boolean sameAnswer(HttpResponse candidate, HttpResponse control) {
-        return candidate.statusCode() == control.statusCode()
-                && Objects.equals(candidate.bodyToString(), control.bodyToString());
-    }
-
     private static boolean isAbsentRoute(HttpResponse response) {
-        String body = response.bodyToString();
         return ABSENT_ROUTE_STATUSES.contains((int) response.statusCode())
-                && (body == null || !body.contains(JSONRPC_MEMBER));
+                && !ReplyBody.text(response).contains(JSONRPC_MEMBER);
     }
 }

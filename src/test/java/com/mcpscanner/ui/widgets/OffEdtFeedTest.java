@@ -114,7 +114,7 @@ class OffEdtFeedTest {
     @Test
     void aValueReadBeforeCancelIsNotApplied() {
         List<Runnable> edt = new ArrayList<>();
-        OffEdtFeed<Integer> deferred = new UiReads(scheduler, edt::add, line -> { })
+        OffEdtFeed<Integer> deferred = new UiReads(scheduler, edt::add, (message, failure) -> { })
                 .feed(INTERVAL, reads::incrementAndGet, applied::add);
         deferred.request();
         scheduler.runNext();
@@ -159,7 +159,7 @@ class OffEdtFeedTest {
         failing.request();
         scheduler.runNext();
 
-        assertThat(scheduler.debug).singleElement().asString().contains("IllegalStateException");
+        assertThat(scheduler.failures).singleElement().isInstanceOf(IllegalStateException.class);
         assertThat(applied).containsExactly(2);
     }
 
@@ -170,6 +170,6 @@ class OffEdtFeedTest {
         });
         scheduler.runNext();
 
-        assertThat(scheduler.debug).singleElement().asString().contains("IllegalArgumentException");
+        assertThat(scheduler.failures).singleElement().isInstanceOf(IllegalArgumentException.class);
     }
 }

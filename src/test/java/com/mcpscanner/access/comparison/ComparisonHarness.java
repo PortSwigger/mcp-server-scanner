@@ -7,6 +7,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import com.mcpscanner.auth.BearerTokenAuthStrategy;
 import com.mcpscanner.access.AccessComparisonRun;
+import com.mcpscanner.access.SyntheticCall;
 import com.mcpscanner.mcp.ScannerSentinels;
 import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.checks.api.PrincipalRole;
@@ -28,6 +29,8 @@ final class ComparisonHarness {
     private RecordingLedger ledger = new RecordingLedger();
     private Principal auditOwner;
     private ObjectReferences references = ObjectReferences.ALL;
+    private List<Principal> synthetic = List.of(Principal.anonymous());
+    private final List<SyntheticCall> syntheticCalls = new ArrayList<>();
 
     static ComparisonHarness withPeerB() {
         return new ComparisonHarness().with(peer("B"));
@@ -71,6 +74,15 @@ final class ComparisonHarness {
         return this;
     }
 
+    ComparisonHarness synthetic(Principal... principals) {
+        synthetic = List.of(principals);
+        return this;
+    }
+
+    List<SyntheticCall> syntheticCalls() {
+        return List.copyOf(syntheticCalls);
+    }
+
     ComparisonHarness ledger(RecordingLedger value) {
         ledger = value;
         return this;
@@ -81,7 +93,7 @@ final class ComparisonHarness {
         FakeMcpTarget target = new FakeMcpTarget(server);
         CrossIdentityComparison comparison = new CrossIdentityComparison(eventLog,
                 () -> new BearerTokenAuthStrategy("A"), () -> PrincipalRoster.of(owner, compared),
-                CrossIdentityPorts.of(ledger, ledger, references));
+                CrossIdentityPorts.of(ledger, ledger, references), () -> synthetic, syntheticCalls::add);
         HttpRequest routed = auditOwner == null ? seed
                 : seed.withHeader(ScannerSentinels.IDENTITY_HEADER, auditOwner.id());
         var base = target.exchange(routed);

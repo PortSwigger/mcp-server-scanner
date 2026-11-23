@@ -100,7 +100,7 @@ class OAuthMetadataDiscoveryTrailTest {
     }
 
     private DiscoveredMetadata discover() throws DiscoveryFailedException {
-        return OAuthMetadataDiscoverer.defaultInstance(http, null, ALLOW_ALL).discover(URI.create(ORIGIN + "/mcp"));
+        return OAuthMetadataDiscoverer.defaultInstance(http, null, ALLOW_ALL, () -> true).discover(URI.create(ORIGIN + "/mcp"));
     }
 
     private String prmDocument() {

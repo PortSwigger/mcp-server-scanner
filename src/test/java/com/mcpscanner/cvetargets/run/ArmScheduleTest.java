@@ -8,6 +8,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,5 +59,90 @@ class ArmScheduleTest {
             Thread.currentThread().interrupt();
         }
         return name;
+    }
+
+    @Test
+    void anArmWaitingOutsideItsSlotLetsTheNextQueuedArmRun() {
+        CountDownLatch nextArmRan = new CountDownLatch(1);
+        try (ArmSchedule schedule = new ArmSchedule(1)) {
+            CompletableFuture<Boolean> waiting = schedule.submit(() -> {
+                ArmSchedule.waitOutsideItsSlot(() -> awaitQuietly(nextArmRan));
+                return true;
+            });
+            CompletableFuture<Boolean> next = schedule.submit(() -> {
+                nextArmRan.countDown();
+                return true;
+            });
+
+            await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(20))
+                    .until(() -> waiting.isDone() && next.isDone());
+            assertThat(waiting).isCompletedWithValue(true);
+        }
+    }
+
+    @Test
+    void anArmWhoseWaitEndedTakesTheNextFreeSlotBeforeQueuedArmsAndNeverExceedsTheParallelism() {
+        List<String> order = new CopyOnWriteArrayList<>();
+        CountDownLatch waitEnds = new CountDownLatch(1);
+        CountDownLatch runningArmMayFinish = new CountDownLatch(1);
+        AtomicInteger inSlot = new AtomicInteger();
+        AtomicInteger mostInSlot = new AtomicInteger();
+        try (ArmSchedule schedule = new ArmSchedule(1)) {
+            CompletableFuture<Boolean> waiting = schedule.submit(() -> {
+                ArmSchedule.waitOutsideItsSlot(() -> awaitQuietly(waitEnds));
+                return counted(inSlot, mostInSlot, () -> order.add("resumed"));
+            });
+            CompletableFuture<Boolean> running = schedule.submit(() -> counted(inSlot, mostInSlot, () -> {
+                waitEnds.countDown();
+                awaitQuietly(runningArmMayFinish);
+                return order.add("ran");
+            }));
+            CompletableFuture<Boolean> queued = schedule.submit(() -> counted(inSlot, mostInSlot,
+                    () -> order.add("queued")));
+            await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(20))
+                    .until(schedule::hasAnArmResuming);
+
+            runningArmMayFinish.countDown();
+
+            await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(20))
+                    .until(() -> waiting.isDone() && running.isDone() && queued.isDone());
+        }
+
+        assertThat(order).containsExactly("ran", "resumed", "queued");
+        assertThat(mostInSlot).hasValue(1);
+    }
+
+    @Test
+    void refusesArmsOnceClosed() {
+        ArmSchedule schedule = new ArmSchedule(1);
+        schedule.close();
+
+        assertThatThrownBy(() -> schedule.submit(() -> true)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void waitingOutsideASlotOffTheScheduleJustWaits() {
+        AtomicInteger waited = new AtomicInteger();
+
+        ArmSchedule.waitOutsideItsSlot(waited::incrementAndGet);
+
+        assertThat(waited).hasValue(1);
+    }
+
+    private static <T> T counted(AtomicInteger inSlot, AtomicInteger mostInSlot, Supplier<T> work) {
+        mostInSlot.accumulateAndGet(inSlot.incrementAndGet(), Math::max);
+        try {
+            return work.get();
+        } finally {
+            inSlot.decrementAndGet();
+        }
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

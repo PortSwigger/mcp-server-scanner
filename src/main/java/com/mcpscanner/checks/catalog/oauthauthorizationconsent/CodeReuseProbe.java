@@ -20,19 +20,19 @@ final class CodeReuseProbe {
         this.access = access;
     }
 
-    Optional<ConsentFinding> probe(ProbeClient client, IssuedCode redeemedCode, String firstToken) {
-        return sequentialReuse(redeemedCode, firstToken).or(() -> concurrentReuse(client));
+    Optional<ConsentFinding> probe(ProbeClient client, IssuedCode redeemedCode, Redemption first) {
+        return sequentialReuse(redeemedCode, first).or(() -> concurrentReuse(client));
     }
 
-    private Optional<ConsentFinding> sequentialReuse(IssuedCode redeemedCode, String firstToken) {
+    private Optional<ConsentFinding> sequentialReuse(IssuedCode redeemedCode, Redemption first) {
         Redemption replay = redeemer.redeem(redeemedCode);
-        String returned = replay.accessToken().filter(firstToken::equals).isPresent()
+        String returned = replay.accessToken().equals(first.accessToken())
                 ? "the same access token again" : "a new access token";
         return working(replay).map(judgement -> finding(
                 "A sequential second redemption of the already redeemed code returned " + returned
                         + ", and that token answered tools/list (" + judgement.anonymousStatus()
                         + " without a token, " + judgement.tokenStatus() + " with it).",
-                List.of(replay), judgement));
+                List.of(first, replay), judgement));
     }
 
     private Optional<ConsentFinding> concurrentReuse(ProbeClient client) {
@@ -72,6 +72,6 @@ final class CodeReuseProbe {
         List<HttpRequestResponse> evidence = new ArrayList<>();
         redemptions.forEach(redemption -> redemption.exchange().ifPresent(evidence::add));
         evidence.addAll(judgement.evidence());
-        return new ConsentFinding(FindingKind.CODE_REUSE, redeemer.tokenEndpoint(), List.of(fact), evidence);
+        return new FindingDraft(redeemer.tokenEndpoint()).fact(fact).evidence(evidence).as(FindingKind.CODE_REUSE);
     }
 }

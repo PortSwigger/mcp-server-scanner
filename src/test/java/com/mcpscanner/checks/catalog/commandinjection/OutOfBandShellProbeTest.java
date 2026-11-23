@@ -42,10 +42,33 @@ class OutOfBandShellProbeTest {
         assertThat(collaborator.generatedHosts()).doesNotHaveDuplicates().hasSize(ShellBreakout.values().length);
         assertThat(confirmed).singleElement().satisfies(found -> {
             assertThat(found.kind()).isEqualTo(FindingKind.SHELL_OUT_OF_BAND);
-            assertThat(found.technique()).isEqualTo("Collaborator DNS interaction");
-            assertThat(found.evidence()).hasSize(ShellBreakout.values().length);
+            assertThat(found.technique()).isEqualTo("Collaborator DNS interaction from the $(...) command "
+                    + "substitution breakout, whose request is attached; the backtick, semicolon, newline, "
+                    + "double-quote and single-quote breakouts also caused interactions");
+            assertThat(server.valuesSentIn(found.evidence())).singleElement().asString()
+                    .startsWith(SimulatedToolServer.BASE_VALUE + "$(nslookup payload0");
         });
         assertThat(watch.watchedCount()).isZero();
+    }
+
+    @Test
+    void namesNoOtherBreakoutWhenOnlyOneCausedAnInteraction() {
+        java.util.function.Function<String, SimulatedToolServer.ToolReply> shell =
+                ToolBehaviours.blindShell(collaborator::resolve);
+        SimulatedToolServer server = new SimulatedToolServer("archive", "label",
+                value -> value.startsWith(SimulatedToolServer.BASE_VALUE + "; ") ? shell.apply(value)
+                        : SimulatedToolServer.ToolReply.ok("done"));
+        CollaboratorWatch watch = TestWatches.immediate(collaborator::available);
+
+        probe(server, watch);
+        watch.awaitSettled();
+
+        assertThat(confirmed).singleElement().satisfies(found -> {
+            assertThat(found.technique()).isEqualTo(
+                    "Collaborator DNS interaction from the semicolon breakout, whose request is attached");
+            assertThat(server.valuesSentIn(found.evidence())).singleElement().asString()
+                    .startsWith(SimulatedToolServer.BASE_VALUE + "; nslookup payload2");
+        });
     }
 
     @Test

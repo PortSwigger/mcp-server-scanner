@@ -93,23 +93,19 @@ final class SiblingRouteAudit {
                 continue;
             }
             return confirmedStillRefused(baseline)
-                    .map(refusedAgain -> new Finding(route, baseline,
-                            evidence(baseline, refused, candidate, control, refusedAgain)));
+                    .map(refusedAgain -> new Finding(route, baseline, evidence(baseline, refused, candidate, control)));
         }
         return Optional.empty();
     }
 
     private Optional<ProbeExchange> confirmedStillRefused(HttpRequestResponse baseline) {
-        return stops.notRunIfExhausted() ? Optional.empty() : mainRouteRefusal(baseline);
+        return stops.notRunIfConfirmationBarred() ? Optional.empty() : mainRouteRefusal(baseline);
     }
 
     private static List<HttpRequestResponse> evidence(HttpRequestResponse baseline, ProbeExchange refused,
-                                                      ProbeExchange candidate, Optional<ProbeExchange> control,
-                                                      ProbeExchange refusedAgain) {
-        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(baseline, refused.last()));
-        evidence.addAll(candidate.exchanges());
-        control.ifPresent(exchange -> evidence.add(exchange.last()));
-        evidence.add(refusedAgain.last());
+                                                      ProbeExchange candidate, Optional<ProbeExchange> control) {
+        List<HttpRequestResponse> evidence = new ArrayList<>(List.of(baseline, refused.answer(), candidate.answer()));
+        control.ifPresent(exchange -> evidence.add(exchange.answer()));
         return evidence;
     }
 }

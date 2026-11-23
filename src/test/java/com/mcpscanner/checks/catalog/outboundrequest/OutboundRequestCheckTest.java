@@ -16,6 +16,8 @@ import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -95,8 +97,29 @@ class OutboundRequestCheckTest {
         assertThat(issues).singleElement().satisfies(issue -> {
             assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.LOW);
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
-            assertThat(issue.detail()).contains("DNS").contains("validator");
-            assertThat(issue.requestResponses()).hasSize(ProbeForm.values().length);
+            assertThat(issue.detail()).contains("DNS").contains("validator")
+                    .contains("absolute URL", "bare host", "long flag --server", "attached short flag -s")
+                    .contains("The attached request is the absolute URL probe.");
+            assertThat(issue.requestResponses()).singleElement()
+                    .satisfies(exchange -> assertThat(exchange.request().bodyToString())
+                            .contains("\"url\":\"http://p"));
+        });
+    }
+
+    @Test
+    void attachesOnlyTheProbeWithTheStrongestInteractionAndListsEveryTriggeringForm() {
+        target.fetchingWhen(bodyContains(FakeCollaborator.DOMAIN))
+                .fetchingOverHttpOnlyWhen(bodyContains("\"url\":\"--url="));
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
+            assertThat(issue.detail()).contains("absolute URL", "bare host", "long flag --server",
+                    "long flag --url", "The attached request is the long flag --url probe.");
+            assertThat(issue.requestResponses()).singleElement()
+                    .satisfies(exchange -> assertThat(exchange.request().bodyToString())
+                            .contains("\"url\":\"--url=http://"));
         });
     }
 
@@ -123,7 +146,7 @@ class OutboundRequestCheckTest {
 
         assertThat(copies.keptCount()).isEqualTo(1 + ProbeForm.values().length);
         assertThat(issues).singleElement().satisfies(issue -> {
-            assertThat(issue.requestResponses()).hasSize(ProbeForm.values().length).allMatch(TaggingCopies::wasKept);
+            assertThat(issue.requestResponses()).hasSize(1).allMatch(TaggingCopies::wasKept);
             assertThat(issue.baseUrl()).isEqualTo(toolCall.url());
         });
     }
@@ -163,6 +186,53 @@ class OutboundRequestCheckTest {
         assertThat(issues).singleElement().satisfies(issue -> {
             assertThat(issue.name()).isEqualTo("MCP server outbound request");
             assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.HIGH);
+        });
+    }
+
+    @Test
+    void keepsAFetchToolByDesignWhenItsOnlyAuthorizationIsTheProbesOwnUserInfo() {
+        target.fetchingWhen(bodyContains(FakeCollaborator.DOMAIN)).authenticatingWithUrlUserInfo();
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.FETCH_TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.name()).isEqualTo("MCP server outbound request by design");
+            assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.INFORMATION);
+            assertThat(issue.detail()).doesNotContain("credential headers");
+        });
+    }
+
+    @Test
+    void ratesARequestFieldMediumWhenItsOnlyAuthorizationIsTheProbesOwnUserInfo() {
+        target.fetchingWhen(bodyContains(FakeCollaborator.DOMAIN)).authenticatingWithUrlUserInfo();
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement().satisfies(issue ->
+                assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.MEDIUM));
+    }
+
+    @Test
+    void ratesTheBaseHostsBasicCredentialHighOnAProbeWithoutUserInfo() {
+        target.fetchingWhen(bodyContains("\"url\":\"http://")).forwarding(Map.of("Authorization",
+                "Basic " + Base64.getEncoder().encodeToString("docs.example.test:".getBytes(StandardCharsets.UTF_8))));
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.FETCH_TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement().satisfies(issue ->
+                assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.HIGH));
+    }
+
+    @Test
+    void ratesAServerCredentialForwardedAlongsideTheProbesUserInfoHigh() {
+        target.fetchingWhen(bodyContains("@")).authenticatingWithUrlUserInfo()
+                .forwarding(Map.of("Private-Token", "glpat-server"));
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.FETCH_TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement().satisfies(issue -> {
+            assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.HIGH);
+            assertThat(issue.detail()).contains("Private-Token").doesNotContain("Private-Token, Authorization");
         });
     }
 
@@ -208,6 +278,25 @@ class OutboundRequestCheckTest {
 
         assertThat(issues).singleElement().satisfies(issue -> assertThat(issue.detail())
                 .contains("original host with the payload host appended"));
+    }
+
+    @Test
+    void reportsAHitWhoseReplySaysTheRateLimitQuotaIsSpent() {
+        target.fetchingWhen(bodyContains("\"url\":\"http://")).spendingQuota();
+
+        List<AuditIssue> issues = audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
+
+        assertThat(issues).singleElement()
+                .satisfies(issue -> assertThat(issue.name()).isEqualTo("MCP server outbound request"));
+    }
+
+    @Test
+    void stopsProbingAFieldOnceAReplySaysTheRateLimitQuotaIsSpent() {
+        target.spendingQuota();
+
+        audit(mcpRequest(OutboundFixtures.TOOL_CALL), URL_FIELD);
+
+        assertThat(target.received()).hasSize(1);
     }
 
     @Test

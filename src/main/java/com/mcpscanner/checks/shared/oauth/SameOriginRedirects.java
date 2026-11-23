@@ -16,27 +16,35 @@ public final class SameOriginRedirects {
     private final OAuthHttp http;
     private final int maxRedirects;
     private final boolean carryCookies;
+    private final List<SessionCookie> initialCookies;
 
-    private SameOriginRedirects(OAuthHttp http, int maxRedirects, boolean carryCookies) {
+    private SameOriginRedirects(OAuthHttp http, int maxRedirects, boolean carryCookies,
+                                List<SessionCookie> initialCookies) {
         this.http = http;
         this.maxRedirects = maxRedirects;
         this.carryCookies = carryCookies;
+        this.initialCookies = List.copyOf(initialCookies);
     }
 
     public static SameOriginRedirects withoutCookies(OAuthHttp http, int maxRedirects) {
-        return new SameOriginRedirects(http, maxRedirects, false);
+        return new SameOriginRedirects(http, maxRedirects, false, List.of());
     }
 
     public static SameOriginRedirects carryingCookies(OAuthHttp http, int maxRedirects) {
-        return new SameOriginRedirects(http, maxRedirects, true);
+        return carryingCookies(http, maxRedirects, List.of());
+    }
+
+    public static SameOriginRedirects carryingCookies(OAuthHttp http, int maxRedirects,
+                                                      List<SessionCookie> initialCookies) {
+        return new SameOriginRedirects(http, maxRedirects, true, initialCookies);
     }
 
     public Optional<RedirectTrail> follow(URI start, Predicate<URI> stopAt) {
         List<HttpRequestResponse> exchanges = new ArrayList<>();
-        CookieJar cookies = new CookieJar();
+        CookieJar cookies = new CookieJar(initialCookies);
         URI current = start;
         while (true) {
-            Optional<HttpRequestResponse> exchange = http.get(current, BROWSER_ACCEPT, cookieHeader(cookies));
+            Optional<HttpRequestResponse> exchange = http.get(current, BROWSER_ACCEPT, cookieHeader(cookies, current));
             if (exchange.isEmpty()) {
                 return Optional.empty();
             }
@@ -56,8 +64,8 @@ public final class SameOriginRedirects {
         }
     }
 
-    private Map<String, String> cookieHeader(CookieJar cookies) {
-        return carryCookies ? cookies.header() : Map.of();
+    private Map<String, String> cookieHeader(CookieJar cookies, URI target) {
+        return carryCookies ? cookies.header(target) : Map.of();
     }
 
     private static Optional<URI> redirectTarget(URI from, HttpRequestResponse exchange) {

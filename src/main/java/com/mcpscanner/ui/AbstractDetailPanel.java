@@ -35,9 +35,13 @@ abstract class AbstractDetailPanel<T> extends JPanel implements InventoryDetailP
     private T shownItem;
 
     protected AbstractDetailPanel(DetailSubject<T> subject) {
+        this(subject, InventoryTicks.SCAN_SELECTION);
+    }
+
+    protected AbstractDetailPanel(DetailSubject<T> subject, InventoryTicks ticks) {
         super();
         this.subject = subject;
-        this.header = new DetailHeader<>(subject.noun());
+        this.header = new DetailHeader<>(subject.noun(), ticks);
         this.rawView = new RawJsonView(subject.rawHint());
         setLayout(cards);
         add(placeholderCard(subject.noun()), CARD_EMPTY);

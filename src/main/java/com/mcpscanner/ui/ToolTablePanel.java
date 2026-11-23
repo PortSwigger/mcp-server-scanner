@@ -8,6 +8,7 @@ import com.mcpscanner.ui.widgets.ThemeColors;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JTable;
 import javax.swing.SwingConstants;
@@ -29,19 +30,27 @@ public class ToolTablePanel extends AbstractInventoryTablePanel<McpToolDefinitio
     private static final int NAME_COLUMN_WIDTH = 200;
     private static final int DESCRIPTION_COLUMN_WIDTH = 600;
 
+    private final InventoryTicks ticks;
     private ToolSelectionPreferences preferences = ToolSelectionPreferences.none();
     private boolean suppressPersistence;
 
     public ToolTablePanel() {
-        this(new JButton("Select read-only"));
+        this(InventoryTicks.SCAN_SELECTION);
     }
 
-    private ToolTablePanel(JButton selectReadOnlyButton) {
-        super(List.of(selectReadOnlyButton));
+    ToolTablePanel(InventoryTicks ticks) {
+        this(ticks, ticks.shown() ? List.of(new JButton("Select read-only")) : List.of());
+    }
+
+    private ToolTablePanel(InventoryTicks ticks, List<JButton> selectReadOnlyButton) {
+        super(ticks, List.<JComponent>copyOf(selectReadOnlyButton));
+        this.ticks = ticks;
         configureColumns();
-        installToolbarActions(selectReadOnlyButton);
-        getTableModel().addTableModelListener(this::onTableModelChange);
-        view().disableSorting(SELECT_COLUMN_INDEX);
+        selectReadOnlyButton.forEach(this::installToolbarActions);
+        if (ticks.shown()) {
+            getTableModel().addTableModelListener(this::onTableModelChange);
+            view().disableSorting(SELECT_COLUMN_INDEX);
+        }
     }
 
     @Override
@@ -50,8 +59,8 @@ public class ToolTablePanel extends AbstractInventoryTablePanel<McpToolDefinitio
     }
 
     @Override
-    protected ToolDetailPanel createDetailPanel() {
-        return new ToolDetailPanel();
+    protected ToolDetailPanel createDetailPanel(InventoryTicks ticks) {
+        return new ToolDetailPanel(ticks);
     }
 
     @Override
@@ -84,14 +93,22 @@ public class ToolTablePanel extends AbstractInventoryTablePanel<McpToolDefinitio
     }
 
     public void setSelectionPersistence(ExtensionConfigStore configStore, Supplier<String> endpointSupplier) {
-        this.preferences = new ToolSelectionPreferences(configStore, endpointSupplier);
+        if (ticks.shown()) {
+            this.preferences = new ToolSelectionPreferences(configStore, endpointSupplier);
+        }
     }
 
-    private void configureColumns() {
+    private void configureSelectColumn() {
         TableColumn selectColumn = column(SELECT_COLUMN_INDEX);
         selectColumn.setMaxWidth(SELECT_COLUMN_WIDTH);
         selectColumn.setMinWidth(SELECT_COLUMN_WIDTH);
         selectColumn.setCellRenderer(new SelectCellRenderer());
+    }
+
+    private void configureColumns() {
+        if (ticks.shown()) {
+            configureSelectColumn();
+        }
         column(ToolTableModel.COLUMN_NAME + 1).setPreferredWidth(NAME_COLUMN_WIDTH);
         column(ToolTableModel.COLUMN_DESCRIPTION + 1).setPreferredWidth(DESCRIPTION_COLUMN_WIDTH);
         TableColumn annotationsColumn = column(ToolTableModel.COLUMN_ANNOTATIONS + 1);
@@ -102,7 +119,7 @@ public class ToolTablePanel extends AbstractInventoryTablePanel<McpToolDefinitio
     }
 
     private TableColumn column(int modelIndex) {
-        return table().getColumnModel().getColumn(modelIndex);
+        return table().getColumnModel().getColumn(table().convertColumnIndexToView(modelIndex));
     }
 
     private void installToolbarActions(JButton selectReadOnlyButton) {

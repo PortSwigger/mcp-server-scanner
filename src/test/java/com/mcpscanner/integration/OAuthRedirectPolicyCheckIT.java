@@ -26,10 +26,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 @EnabledIfEnvironmentVariable(named = "MCP_E2E_IT", matches = "1")
 class OAuthRedirectPolicyCheckIT {
 
-    private static final String CODE_DELIVERY = "OAuth authorization code sent to unregistered redirect URI";
-    private static final String ERROR_DELIVERY = "OAuth error response sent to unregistered redirect URI";
-    private static final String SCRIPT_SCHEME_REGISTRATION = "OAuth dynamic client registration accepts script-scheme redirect URI";
-    private static final String WILDCARD_EXPANSION = "OAuth authorization endpoint expands wildcard redirect URI";
+    private static final String CODE_DELIVERY = "MCP OAuth authorization code sent to unregistered redirect URI";
+    private static final String ERROR_DELIVERY = "MCP OAuth error response sent to unregistered redirect URI";
+    private static final String SCRIPT_SCHEME_REGISTRATION = "MCP OAuth dynamic client registration accepts script-scheme redirect URI";
+    private static final String WILDCARD_EXPANSION = "MCP OAuth authorization endpoint expands wildcard redirect URI";
+    private static final String ANY_HOST_REGISTRATION =
+            "MCP OAuth dynamic client registration accepts redirect URI on any host";
 
     @BeforeEach
     void installMontoya() {
@@ -55,13 +57,15 @@ class OAuthRedirectPolicyCheckIT {
         List<AuditIssue> issues = scan("--consent", "auto", "--default-mode", "safe",
                 "--vuln", vulnerability + "=vulnerable");
 
-        assertThat(issues).extracting(AuditIssue::name).containsExactlyInAnyOrderElementsOf(expectedIssues);
+        assertThat(issues).extracting(AuditIssue::name).containsExactlyInAnyOrderElementsOf(
+                Stream.concat(expectedIssues.stream(), Stream.of(ANY_HOST_REGISTRATION)).toList());
         assertThat(issues.get(0).detail()).contains(expectedDetail);
     }
 
     @Test
-    void staysSilentWhenEveryRedirectModuleIsSafe() throws Exception {
-        assertThat(scan("--consent", "auto", "--default-mode", "safe")).isEmpty();
+    void reportsOnlyTheOpenRegistrationPolicyWhenEveryRedirectModuleIsSafe() throws Exception {
+        assertThat(scan("--consent", "auto", "--default-mode", "safe")).extracting(AuditIssue::name)
+                .containsExactly(ANY_HOST_REGISTRATION);
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.mcpscanner.access.AccessSnapshot;
 import com.mcpscanner.access.CheckAccessRunner;
 import com.mcpscanner.access.WriteReplayApproval;
 import com.mcpscanner.checks.api.Principal;
+import com.mcpscanner.checks.api.crossidentity.SyntheticLabel;
 import com.mcpscanner.ui.widgets.Edt;
 import com.mcpscanner.ui.widgets.PrimaryActionButton;
 import com.mcpscanner.ui.widgets.ThemeColors;
@@ -95,7 +96,7 @@ final class CheckAccessControl {
         scope.setText(primaryPrincipal(snapshot).filter(principal -> !compared.isEmpty())
                 .map(principal -> CheckAccessScope.describe(rows.size(), principal, compared)).orElse(""));
         scope.setVisible(!scope.getText().isEmpty());
-        noComparisonHint.setVisible(blocker.filter(CheckAccessReadiness.NO_COMPARISON::equals).isPresent());
+        noComparisonHint.setVisible(CheckAccessReadiness.suggestsComparing(snapshot));
     }
 
     private static Optional<Principal> primaryPrincipal(AccessSnapshot snapshot) {
@@ -107,7 +108,8 @@ final class CheckAccessControl {
         button.setText(LABEL);
         button.setPrimary(true);
         button.setEnabled(blocker.isEmpty());
-        button.setToolTipText(blocker.orElse("Replay each item as every identity and Anonymous and compare"));
+        button.setToolTipText(blocker.orElse("Replay each item as every compared user, " + SyntheticLabel.ALWAYS_COMPARED
+                + ", and compare"));
     }
 
     private void showProgress(int done, int total) {

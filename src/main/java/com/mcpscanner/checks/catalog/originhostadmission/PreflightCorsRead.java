@@ -10,7 +10,6 @@ import com.mcpscanner.checks.shared.auth.CredentialHeaders;
 import com.mcpscanner.checks.shared.session.OutsideBurpExchanges;
 import com.mcpscanner.checks.shared.session.StreamingFallback;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,7 +18,8 @@ final class PreflightCorsRead {
     private static final String SCOPE = "The scanner sent the CORS preflight a browser sends before this JSON "
             + "request, then replayed the captured read-only MCP request with only the Origin header changed. "
             + "The server approved the preflight, returned the same successful result as a fresh baseline and a "
-            + "final control, and allowed the foreign origin to read that reply. The scanner did not drive a "
+            + "final control, and allowed the foreign origin to read that reply. The preflight and the "
+            + "foreign-origin reply are attached. The scanner did not drive a "
             + "browser or establish that the operation is sensitive.";
 
     private final CheckLog log;
@@ -96,14 +96,7 @@ final class PreflightCorsRead {
 
     private static List<CorsEvidence> evidence(CorsEvidence preflight, TrialOutcome outcome,
                                                ProbeObservation admitted) {
-        List<CorsEvidence> evidence = new ArrayList<>();
-        evidence.add(preflight);
-        evidence.add(new CorsEvidence("the baseline request", outcome.baseline(),
-                outcome.wentOutsideBurp(outcome.baseline())));
-        evidence.add(new CorsEvidence("the " + admitted.probe().label() + " request", admitted.exchange(),
-                outcome.wentOutsideBurp(admitted.exchange())));
-        outcome.control().ifPresent(control -> evidence.add(
-                new CorsEvidence("the control request", control, outcome.wentOutsideBurp(control))));
-        return evidence;
+        return List.of(preflight, new CorsEvidence("the " + admitted.probe().label() + " request",
+                admitted.exchange(), outcome.wentOutsideBurp(admitted.exchange())));
     }
 }

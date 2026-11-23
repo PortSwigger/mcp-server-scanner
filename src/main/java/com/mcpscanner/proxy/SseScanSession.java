@@ -7,9 +7,9 @@ import com.mcpscanner.config.RedirectMode;
 import com.mcpscanner.logging.LogRedaction;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.InFlightServerPings;
+import com.mcpscanner.mcp.SseFrameReader;
 import com.mcpscanner.core.protocol.McpRequests;
 
-import java.io.BufferedReader;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,7 +17,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -54,6 +53,7 @@ class SseScanSession implements Closeable {
     private Thread connectingThread;
     private Object handshakeAttempt;
     private String messageEndpoint;
+    private volatile HttpResponse<InputStream> stream;
     private volatile boolean connected;
 
     SseScanSession(String sseUrl, Map<String, String> authHeaders, SseSessionContext context) {
@@ -124,7 +124,7 @@ class SseScanSession implements Closeable {
     private ProxyResponse exchange(String id, String jsonBody, Map<String, String> requestHeaders)
             throws IOException, InterruptedException {
         boolean malformed = JsonRpcEnvelopes.isMalformedRequest(jsonBody);
-        CompletableFuture<String> reply = replies.expect(id);
+        CompletableFuture<StreamedReply> reply = replies.expect(id);
         try {
             MessagePostResult posted = postToMessageEndpoint(jsonBody,
                     SseRequestHeaders.forOperation(authHeaders, requestHeaders));
@@ -132,9 +132,9 @@ class SseScanSession implements Closeable {
                 captures.record(posted.exchange());
                 return posted.toProxyResponse();
             }
-            String json = awaitReply(reply, malformed);
-            captures.record(posted.exchange().withResponseBody(asMessageEvent(json)));
-            return new ProxyResponse(200, "application/json", json, posted.headers());
+            StreamedReply answer = awaitReply(reply, malformed);
+            captures.record(posted.exchange().answeredOnStream(stream, answer.event()));
+            return new ProxyResponse(200, "application/json", answer.json(), posted.headers());
         } catch (TimeoutException te) {
             eventLog.warn("SSE waiter timed out for id=" + id);
             if (malformed) {
@@ -149,18 +149,14 @@ class SseScanSession implements Closeable {
         }
     }
 
-    private String awaitReply(CompletableFuture<String> reply, boolean malformed)
+    private StreamedReply awaitReply(CompletableFuture<StreamedReply> reply, boolean malformed)
             throws InterruptedException, ExecutionException, TimeoutException {
         if (!malformed) {
             return replies.await(reply, responseTimeout);
         }
-        String json = replies.await(reply, malformedRequestWaits.timeout(responseTimeout));
+        StreamedReply answer = replies.await(reply, malformedRequestWaits.timeout(responseTimeout));
         malformedRequestWaits.answered();
-        return json;
-    }
-
-    private static byte[] asMessageEvent(String json) {
-        return ("event: message\ndata: " + json + "\n\n").getBytes(StandardCharsets.UTF_8);
+        return answer;
     }
 
     private static String streamFailureMessage(ExecutionException failure) {
@@ -241,11 +237,12 @@ class SseScanSession implements Closeable {
     private ProxyResponse connect() throws IOException, InterruptedException {
         sessionRedirectMode = redirectInterceptor.mode();
         HttpResponse<InputStream> response = openStream();
-        BufferedReader endpointReader = streamReader.adopt(response.body());
+        SseFrameReader endpointFrames = streamReader.adopt(response.body());
         if (UpstreamRefusal.isRefusal(response.statusCode())) {
             return SseStreamOpening.refusal(response);
         }
-        messageEndpoint = SseStreamOpening.messageEndpoint(endpointReader, response.uri() != null ? response.uri() : URI.create(sseUrl));
+        stream = response;
+        messageEndpoint = SseStreamOpening.messageEndpoint(endpointFrames, response.uri() != null ? response.uri() : URI.create(sseUrl));
         legacySseRoutes.observe(messageEndpoint);
         requireCurrentRedirectMode();
         streamReader.start();

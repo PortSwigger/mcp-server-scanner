@@ -3,6 +3,7 @@ package com.mcpscanner.cvetargets.outofband;
 import burp.api.montoya.collaborator.CollaboratorPayload;
 import burp.api.montoya.collaborator.Interaction;
 import burp.api.montoya.collaborator.InteractionType;
+import burp.api.montoya.http.HttpProtocol;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -73,6 +74,19 @@ class RecorderCollaboratorClientTest {
         assertThat(interactions.get(1).httpDetails().orElseThrow().requestResponse().request().headerValue("Authorization"))
                 .isEqualTo("Bearer t");
         assertThat(interactions.get(1).httpDetails().orElseThrow().requestResponse().request().method()).isEqualTo("GET");
+    }
+
+    @Test
+    void reportsTheProtocolTheRecorderAnsweredOn() {
+        String raw = Base64.getEncoder().encodeToString("GET / HTTP/1.1\r\nHost: abc.oob.cvet.test\r\n\r\n"
+                .getBytes(StandardCharsets.ISO_8859_1));
+        served.set("[{\"type\":\"HTTP\",\"protocol\":\"HTTPS\",\"id\":\"abc\",\"seq\":1,\"time\":1,"
+                + "\"clientIp\":\"10.0.0.1\",\"clientPort\":1,\"request\":\"" + raw + "\"},"
+                + "{\"type\":\"HTTP\",\"id\":\"abc\",\"seq\":2,\"time\":1,\"clientIp\":\"10.0.0.1\","
+                + "\"clientPort\":1,\"request\":\"" + raw + "\"}]");
+
+        assertThat(client.getAllInteractions()).extracting(interaction -> interaction.httpDetails().orElseThrow().protocol())
+                .containsExactly(HttpProtocol.HTTPS, HttpProtocol.HTTP);
     }
 
     @Test

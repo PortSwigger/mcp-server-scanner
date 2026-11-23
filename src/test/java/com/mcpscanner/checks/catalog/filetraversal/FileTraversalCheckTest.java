@@ -309,6 +309,29 @@ class FileTraversalCheckTest {
         assertThat(skipLines()).singleElement().asString().endsWith(" (rate limited: the server answered HTTP 429)");
     }
 
+    @Test
+    void confirmsAndReportsAHitWhoseReplySaysTheRateLimitQuotaIsSpent() {
+        List<AuditIssue> issues = audit(new SimulatedFileTool(Policy.UNRESTRICTED).spendingTheQuotaOnceAFileLeaks(),
+                "readme.txt");
+
+        assertThat(issueNamed(issues, FindingKind.HOST_FILE_READ).detail()).contains(MISSING);
+    }
+
+    @Test
+    void stillProvesAFilterBypassWhenTheQuotaIsSpentByTheLeak() {
+        assertThat(audit(new SimulatedFileTool(Policy.DECODE_AFTER_CHECK).spendingTheQuotaOnceAFileLeaks(),
+                "readme.txt")).extracting(AuditIssue::name).contains(FindingKind.FILTER_BYPASS.issueName());
+    }
+
+    @Test
+    void stopsProbingAFieldOnceAReplySaysTheRateLimitQuotaIsSpent() {
+        SimulatedFileTool tool = new SimulatedFileTool(Policy.CONTAINED).spendingTheQuotaFromTheFirstReply();
+
+        assertThat(audit(tool, "readme.txt")).isEmpty();
+
+        assertThat(tool.sent()).hasSize(1);
+    }
+
     @ParameterizedTest
     @EnumSource(Policy.class)
     void boundsTheRequestsSentPerInsertionPoint(Policy policy) {

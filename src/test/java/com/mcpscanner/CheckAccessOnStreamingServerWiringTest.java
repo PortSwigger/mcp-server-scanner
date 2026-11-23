@@ -107,7 +107,7 @@ class CheckAccessOnStreamingServerWiringTest {
     }
 
     private boolean listed(String principalId) {
-        return extension.identities().listings().outcome(principalId).filter(DiscoveryOutcome.Listed.class::isInstance)
+        return extension.identityDiscovery().listings().outcome(principalId).filter(DiscoveryOutcome.Listed.class::isInstance)
                 .isPresent();
     }
 

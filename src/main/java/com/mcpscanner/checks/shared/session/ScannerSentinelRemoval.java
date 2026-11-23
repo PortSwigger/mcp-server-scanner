@@ -1,10 +1,11 @@
 package com.mcpscanner.checks.shared.session;
 
-import burp.api.montoya.http.message.HttpHeader;
+import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import com.mcpscanner.mcp.HeaderMutation;
 import com.mcpscanner.mcp.ScannerSentinels;
 
-import java.util.List;
+import java.util.Map;
 
 final class ScannerSentinelRemoval {
 
@@ -12,8 +13,12 @@ final class ScannerSentinelRemoval {
     }
 
     static HttpRequest from(HttpRequest probe) {
-        List<HttpHeader> sentinels = probe.headers().stream()
-                .filter(header -> ScannerSentinels.ALL.contains(header.name())).toList();
-        return sentinels.isEmpty() ? probe : probe.withRemovedHeaders(sentinels);
+        return HeaderMutation.apply(probe, ScannerSentinels.ALL, Map.of());
+    }
+
+    static HttpRequestResponse from(HttpRequestResponse exchange) {
+        HttpRequest received = from(exchange.request());
+        return received == exchange.request() ? exchange
+                : HttpRequestResponse.httpRequestResponse(received, exchange.response(), exchange.annotations());
     }
 }

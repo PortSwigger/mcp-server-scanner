@@ -3,7 +3,10 @@ package com.mcpscanner.proxy;
 import com.mcpscanner.http.ExchangeLease;
 import com.mcpscanner.http.ExchangeRetention;
 import com.mcpscanner.logging.McpEventLog;
+import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import com.mcpscanner.http.evidence.WireRecord;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.mcpscanner.mcp.ScannerSentinels;
@@ -11,7 +14,6 @@ import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
@@ -41,7 +43,7 @@ class UpstreamExchangeStoreTest {
         UpstreamExchangeStore store = new UpstreamExchangeStore();
         String id = store.put(exchange("{\"jsonrpc\":\"2.0\",\"id\":101}", "{\"result\":{}}"));
 
-        HttpRequestResponse upstream = store.upstreamOf(proxiedCarrying(id)).orElseThrow();
+        HttpRequestResponse upstream = store.upstreamOf(proxiedCarrying(id)).get(0);
 
         assertThat(upstream.request().url()).isEqualTo("https://upstream.test/mcp");
         assertThat(upstream.request().method()).isEqualTo("POST");
@@ -53,16 +55,15 @@ class UpstreamExchangeStoreTest {
     }
 
     @Test
-    void evidenceResponseDropsFramingHeadersAndStatesItsOwnLength() {
+    void evidenceIsTheRecordedWireExchangeByteForByte() {
         UpstreamExchangeStore store = new UpstreamExchangeStore();
-        RecordedExchange chunked = new RecordedExchange(URI.create("https://upstream.test/mcp"), "POST", Map.of(),
-                "{}", 200, Map.of("Transfer-Encoding", List.of("chunked"), "Content-Length", List.of("999")),
-                "abc".getBytes(StandardCharsets.UTF_8));
+        String chunkedReply = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n";
+        RecordedExchange chunked = new RecordedExchange("{}", wire(request("{}"), chunkedReply));
 
-        HttpResponse response = store.upstreamOf(proxiedCarrying(store.put(chunked))).orElseThrow().response();
+        HttpRequestResponse upstream = store.upstreamOf(proxiedCarrying(store.put(chunked))).get(0);
 
-        assertThat(response.headerValue("Transfer-Encoding")).isNull();
-        assertThat(response.headerValue("Content-Length")).isEqualTo("3");
+        assertThat(text(upstream.request().toByteArray().getBytes())).isEqualTo(request("{}"));
+        assertThat(text(upstream.response().toByteArray().getBytes())).isEqualTo(chunkedReply);
     }
 
     @Test
@@ -83,18 +84,18 @@ class UpstreamExchangeStoreTest {
         String newest = store.put(exchange("{}", "{}"));
 
         assertThat(store.upstreamOf(proxiedCarrying(oldest))).isEmpty();
-        assertThat(store.upstreamOf(proxiedCarrying(middle))).isPresent();
-        assertThat(store.upstreamOf(proxiedCarrying(newest))).isPresent();
+        assertThat(store.upstreamOf(proxiedCarrying(middle))).isNotEmpty();
+        assertThat(store.upstreamOf(proxiedCarrying(newest))).isNotEmpty();
     }
 
     @Test
     void oldestExchangesAreEvictedOnceTheBodyByteBoundIsExceeded() {
-        UpstreamExchangeStore store = new UpstreamExchangeStore(100, 10);
+        UpstreamExchangeStore store = new UpstreamExchangeStore(100, exchange("123", "456").bodyBytes() * 2 - 1);
         String oldest = store.put(exchange("123", "456"));
         String newest = store.put(exchange("123", "456"));
 
         assertThat(store.upstreamOf(proxiedCarrying(oldest))).isEmpty();
-        assertThat(store.upstreamOf(proxiedCarrying(newest))).isPresent();
+        assertThat(store.upstreamOf(proxiedCarrying(newest))).isNotEmpty();
     }
 
     @Test
@@ -106,10 +107,69 @@ class UpstreamExchangeStoreTest {
 
         IntStream.range(0, 10).forEach(i -> store.put(exchange("{}", "{}")));
 
-        assertThat(store.upstreamOf(proxiedCarrying(base))).isPresent();
+        assertThat(store.upstreamOf(proxiedCarrying(base))).isNotEmpty();
         lease.close();
         store.put(exchange("{}", "{}"));
         assertThat(store.upstreamOf(proxiedCarrying(base))).isEmpty();
+    }
+
+    @Test
+    void aBaseKeptForItsScanSurvivesEvictionPastTheBoundWithoutAnyLease() {
+        UpstreamExchangeStore store = new UpstreamExchangeStore(2, Long.MAX_VALUE);
+        String base = store.put(exchange("{}", "{}"));
+        store.keepBase(base);
+
+        IntStream.range(0, 10).forEach(i -> store.put(exchange("{}", "{}")));
+
+        assertThat(store.upstreamOf(proxiedCarrying(base))).isNotEmpty();
+    }
+
+    @Test
+    void aKeptBaseWhoseEvidenceWasLookedUpOutlivesAnOlderUntouchedOnePastThePinBound() {
+        UpstreamExchangeStore store = new UpstreamExchangeStore(PinnedBases.MAX_BASES + 1, Long.MAX_VALUE);
+        String lookedUp = keptBase(store);
+        String untouched = keptBase(store);
+        IntStream.range(2, PinnedBases.MAX_BASES).forEach(i -> keptBase(store));
+
+        store.upstreamOf(proxiedCarrying(lookedUp));
+        keptBase(store);
+        store.put(exchange("{}", "{}"));
+
+        assertThat(store.upstreamOf(proxiedCarrying(lookedUp))).isNotEmpty();
+        assertThat(store.upstreamOf(proxiedCarrying(untouched))).isEmpty();
+    }
+
+    private static String keptBase(UpstreamExchangeStore store) {
+        String base = store.put(exchange("{}", "{}"));
+        store.keepBase(base);
+        return base;
+    }
+
+    @Test
+    void keepingTheSameBaseAgainDoesNotOutliveALeaseThatAlsoHeldIt() {
+        UpstreamExchangeStore store = new UpstreamExchangeStore(2, Long.MAX_VALUE);
+        String base = store.put(exchange("{}", "{}"));
+        store.keepBase(base);
+        store.keepBase(base);
+        ExchangeLease lease = store.retaining();
+        lease.hold(proxiedCarrying(base));
+        lease.close();
+
+        IntStream.range(0, 10).forEach(i -> store.put(exchange("{}", "{}")));
+
+        assertThat(store.upstreamOf(proxiedCarrying(base))).isNotEmpty();
+    }
+
+    @Test
+    void keepingAnEvictedOrUnknownBaseKeepsNothingAndDoesNotFail() {
+        UpstreamExchangeStore store = new UpstreamExchangeStore(1, Long.MAX_VALUE);
+        String evicted = store.put(exchange("{}", "{}"));
+        store.put(exchange("{}", "{}"));
+
+        store.keepBase(evicted);
+        store.keepBase("never-issued");
+
+        assertThat(store.upstreamOf(proxiedCarrying(evicted))).isEmpty();
     }
 
     @Test
@@ -122,7 +182,7 @@ class UpstreamExchangeStoreTest {
         lease.close();
 
         IntStream.range(0, 10).forEach(i -> store.put(exchange("{}", "{}")));
-        assertThat(store.upstreamOf(proxiedCarrying(held))).isPresent();
+        assertThat(store.upstreamOf(proxiedCarrying(held))).isNotEmpty();
 
         retention.release();
         store.put(exchange("{}", "{}"));
@@ -168,7 +228,8 @@ class UpstreamExchangeStoreTest {
 
     @Test
     void retainedExchangesAreBoundedInBytesSoManyRegistrationsCannotPinTheWholeScan() {
-        UpstreamExchangeStore store = new UpstreamExchangeStore(20, Long.MAX_VALUE, 100);
+        long budget = exchange("{}", "x".repeat(8)).bodyBytes() * 10;
+        UpstreamExchangeStore store = new UpstreamExchangeStore(20, Long.MAX_VALUE, budget);
         String lastRetained = null;
         for (int registration = 0; registration < 50; registration++) {
             ExchangeLease lease = store.retaining();
@@ -181,8 +242,8 @@ class UpstreamExchangeStoreTest {
             lease.close();
         }
 
-        assertThat(store.retainedBytes()).isLessThanOrEqualTo(100);
-        assertThat(store.upstreamOf(proxiedCarrying(lastRetained))).isPresent();
+        assertThat(store.retainedBytes()).isLessThanOrEqualTo(budget);
+        assertThat(store.upstreamOf(proxiedCarrying(lastRetained))).isNotEmpty();
         assertThat(store.size()).isLessThanOrEqualTo(20);
     }
 
@@ -200,7 +261,7 @@ class UpstreamExchangeStoreTest {
         retention.release();
         store.put(exchange("{}", "{}"));
 
-        assertThat(store.upstreamOf(proxiedCarrying(id))).isPresent();
+        assertThat(store.upstreamOf(proxiedCarrying(id))).isNotEmpty();
     }
 
     @Test
@@ -223,7 +284,7 @@ class UpstreamExchangeStoreTest {
         store.put(exchange("{}", "{}"));
 
         first.close();
-        assertThat(store.upstreamOf(proxiedCarrying(id))).isPresent();
+        assertThat(store.upstreamOf(proxiedCarrying(id))).isNotEmpty();
         second.close();
         store.put(exchange("{}", "{}"));
         assertThat(store.upstreamOf(proxiedCarrying(id))).isEmpty();
@@ -253,7 +314,7 @@ class UpstreamExchangeStoreTest {
 
         assertThat(ids).hasSize(400);
         assertThat(ids.keySet()).allMatch(id -> id.matches("[0-9a-f]{32}"));
-        assertThat(ids.keySet()).allMatch(id -> store.upstreamOf(proxiedCarrying(id)).isPresent());
+        assertThat(ids.keySet()).noneMatch(id -> store.upstreamOf(proxiedCarrying(id)).isEmpty());
     }
 
     @Test
@@ -310,7 +371,57 @@ class UpstreamExchangeStoreTest {
         store.put(exchange("{}", "{}"));
 
         assertThat(store.retainedExchanges()).isEqualTo(2);
-        assertThat(store.upstreamOf(proxiedCarrying(other))).isPresent();
+        assertThat(store.upstreamOf(proxiedCarrying(other))).isNotEmpty();
+    }
+
+    @Test
+    void itemsKeptResolvedAreReturnedOnceTheLiveExchangeIsEvicted() {
+        UpstreamExchangeStore store = new UpstreamExchangeStore(1, Long.MAX_VALUE);
+        String id = store.put(exchange("{\"id\":1}", "{}"));
+        List<HttpRequestResponse> resolved = store.upstreamOf(proxiedCarrying(id));
+        store.keepResolved(proxiedCarrying(id), resolved);
+
+        store.put(exchange("{\"id\":2}", "{}"));
+
+        assertThat(store.upstreamOf(proxiedCarrying(id))).containsExactlyElementsOf(resolved);
+    }
+
+    @Test
+    void theLiveExchangeIsConsultedBeforeItemsKeptResolved() {
+        UpstreamExchangeStore store = new UpstreamExchangeStore();
+        String id = store.put(exchange("{\"id\":1}", "{\"live\":true}"));
+        store.keepResolved(proxiedCarrying(id), List.of(proxiedCarrying(id)));
+
+        assertThat(store.upstreamOf(proxiedCarrying(id))).singleElement()
+                .satisfies(item -> assertThat(item.response().bodyToString()).isEqualTo("{\"live\":true}"));
+    }
+
+    @Test
+    void itemsKeptResolvedAreBoundedLeastRecentlyUsedFirst() {
+        UpstreamExchangeStore store = new UpstreamExchangeStore();
+        HttpRequestResponse item = proxiedCarrying("item");
+        store.keepResolved(proxiedCarrying("oldest"), List.of(item));
+        store.keepResolved(proxiedCarrying("used"), List.of(item));
+        java.util.stream.IntStream.range(0, UpstreamExchangeStore.MAX_KEPT_RESOLVED - 2)
+                .forEach(index -> store.keepResolved(proxiedCarrying("filler-" + index), List.of(item)));
+
+        assertThat(store.upstreamOf(proxiedCarrying("used"))).isNotEmpty();
+        store.keepResolved(proxiedCarrying("newest"), List.of(item));
+        store.keepResolved(proxiedCarrying("newer"), List.of(item));
+
+        assertThat(store.upstreamOf(proxiedCarrying("oldest"))).isEmpty();
+        assertThat(store.upstreamOf(proxiedCarrying("used"))).isNotEmpty();
+        assertThat(store.upstreamOf(proxiedCarrying("newest"))).isNotEmpty();
+    }
+
+    @Test
+    void anUntaggedExchangeKeepsNothingResolved() {
+        UpstreamExchangeStore store = new UpstreamExchangeStore();
+        HttpRequestResponse untagged = proxied(HttpResponse.httpResponse("HTTP/1.1 200\r\n\r\n{}"));
+
+        store.keepResolved(untagged, List.of(untagged));
+
+        assertThat(store.upstreamOf(untagged)).isEmpty();
     }
 
     private static void retain(UpstreamExchangeStore store, String... ids) {
@@ -331,9 +442,24 @@ class UpstreamExchangeStoreTest {
     }
 
     private static RecordedExchange exchange(String requestBody, String responseBody) {
-        return new RecordedExchange(URI.create("https://upstream.test/mcp"), "POST",
-                Map.of("Authorization", List.of("Bearer secret")), requestBody, 200,
-                Map.of("Mcp-Session-Id", List.of("upstream-session")), responseBody.getBytes(StandardCharsets.UTF_8));
+        return new RecordedExchange(requestBody, wire(request(requestBody),
+                "HTTP/1.1 200 OK\r\nMcp-Session-Id: upstream-session\r\n\r\n" + responseBody));
+    }
+
+    private static String request(String body) {
+        return "POST /mcp HTTP/1.1\r\nHost: upstream.test\r\nAuthorization: Bearer secret\r\n"
+                + "Content-Length: " + body.length() + "\r\n\r\n" + body;
+    }
+
+    private static WireRecord wire(String request, String response) {
+        return WireRecord.ofBurp(HttpRequestResponse.httpRequestResponse(
+                HttpRequest.httpRequest(HttpService.httpService("upstream.test", 443, true),
+                        ByteArray.byteArray(request.getBytes(StandardCharsets.ISO_8859_1))),
+                HttpResponse.httpResponse(ByteArray.byteArray(response.getBytes(StandardCharsets.ISO_8859_1)))));
+    }
+
+    private static String text(byte[] bytes) {
+        return new String(bytes, StandardCharsets.ISO_8859_1);
     }
 
     private static HttpRequestResponse proxiedCarrying(String id) {

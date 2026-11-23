@@ -18,11 +18,23 @@ public final class DockerCompose {
     private final CommandRunner runner;
     private final ComposeProject project;
     private final Path environmentFile;
+    private final List<Path> files;
 
     public DockerCompose(CommandRunner runner, ComposeProject project) {
+        this(runner, project, writeEnvironmentFile(project), List.of(project.composeFile()));
+    }
+
+    private DockerCompose(CommandRunner runner, ComposeProject project, Path environmentFile, List<Path> files) {
         this.runner = runner;
         this.project = project;
-        this.environmentFile = writeEnvironmentFile(project);
+        this.environmentFile = environmentFile;
+        this.files = files;
+    }
+
+    DockerCompose withOverride(Path overrideFile) {
+        List<Path> layered = new ArrayList<>(files);
+        layered.add(overrideFile);
+        return new DockerCompose(runner, project, environmentFile, List.copyOf(layered));
     }
 
     private static Path writeEnvironmentFile(ComposeProject project) {
@@ -62,9 +74,9 @@ public final class DockerCompose {
     }
 
     private CommandResult compose(Duration timeout, String... arguments) {
-        List<String> command = new ArrayList<>(List.of("docker", "compose",
-                "--file", project.composeFile().toString(), "--project-name", project.name(),
-                "--env-file", environmentFile.toString()));
+        List<String> command = new ArrayList<>(List.of("docker", "compose"));
+        files.forEach(file -> command.addAll(List.of("--file", file.toString())));
+        command.addAll(List.of("--project-name", project.name(), "--env-file", environmentFile.toString()));
         command.addAll(List.of(arguments));
         return runner.run(command, project.directory(), timeout);
     }

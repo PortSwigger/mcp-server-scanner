@@ -7,7 +7,6 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,18 +46,6 @@ public final class BurpMessages {
                 .filter(header -> header.name().equalsIgnoreCase(TRANSFER_ENCODING))
                 .map(HttpHeader::value)
                 .toList();
-    }
-
-    public static HttpResponse toResponse(int status, Map<String, List<String>> headers, String body) {
-        byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-        StringBuilder head = new StringBuilder("HTTP/1.1 ").append(status).append(" \r\n");
-        headers.forEach((name, values) -> values.forEach(value -> head.append(name).append(": ").append(value)
-                .append("\r\n")));
-        head.append("Content-Length: ").append(bodyBytes.length).append("\r\n\r\n");
-        byte[] headBytes = head.toString().getBytes(StandardCharsets.ISO_8859_1);
-        byte[] raw = Arrays.copyOf(headBytes, headBytes.length + bodyBytes.length);
-        System.arraycopy(bodyBytes, 0, raw, headBytes.length, bodyBytes.length);
-        return HttpResponse.httpResponse(ByteArray.byteArray(raw));
     }
 
     public static Map<String, List<String>> multiValued(Map<String, String> headers) {

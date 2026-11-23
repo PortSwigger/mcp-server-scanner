@@ -23,6 +23,9 @@ public final class AutomationServer implements AutoCloseable {
     static final String AUDIT_PATH = "/audit";
     public static final String CHECK_ACCESS_PATH = "/check-access";
     static final String SEND_CANARY_PATH = "/send-canary";
+    static final String SIGNED_IN_SESSION_PATH = "/signed-in-session";
+    static final String AUTH_PROBE_PATH = "/auth-probe";
+    static final String AUDIT_PATH_CANARY_PATH = "/audit-path-canary";
 
     private static final ObjectMapper JSON = McpObjectMapper.INSTANCE;
     private static final String ORIGIN = "Origin";
@@ -39,13 +42,16 @@ public final class AutomationServer implements AutoCloseable {
     private final LaunchedAudit audit;
     private final HeadlessCheckAccess checkAccess;
     private final SendCanary sendCanary;
+    private final SignedInSessionSeed signedInSession;
 
     public AutomationServer(int port, HeadlessScanAll scanAll, LaunchedAudit audit, HeadlessCheckAccess checkAccess,
-                            SendCanary sendCanary) {
+                            SendCanary sendCanary, SignedInSessionSeed signedInSession, AuthProbe authProbe,
+                            AuditPathCanary auditPathCanary) {
         this.scanAll = scanAll;
         this.audit = audit;
         this.checkAccess = checkAccess;
         this.sendCanary = sendCanary;
+        this.signedInSession = signedInSession;
         try {
             server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
         } catch (IOException bindFailure) {
@@ -56,6 +62,12 @@ public final class AutomationServer implements AutoCloseable {
                 posted -> jsonPost(posted, ScanAllCommand.class, scanAll::launch)));
         server.createContext(SEND_CANARY_PATH, exchange -> unlessFromABrowser(exchange,
                 posted -> jsonPost(posted, SendCanaryCommand.class, sendCanary::run)));
+        server.createContext(SIGNED_IN_SESSION_PATH, exchange -> unlessFromABrowser(exchange,
+                posted -> jsonPost(posted, SignedInSessionCommand.class, signedInSession::apply)));
+        server.createContext(AUTH_PROBE_PATH, exchange -> unlessFromABrowser(exchange,
+                posted -> jsonPost(posted, AuthProbeCommand.class, authProbe::run)));
+        server.createContext(AUDIT_PATH_CANARY_PATH, exchange -> unlessFromABrowser(exchange,
+                posted -> jsonPost(posted, AuditPathCanaryCommand.class, auditPathCanary::run)));
         server.createContext(AUDIT_PATH, exchange -> unlessFromABrowser(exchange, this::audit));
         server.createContext(CHECK_ACCESS_PATH, exchange -> unlessFromABrowser(exchange, this::checkAccess));
     }

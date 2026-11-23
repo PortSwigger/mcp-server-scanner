@@ -34,7 +34,7 @@ final class AuthKindChoices {
 
     static List<IdentityAuthKind> offeredTo(EditorRole role) {
         return Arrays.stream(IdentityAuthKind.values())
-                .filter(kind -> role == EditorRole.PRIMARY || kind.offeredToComparedUsers())
+                .filter(kind -> role.editsPrimary() || kind.offeredToComparedUsers())
                 .toList();
     }
 

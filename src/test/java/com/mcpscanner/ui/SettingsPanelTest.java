@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import org.junit.jupiter.params.ParameterizedTest;
@@ -44,7 +45,7 @@ class SettingsPanelTest {
             return null;
         }).when(persisted).deleteLong("mcp.proxy.post_body_limit_bytes");
 
-        ExtensionConfigStore config = new ExtensionConfigStore(persisted, mock(Logging.class));
+        ExtensionConfigStore config = new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class));
         SettingsPanel[] panels = new SettingsPanel[2];
         SwingUtilities.invokeAndWait(() -> {
             panels[0] = new SettingsPanel(config);
@@ -71,7 +72,7 @@ class SettingsPanelTest {
 
     @Test
     void registersWithBurpAsItselfUnderSearchableKeywords() {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
 
         var burpPanel = panel.asBurpSettingsPanel();
 
@@ -81,7 +82,7 @@ class SettingsPanelTest {
 
     @Test
     void fitsTheNarrowSidePanelWithoutClippingAnything() {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
         panel.offerBurpSettings(() -> { });
         panel.setSize(400, 900);
         for (int pass = 0; pass < 3; pass++) {
@@ -107,7 +108,7 @@ class SettingsPanelTest {
 
     @Test
     void canOfferToOpenBurpsOwnSettingsWindow() {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
         java.util.concurrent.atomic.AtomicBoolean opened = new java.util.concurrent.atomic.AtomicBoolean();
         assertThat(panel.burpSettingsRowForTest().isVisible()).isFalse();
 
@@ -123,7 +124,7 @@ class SettingsPanelTest {
     void loadsAndPersistsRedirectMode() {
         PersistedObject persisted = mock(PersistedObject.class);
         when(persisted.getString("mcp.redirect.mode")).thenReturn("SAME_ORIGIN");
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
 
         assertThat(panel.redirectModeSelectorForTest().getSelectedItem()).isEqualTo(RedirectMode.SAME_ORIGIN);
 
@@ -136,7 +137,7 @@ class SettingsPanelTest {
     void persistsExactPostBodyLimitAndBlankRestoresDefault() {
         PersistedObject persisted = mock(PersistedObject.class);
         when(persisted.getLong("mcp.proxy.post_body_limit_bytes")).thenReturn(1_048_577L);
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
 
         assertThat(panel.capFieldForTest(ResourceCap.PROXY_POST_BODY_BYTES).getText()).isEqualTo("1048577 bytes");
 
@@ -151,7 +152,7 @@ class SettingsPanelTest {
     @Test
     void rejectsInvalidPostBodyLimitWithoutPersistingIt() {
         PersistedObject persisted = mock(PersistedObject.class);
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
 
         panel.capFieldForTest(ResourceCap.PROXY_POST_BODY_BYTES).setText("-1");
 
@@ -162,7 +163,7 @@ class SettingsPanelTest {
     @Test
     void everyResourceCapShowsItsDefaultAndPersistsValidEdits() {
         PersistedObject persisted = mock(PersistedObject.class);
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
 
         for (ResourceCap cap : ResourceCap.values()) {
             panel.capFieldForTest(cap).setText("42");
@@ -172,7 +173,7 @@ class SettingsPanelTest {
 
     @Test
     void showsByteLimitsInHumanUnitsAndPageLimitsAsCounts() {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
 
         assertThat(panel.capFieldForTest(ResourceCap.PROXY_POST_BODY_BYTES).getText()).isEqualTo("32 MB");
         assertThat(panel.capFieldForTest(ResourceCap.SSE_PENDING_RESPONSE_BYTES).getText()).isEqualTo("64 MB");
@@ -183,7 +184,7 @@ class SettingsPanelTest {
     @Test
     void showsTheExtensionScanWorkerCountOutsideTheSafetyLimitsAndRejectsMoreThanFifty() {
         PersistedObject persisted = mock(PersistedObject.class);
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
 
         assertThat(panel.capFieldForTest(ResourceCap.EXTENSION_SCAN_WORKERS).getText()).isEqualTo("10");
 
@@ -196,7 +197,7 @@ class SettingsPanelTest {
     @Test
     void persistsAByteLimitTypedWithAUnitAsBytes() {
         PersistedObject persisted = mock(PersistedObject.class);
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
 
         panel.capFieldForTest(ResourceCap.DISCOVERY_TOTAL_BYTES).setText("512 MB");
 
@@ -205,7 +206,7 @@ class SettingsPanelTest {
 
     @Test
     void anInvalidByteLimitHintSuggestsUnitsAndNamesTheDefault() {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
 
         panel.capFieldForTest(ResourceCap.PROXY_POST_BODY_BYTES).setText("lots");
 
@@ -216,7 +217,7 @@ class SettingsPanelTest {
     @ParameterizedTest
     @EnumSource(RedirectMode.class)
     void theRedirectHelpExplainsTheSelectedOption(RedirectMode mode) {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
 
         panel.redirectModeSelectorForTest().setSelectedItem(mode);
 
@@ -226,7 +227,7 @@ class SettingsPanelTest {
     @Test
     void rejectsZeroResourceCapWithVisibleHintAndWithoutPersistingIt() {
         PersistedObject persisted = mock(PersistedObject.class);
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
 
         panel.capFieldForTest(ResourceCap.DISCOVERY_MAX_PAGES).setText("0");
 
@@ -244,7 +245,7 @@ class SettingsPanelTest {
             return null;
         }).when(persisted).setBoolean(org.mockito.ArgumentMatchers.eq("mcp.server_pings.answer"),
                 org.mockito.ArgumentMatchers.anyBoolean());
-        ExtensionConfigStore config = new ExtensionConfigStore(persisted, mock(Logging.class));
+        ExtensionConfigStore config = new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class));
         SettingsPanel[] panel = new SettingsPanel[1];
 
         SwingUtilities.invokeAndWait(() -> {
@@ -268,7 +269,7 @@ class SettingsPanelTest {
             return null;
         }).when(persisted).setBoolean(org.mockito.ArgumentMatchers.eq("mcp.networking.use_burp"),
                 org.mockito.ArgumentMatchers.anyBoolean());
-        ExtensionConfigStore config = new ExtensionConfigStore(persisted, mock(Logging.class));
+        ExtensionConfigStore config = new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class));
         SettingsPanel[] panel = new SettingsPanel[1];
 
         SwingUtilities.invokeAndWait(() -> {
@@ -285,7 +286,7 @@ class SettingsPanelTest {
 
     @Test
     void burpNetworkingExplanationNamesClientCertificatesAndThePingTradeOff() {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
 
         assertThat(panel.burpNetworkingExplanationForTest())
                 .contains("client TLS certificates")
@@ -294,7 +295,7 @@ class SettingsPanelTest {
 
     @Test
     void burpNetworkingExplanationSaysTheChangeAppliesToNewRequests() {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
 
         assertThat(panel.burpNetworkingExplanationForTest()).contains("Changes apply from the next request");
     }
@@ -309,7 +310,7 @@ class SettingsPanelTest {
             return null;
         }).when(persisted).setBoolean(org.mockito.ArgumentMatchers.eq("mcp.sendto.handle_auth"),
                 org.mockito.ArgumentMatchers.anyBoolean());
-        ExtensionConfigStore config = new ExtensionConfigStore(persisted, mock(Logging.class));
+        ExtensionConfigStore config = new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class));
         SettingsPanel[] panels = new SettingsPanel[2];
 
         SwingUtilities.invokeAndWait(() -> {
@@ -327,7 +328,7 @@ class SettingsPanelTest {
 
     @Test
     void sendToAuthenticationExplainsBothSidesAndNamesTheMarkerHeader() {
-        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), mock(Logging.class)));
+        SettingsPanel panel = new SettingsPanel(new ExtensionConfigStore(mock(PersistedObject.class), new InMemoryPreferences(), mock(Logging.class)));
 
         assertThat(panel.sendToAuthenticationCheckboxForTest().getText())
                 .isEqualTo("Handle auth and sessions in Burp tools");
@@ -358,5 +359,65 @@ class SettingsPanelTest {
         panel.resetScanWarningsButtonForTest().doClick();
 
         assertThat(panel.scanWarningsStatusForTest().getText()).startsWith("No server had");
+    }
+
+    @Test
+    void savingAsMyDefaultsCarriesTheseSettingsIntoANewProject() {
+        InMemoryPreferences preferences = new InMemoryPreferences();
+        ExtensionConfigStore configStore = configStoreFor(preferences);
+        configStore.setRedirectMode(RedirectMode.SAME_ORIGIN);
+        SettingsPanel panel = new SettingsPanel(configStore);
+
+        panel.saveUserDefaultsButtonForTest().doClick();
+
+        assertThat(configStoreFor(preferences).redirectMode()).isEqualTo(RedirectMode.SAME_ORIGIN);
+        assertThat(panel.userDefaultsStatusForTest().getText()).isEqualTo(UserDefaultsSettings.SAVED);
+    }
+
+    @Test
+    void resettingMyDefaultsSendsNewProjectsBackToBuiltInDefaults() {
+        InMemoryPreferences preferences = new InMemoryPreferences();
+        preferences.setString("mcp.redirect.mode", RedirectMode.SAME_ORIGIN.name());
+        SettingsPanel panel = new SettingsPanel(configStoreFor(preferences));
+
+        panel.resetUserDefaultsButtonForTest().doClick();
+
+        assertThat(configStoreFor(preferences).redirectMode()).isEqualTo(RedirectMode.METHOD_PRESERVING_SAME_ORIGIN);
+        assertThat(panel.userDefaultsStatusForTest().getText()).isEqualTo(UserDefaultsSettings.CLEARED);
+    }
+
+    @Test
+    void theDefaultsControlsShowWithoutScanningToo() {
+        SettingsPanel panel = new SettingsPanel(com.mcpscanner.testutil.InMemoryPersistedObject.configStore(),
+                SettingsScope.WITHOUT_SCANNING);
+
+        assertThat(panel.saveUserDefaultsButtonForTest().getText()).isEqualTo(UserDefaultsSettings.SAVE);
+        assertThat(panel.resetUserDefaultsButtonForTest().getText()).isEqualTo(UserDefaultsSettings.RESET);
+    }
+
+    @Test
+    void withoutScanningTheDefaultsExplanationNamesNoScanningSetting() {
+        SettingsPanel panel = new SettingsPanel(com.mcpscanner.testutil.InMemoryPersistedObject.configStore(),
+                SettingsScope.WITHOUT_SCANNING);
+
+        assertThat(panel.userDefaultsExplanationForTest())
+                .contains("redirect", "OAuth redirect port", "client identity")
+                .doesNotContain("scan mode", "checks", "request families", "fuzzing", "Collect IDs", "worker",
+                        "tool choices", "write-tool");
+    }
+
+    @Test
+    void withScanningTheDefaultsExplanationNamesTheScanningSettings() {
+        SettingsPanel panel = new SettingsPanel(com.mcpscanner.testutil.InMemoryPersistedObject.configStore(),
+                SettingsScope.WITH_SCANNING);
+
+        assertThat(panel.userDefaultsExplanationForTest())
+                .contains("scan mode", "checks", "request families", "_meta fuzzing", "Collect IDs passes", "worker",
+                        "tool choices", "write-tool opt-ins");
+    }
+
+    private static ExtensionConfigStore configStoreFor(InMemoryPreferences preferences) {
+        return new ExtensionConfigStore(com.mcpscanner.testutil.InMemoryPersistedObject.create(), preferences,
+                mock(Logging.class));
     }
 }

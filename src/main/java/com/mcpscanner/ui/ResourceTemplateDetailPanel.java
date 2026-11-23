@@ -15,8 +15,8 @@ final class ResourceTemplateDetailPanel extends AbstractDetailPanel<McpResourceT
     private JComponent overview = new JPanel();
     private CompletionMenus completionMenus = CompletionMenus.none();
 
-    ResourceTemplateDetailPanel(DetailSubject<McpResourceTemplateDefinition> subject) {
-        super(subject);
+    ResourceTemplateDetailPanel(DetailSubject<McpResourceTemplateDefinition> subject, InventoryTicks ticks) {
+        super(subject, ticks);
         installDetailCard();
     }
 

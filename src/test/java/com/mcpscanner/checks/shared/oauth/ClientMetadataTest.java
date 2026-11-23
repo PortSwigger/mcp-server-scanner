@@ -29,4 +29,13 @@ class ClientMetadataTest {
         assertThat(withRefresh.clientName()).isEqualTo("probe");
         assertThat(withRefresh.redirectUris()).isEqualTo(CODE_GRANT.redirectUris());
     }
+
+    @Test
+    void carriesASoftwareIdOnlyWhenGiven() throws Exception {
+        ClientMetadata withSoftware = CODE_GRANT.withSoftwareId("acme-agent").withRefreshGrant();
+
+        assertThat(McpObjectMapper.INSTANCE.readTree(withSoftware.toJson()).path("software_id").asText())
+                .isEqualTo("acme-agent");
+        assertThat(McpObjectMapper.INSTANCE.readTree(CODE_GRANT.toJson()).has("software_id")).isFalse();
+    }
 }

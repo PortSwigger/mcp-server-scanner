@@ -29,7 +29,8 @@ class SseBringUpStaleAttemptTest {
         AtomicBoolean closed = new AtomicBoolean();
         SseEndpointDiscoverer discoverer = mock(SseEndpointDiscoverer.class);
         when(discoverer.discover(any(), any(), any(Duration.class))).thenReturn(new SseEndpointDiscoverer.DiscoveryResult(
-                URI.create("http://mcp.example/message"), trackedStream(closed)));
+                URI.create("http://mcp.example/message"), trackedStream(closed),
+                new SseStreamOpening(mock(java.net.http.HttpResponse.class))));
         ConnectionAttemptSink sink = mock(ConnectionAttemptSink.class);
         doThrow(new IllegalStateException("stale")).when(sink).recordSseMessageEndpoint(any(), any());
         SseBringUp bringUp = new SseBringUp(new McpFlow(BoundedBodyReader.MAX_RESPONSE_BYTES, 32), discoverer,

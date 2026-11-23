@@ -52,7 +52,7 @@ public final class ScanCheckLogging {
         if (eventLog == null) {
             return;
         }
-        eventLog.info(CheckLog.prefix(checkId) + "started");
+        eventLog.debug(CheckLog.prefix(checkId) + "started");
     }
 
     private static void logFinish(McpEventLog eventLog, String checkId, long durationMs, int requestCount,
@@ -65,7 +65,7 @@ public final class ScanCheckLogging {
         if (issueCount > 0) {
             eventLog.kept(message);
         } else {
-            eventLog.info(message);
+            eventLog.debug(message);
         }
     }
 

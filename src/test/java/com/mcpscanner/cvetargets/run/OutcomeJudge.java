@@ -6,6 +6,7 @@ import com.mcpscanner.cvetargets.manifest.SeverityRank;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 public final class OutcomeJudge {
@@ -30,10 +31,12 @@ public final class OutcomeJudge {
     }
 
     private Verdict judgeAttributed(ExpectedOutcome expected, List<IssueSummary> issues, ProbeTally probes) {
-        long matching = issues.stream().filter(matches(expected)).count();
+        List<IssueSummary> undeclared = issues.stream().filter(issue -> !expected.declares(issue.name())).toList();
+        long matching = undeclared.stream().filter(matches(expected)).count();
         boolean outcomeMet = expected.outcome() == Outcome.FIRE ? matching > 0 : matching == 0;
         String observation = "expected " + expected.outcome() + describe(expected)
-                + ", observed " + matching + " matching of " + issues.size() + " issues";
+                + ", observed " + matching + " matching of " + undeclared.size()
+                + (expected.alsoReports().isEmpty() ? "" : " undeclared") + " issues";
         if (expected.isKnownMiss()) {
             return new Verdict(outcomeMet, "known miss (" + expected.knownMiss() + "): " + observation);
         }
@@ -43,7 +46,15 @@ public final class OutcomeJudge {
         if (expected.outcome() == Outcome.SILENT && probes.reached() == 0) {
             return new Verdict(false, observation + ", but 0 of " + probes.sent() + " probe requests reached the target");
         }
-        return new Verdict(outcomeMet, observation);
+        return unreportedDeclaration(expected, issues)
+                .map(name -> new Verdict(false, observation + ", but the declared issue " + name + " was not reported"))
+                .orElseGet(() -> new Verdict(outcomeMet, observation));
+    }
+
+    private static Optional<String> unreportedDeclaration(ExpectedOutcome expected, List<IssueSummary> issues) {
+        return expected.alsoReports().stream()
+                .filter(name -> issues.stream().noneMatch(issue -> name.equals(issue.name())))
+                .findFirst();
     }
 
     private static Predicate<IssueSummary> matches(ExpectedOutcome expected) {
@@ -63,6 +74,7 @@ public final class OutcomeJudge {
         appendFilter(filter, "severity", expected.severity());
         appendFilter(filter, "severity>", expected.minimumSeverity());
         appendFilter(filter, "confidence", expected.confidence());
+        appendFilter(filter, "also reports", expected.alsoReports().isEmpty() ? null : expected.alsoReports());
         return filter.isEmpty() ? "" : " (" + filter + ")";
     }
 

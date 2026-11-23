@@ -17,6 +17,7 @@ import com.mcpscanner.cvetargets.manifest.TargetArm;
 import com.mcpscanner.cvetargets.manifest.TargetRepository;
 import com.mcpscanner.cvetargets.outofband.LazyRecorderCollaborator;
 import com.mcpscanner.cvetargets.run.ArmContexts;
+import com.mcpscanner.cvetargets.run.ArmDurations;
 import com.mcpscanner.cvetargets.run.ArmResult;
 import com.mcpscanner.cvetargets.run.ArmRun;
 import com.mcpscanner.cvetargets.run.ArmSchedule;
@@ -54,7 +55,8 @@ class CveTargetSuiteTest implements ArmContexts {
             new ProcessCommandRunner(), settings.targetsRoot().resolve("_shared/interaction-recorder"),
             RecorderIdentity.SHARED, new FileRecorderUsers(settings.recorderLocksDirectory()), System.err::println));
     private final ArmSchedule schedule = new ArmSchedule(settings.parallelArms());
-    private final ScheduledArmTests scheduled = new ScheduledArmTests(schedule);
+    private final ScheduledArmTests scheduled = new ScheduledArmTests(schedule,
+            new ArmDurations(settings.durationsFile(), System.err::println));
 
     @BeforeAll
     void startTheInteractionRecorderBeforeTargetsResolveNames() {
@@ -115,6 +117,6 @@ class CveTargetSuiteTest implements ArmContexts {
                                 AuditedArm audited) {
         return CheckCatalog.discover(audited.lateIssues().collectingFor(new CheckServices(checkLog, () -> auth,
                 collaborator.forOneArm(), audited.probeService(), identities, identities.ledger(), identities,
-                audited.probeService().sseProbeStreams())));
+                audited.probeService().sseProbeStreams()).withSignedInConsent(identities.signedInConsent())));
     }
 }

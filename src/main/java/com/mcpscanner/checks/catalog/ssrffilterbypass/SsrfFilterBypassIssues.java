@@ -11,7 +11,6 @@ import com.mcpscanner.checks.shared.collaborator.InteractionDescription;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 final class SsrfFilterBypassIssues {
 
@@ -23,6 +22,8 @@ final class SsrfFilterBypassIssues {
             + "its filter does not recognise it:";
     private static final String PAGE_SHOWN = "The reply to the loopback probe contains the target's own page, so the "
             + "server fetched the internal address and returned its content.";
+    private static final String ATTACHED = "The refusal, the %s loopback probe and its Collaborator control are "
+            + "attached.";
     private static final String TENTATIVE = "The scanner cannot see what the server reached at the loopback address, "
             + "only that the filter no longer refused it. Confirm by requesting an internal service the server "
             + "can reach.";
@@ -52,6 +53,7 @@ final class SsrfFilterBypassIssues {
                 .paragraph(String.format(REFUSED, finding.refusal().evidence().url()))
                 .paragraph(BYPASSED)
                 .findings(finding.proven().stream().map(lead -> describe(lead, finding)).toList())
+                .paragraph(String.format(ATTACHED, finding.attachedLead().lead().spelling().label()))
                 .paragraph(firm ? PAGE_SHOWN : TENTATIVE)
                 .build();
     }
@@ -64,8 +66,8 @@ final class SsrfFilterBypassIssues {
     }
 
     private static List<HttpRequestResponse> exchanges(BypassFinding finding) {
-        return new ArrayList<>(Stream.concat(Stream.of(finding.refusal().evidence().exchange()),
-                finding.proven().stream().flatMap(lead -> Stream.of(lead.lead().loopback().exchange(),
-                        lead.control().exchange()))).toList());
+        ControlledLead attached = finding.attachedLead();
+        return new ArrayList<>(List.of(finding.refusal().evidence().exchange(), attached.lead().loopback().exchange(),
+                attached.control().exchange()));
     }
 }

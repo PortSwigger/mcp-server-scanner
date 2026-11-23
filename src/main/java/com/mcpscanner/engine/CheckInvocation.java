@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.AuditResult;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.scancheck.ActiveScanCheck;
+import com.mcpscanner.http.ScanQueueBypass;
 
 import java.util.Optional;
 
@@ -16,7 +17,7 @@ record CheckInvocation(RegisteredCheck registered, HttpRequestResponse base, Str
     }
 
     AuditResult run(Http http) {
-        return check().doCheck(base, insertionPoint.orElse(null), http);
+        return check().doCheck(base, insertionPoint.orElse(null), ScanQueueBypass.alreadyOffScanQueue(http));
     }
 
     String target() {

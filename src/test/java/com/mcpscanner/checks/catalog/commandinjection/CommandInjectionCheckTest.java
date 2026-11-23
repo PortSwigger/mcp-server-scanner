@@ -9,6 +9,7 @@ import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
+import com.mcpscanner.testutil.SpentRateLimitQuota;
 import com.mcpscanner.checks.api.CheckCatalog;
 import com.mcpscanner.checks.api.CheckKind;
 import com.mcpscanner.checks.api.CheckLog;
@@ -61,7 +62,7 @@ class CommandInjectionCheckTest {
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
             assertThat(issue.detail()).contains("ping_host").contains("params.arguments.host")
                     .contains("shell arithmetic expansion").contains("matched control");
-            assertThat(issue.requestResponses()).hasSize(5);
+            assertThat(issue.requestResponses()).hasSize(3);
         });
     }
 
@@ -94,7 +95,7 @@ class CommandInjectionCheckTest {
             assertThat(issue.name()).isEqualTo("MCP OS command injection");
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
             assertThat(issue.detail()).contains("quoted-literal control");
-            assertThat(issue.requestResponses()).hasSize(6);
+            assertThat(issue.requestResponses()).hasSize(4);
         });
         assertThat(server.receivedValues()).contains(SimulatedToolServer.BASE_VALUE + "$(" + CANARY.quotedCommand() + ")");
     }
@@ -116,7 +117,8 @@ class CommandInjectionCheckTest {
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
             assertThat(issue.detail()).contains("command-line option injection").contains("--help")
                     .contains("--all-namespaces").contains("language model");
-            assertThat(issue.requestResponses()).hasSize(4);
+            assertThat(server.valuesSentIn(issue.requestResponses()))
+                    .containsExactly(SimulatedToolServer.BASE_VALUE, "--help", "help");
         });
         assertThat(server.receivedValues()).contains("--help", "help");
     }
@@ -212,7 +214,7 @@ class CommandInjectionCheckTest {
             assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.HIGH);
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
             assertThat(issue.detail()).contains("Python single-quoted string breakout");
-            assertThat(issue.requestResponses()).hasSize(5);
+            assertThat(issue.requestResponses()).hasSize(3);
         });
     }
 
@@ -226,7 +228,7 @@ class CommandInjectionCheckTest {
             assertThat(issue.severity()).isEqualTo(AuditIssueSeverity.INFORMATION);
             assertThat(issue.confidence()).isEqualTo(AuditIssueConfidence.TENTATIVE);
             assertThat(issue.detail()).contains("Python expression");
-            assertThat(issue.requestResponses()).hasSize(4);
+            assertThat(issue.requestResponses()).hasSize(3);
         });
     }
 
@@ -494,6 +496,45 @@ class CommandInjectionCheckTest {
     }
 
     @Test
+    void reportsAShellHitWhoseReplySaysTheRateLimitQuotaIsSpent() {
+        SimulatedToolServer server = new SimulatedToolServer("ping_host", "host", ToolBehaviours.shellCommandLine());
+
+        assertThat(auditSpendingTheQuotaFrom(server, CANARY.result()))
+                .extracting(AuditIssue::name).containsExactly("MCP OS command injection");
+    }
+
+    @Test
+    void reportsAnEvaluatorHitWhoseReplySaysTheRateLimitQuotaIsSpent() {
+        SimulatedToolServer server = new SimulatedToolServer("greet", "name",
+                ToolBehaviours.pythonSingleQuotedStringEvaluator());
+
+        assertThat(auditSpendingTheQuotaFrom(server, CANARY.result()))
+                .extracting(AuditIssue::name).containsExactly("MCP code injection");
+    }
+
+    @Test
+    void reportsAnOptionHitWhoseReplySaysTheRateLimitQuotaIsSpent() {
+        SimulatedToolServer server = new SimulatedToolServer("get_resource", "name",
+                ToolBehaviours.optionParsingProgram(USAGE, "error: unknown flag: --version"));
+
+        assertThat(auditSpendingTheQuotaFrom(server, "--all-namespaces"))
+                .extracting(AuditIssue::name).containsExactly("MCP argument injection");
+    }
+
+    @Test
+    void stopsProbingOnceAReplyWithoutAHitSaysTheRateLimitQuotaIsSpent() {
+        SimulatedToolServer unlimited = new SimulatedToolServer("ping_host", "host", ToolBehaviours.argumentVector());
+        SimulatedToolServer spent = new SimulatedToolServer("ping_host", "host", ToolBehaviours.argumentVector());
+        audit(unlimited);
+
+        assertThat(auditSpendingTheQuotaFrom(spent, "")).isEmpty();
+
+        assertThat(spent.probeCount()).isEqualTo(1).isLessThan(unlimited.probeCount());
+        assertThat(skipLines()).noneMatch(line -> line.contains("consecutive probes got no response"))
+                .anyMatch(line -> line.contains("no requests remain in its rate limit"));
+    }
+
+    @Test
     void keepsOneIssuePerOperationFieldAndName() {
         AuditIssue first = audit(new SimulatedToolServer("ping_host", "host", ToolBehaviours.shellCommandLine())).get(0);
         AuditIssue again = audit(new SimulatedToolServer("ping_host", "host", ToolBehaviours.shellCommandLine())).get(0);
@@ -548,6 +589,29 @@ class CommandInjectionCheckTest {
         SettlingLateIssues settling = new SettlingLateIssues(watch);
         return new SettledCheck(new CommandInjectionCheck(() -> CANARY, watch, settling,
                 BurpNativeJsonRpcFields.PRESENT, eventLog), settling);
+    }
+
+    private List<AuditIssue> auditSpendingTheQuotaFrom(SimulatedToolServer server, String hitText) {
+        HttpRequestResponse base = server.baseline();
+        return check(collaborator::available).audit(base, server.argumentField(base),
+                quotaSpentFrom(server.http(), hitText));
+    }
+
+    private static Http quotaSpentFrom(Http live, String hitText) {
+        java.util.concurrent.atomic.AtomicBoolean spent = new java.util.concurrent.atomic.AtomicBoolean();
+        Http http = mock(Http.class);
+        when(http.sendRequest(any(HttpRequest.class))).thenAnswer(invocation -> {
+            HttpRequestResponse exchange = live.sendRequest(invocation.getArgument(0));
+            if (!spent.get() && !exchange.response().bodyToString().contains(hitText)) {
+                return exchange;
+            }
+            spent.set(true);
+            return HttpRequestResponse.httpRequestResponse(exchange.request(),
+                    burp.api.montoya.http.message.responses.HttpResponse.httpResponse("HTTP/1.1 200 OK\r\n"
+                            + "Content-Type: application/json\r\n" + SpentRateLimitQuota.HEADER_LINES + "\r\n"
+                            + exchange.response().bodyToString()));
+        });
+        return http;
     }
 
     private static Http rateLimiting() {

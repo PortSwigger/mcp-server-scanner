@@ -46,7 +46,7 @@ class UsersPanelTest {
         assertThat(fromEdt(() -> IntStream.range(0, panel.table().getColumnCount())
                 .mapToObj(column -> String.valueOf(panel.table().getColumnModel().getColumn(column).getHeaderValue()))
                 .toList())).containsExactly("Compare", "Name", "Access", "Auth", "Status");
-        assertThat(column(IdentityTableModel.NAME)).containsExactly("bob", "carol", "Anonymous");
+        assertThat(column(IdentityTableModel.NAME)).containsExactly("bob", "carol", "No credential");
         assertThat(column(IdentityTableModel.ACCESS)).containsExactly("Same (peer)", "Less access", "—");
         assertThat(column(IdentityTableModel.COMPARE)).containsExactly(true, true, true);
         assertThat(fromEdt(() -> panel.table().getModel().isCellEditable(0, IdentityTableModel.COMPARE))).isTrue();
@@ -61,6 +61,16 @@ class UsersPanelTest {
         assertThat(fromEdt(panel::headings)).containsExactly("Primary user", "Compared users");
         assertThat(fromEdt(() -> panel.primaryEditor().nameField().getText())).isEqualTo("User 1");
         assertThat(fromEdt(panel::noteText)).isEqualTo(UsersPanel.NO_COMPARED_USERS);
+    }
+
+    @Test
+    void withoutComparedUsersThePrimaryEditorBuildsNoComparedUserControls() throws Exception {
+        harness.add("bob", IdentityRole.PEER, IdentityAuthKind.BEARER);
+
+        onEdt(() -> panel = new UsersPanel(harness.services, GrantCredentialForms.NONE, () -> { },
+                UsersMode.PRIMARY_ONLY));
+
+        assertThat(fromEdt(() -> panel.primaryEditor().comparedUserFields())).isEmpty();
     }
 
     @Test
@@ -91,7 +101,7 @@ class UsersPanelTest {
 
         assertThat(harness.registry.isPrimary(bob.id())).isTrue();
         assertThat(fromEdt(() -> panel.primaryEditor().nameField().getText())).isEqualTo("bob");
-        assertThat(column(IdentityTableModel.NAME)).containsExactly("User 1", "Anonymous");
+        assertThat(column(IdentityTableModel.NAME)).containsExactly("User 1", "No credential");
     }
 
     @Test
@@ -157,6 +167,7 @@ class UsersPanelTest {
         onEdt(() -> panel.table().setRowSelectionInterval(0, 0));
 
         assertThat(fromEdt(panel::noteText)).isEqualTo(UsersPanel.ANONYMOUS_NOTE);
+        assertThat(UsersPanel.ANONYMOUS_NOTE).startsWith("No credential").doesNotContain("Anonymous");
         assertThat(fromEdt(() -> panel.removeButton().isEnabled())).isFalse();
     }
 

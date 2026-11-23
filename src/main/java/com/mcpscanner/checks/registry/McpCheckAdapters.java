@@ -7,6 +7,7 @@ import com.mcpscanner.checks.api.McpCheck;
 import com.mcpscanner.checks.api.RequestCheck;
 import com.mcpscanner.checks.shared.scancontext.ScanNotices;
 import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.ScanQueueBypass;
 import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 
@@ -22,6 +23,7 @@ public final class McpCheckAdapters implements CheckVisitor<McpCheckAdapter<?>> 
     private final IssueDestination issuesBurpWouldDrop;
     private final ScanNotices auditNotices;
     private final ProbeCalls probeCalls;
+    private final ScanQueueBypass scanQueueBypass;
 
     public McpCheckAdapters(ScanCheckSettings settings, McpEventLog eventLog) {
         this(settings, eventLog, CheckInstrumentation.NONE);
@@ -52,6 +54,15 @@ public final class McpCheckAdapters implements CheckVisitor<McpCheckAdapter<?>> 
     public McpCheckAdapters(ScanCheckSettings settings, McpEventLog eventLog, CheckInstrumentation instrumentation,
                             UpstreamExchanges upstreamExchanges, ConnectionReuse connectionReuse,
                             IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices, ProbeCalls probeCalls) {
+        this(settings, eventLog, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                auditNotices, probeCalls, ScanQueueBypass.NONE);
+    }
+
+    public McpCheckAdapters(ScanCheckSettings settings, McpEventLog eventLog, CheckInstrumentation instrumentation,
+                            UpstreamExchanges upstreamExchanges, ConnectionReuse connectionReuse,
+                            IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices, ProbeCalls probeCalls,
+                            ScanQueueBypass scanQueueBypass) {
+        this.scanQueueBypass = Objects.requireNonNull(scanQueueBypass, "scanQueueBypass must not be null");
         this.probeCalls = Objects.requireNonNull(probeCalls, "probeCalls must not be null");
         this.issuesBurpWouldDrop = Objects.requireNonNull(issuesBurpWouldDrop, "issuesBurpWouldDrop must not be null");
         this.auditNotices = Objects.requireNonNull(auditNotices, "auditNotices must not be null");
@@ -69,18 +80,18 @@ public final class McpCheckAdapters implements CheckVisitor<McpCheckAdapter<?>> 
     @Override
     public McpCheckAdapter<?> visitInsertionPointCheck(InsertionPointCheck check) {
         return new InsertionPointCheckAdapter(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse,
-                issuesBurpWouldDrop, auditNotices, probeCalls);
+                issuesBurpWouldDrop, auditNotices, probeCalls, scanQueueBypass);
     }
 
     @Override
     public McpCheckAdapter<?> visitRequestCheck(RequestCheck check) {
         return new RequestCheckAdapter(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse,
-                issuesBurpWouldDrop, auditNotices, probeCalls);
+                issuesBurpWouldDrop, auditNotices, probeCalls, scanQueueBypass);
     }
 
     @Override
     public McpCheckAdapter<?> visitHostCheck(HostCheck check) {
         return new HostCheckAdapter(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse,
-                issuesBurpWouldDrop, auditNotices, probeCalls);
+                issuesBurpWouldDrop, auditNotices, probeCalls, scanQueueBypass);
     }
 }

@@ -1,5 +1,6 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
@@ -7,6 +8,7 @@ import burp.api.montoya.persistence.PersistedObject;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPointProvider;
 import com.mcpscanner.mcp.BurpNativeJsonRpcFields;
+import com.mcpscanner.scan.field.MetaEnvelopeRegistry;
 import com.mcpscanner.testutil.InMemoryPersistedObject;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import com.mcpscanner.testutil.RawHttpRequestStub;
@@ -37,6 +39,7 @@ class ScanFieldWiringTest {
         MontoyaTestFactory.install();
         PersistedObject savedSettings = InMemoryPersistedObject.create();
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
     }
 
     @Test
@@ -66,6 +69,18 @@ class ScanFieldWiringTest {
         ScanFieldWiring.create(api, ExtensionFoundation.create(api));
 
         assertThat(names(registeredProvider())).containsExactlyElementsOf(EVERY_FIELD);
+    }
+
+    @Test
+    void theBurpAuditAndEngineProvidersBothLeaveAScansPassengerEnvelopeAlone() {
+        when(api.burpSuite().version().buildNumber()).thenReturn(BurpNativeJsonRpcFields.FIRST_NATIVE_BUILD - 1);
+        ScanFieldWiring fields = ScanFieldWiring.create(api, ExtensionFoundation.create(api));
+
+        fields.metaEnvelopes().hold(TOOL_CALL, MetaEnvelopeRegistry.Role.PASSENGER);
+
+        List<String> withoutEnvelope = List.of("MCP field: params.name", "MCP field: params.arguments.url");
+        assertThat(names(registeredProvider())).containsExactlyElementsOf(withoutEnvelope);
+        assertThat(names(fields.everyField())).containsExactlyElementsOf(withoutEnvelope);
     }
 
     private AuditInsertionPointProvider registeredProvider() {

@@ -1,5 +1,6 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import com.mcpscanner.client.BurpNetworkingSetting;
 import burp.api.montoya.MontoyaApi;
 import com.mcpscanner.testutil.RecordingRequestOptions;
@@ -22,7 +23,10 @@ import com.mcpscanner.client.McpServerConfig;
 import com.mcpscanner.client.ProtocolHttpRequest;
 import com.mcpscanner.client.TransportType;
 import com.mcpscanner.mcp.McpObjectMapper;
+import com.mcpscanner.mcp.FramedOperation;
+import com.mcpscanner.mcp.McpHeaders;
 import com.mcpscanner.mcp.ScannerSentinels;
+import com.mcpscanner.testutil.BurpEmptyResponse;
 import com.mcpscanner.testutil.FakeMcpServer;
 import com.mcpscanner.testutil.IdentityProbes;
 import com.mcpscanner.testutil.LoopbackFakeMcpServer;
@@ -37,6 +41,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import java.net.URI;
@@ -54,6 +59,7 @@ import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -62,6 +68,7 @@ class ConnectionWiringTest {
     private static final String ENDPOINT = "https://mcp.example.test/mcp";
     private static final String USE_BURP_NETWORKING = "mcp.networking.use_burp";
     private static final String SESSION_TOKEN = "session-token";
+    private static final String FUZZED_PROTOCOL_VERSION = "1999-01-01";
 
     private final MontoyaApi api = mock(MontoyaApi.class, RETURNS_DEEP_STUBS);
     private final Http http = mock(Http.class);
@@ -78,6 +85,7 @@ class ConnectionWiringTest {
         MontoyaTestFactory.install();
         when(api.http()).thenReturn(http);
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         when(savedSettings.getBoolean(USE_BURP_NETWORKING)).thenReturn(null);
         when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
                 .thenAnswer(invocation -> fakeServer.sendRequest(invocation.getArgument(0, HttpRequest.class),
@@ -125,6 +133,44 @@ class ConnectionWiringTest {
         wiring.clientManager().connect(new McpServerConfig(ENDPOINT, TransportType.STREAMABLE_HTTP, new NoAuthStrategy()));
 
         assertThat(sentOptions().get(sentBeforeReconnect).connectionId()).isEmpty();
+    }
+
+    @Test
+    void resendsAReadOnAFreshConnectionWhenItsKeptAliveConnectionWasClosedWhileQueued() {
+        int sentBefore = connectedThenKeptAliveConnectionsClosed();
+
+        wiring.burpHttp().sendRequest(postedToEndpoint("tools/list", "{}"), RequestOptions.requestOptions());
+
+        assertThat(sentOptions().subList(sentBefore, sentOptions().size()))
+                .extracting(options -> options.connectionId().isPresent()).containsExactly(true, false);
+    }
+
+    @Test
+    void neverResendsACallToAToolThatMayWriteWhenItsKeptAliveConnectionWasClosedWhileQueued() {
+        int sentBefore = connectedThenKeptAliveConnectionsClosed();
+
+        wiring.burpHttp().sendRequest(postedToEndpoint("tools/call", "{\"name\":\"echo\"}"),
+                RequestOptions.requestOptions());
+
+        assertThat(sentOptions()).hasSize(sentBefore + 1);
+    }
+
+    private int connectedThenKeptAliveConnectionsClosed() {
+        wiring.start(shutdown);
+        wiring.clientManager().connect(new McpServerConfig(ENDPOINT, TransportType.STREAMABLE_HTTP, new NoAuthStrategy()));
+        HttpRequestResponse closedWhileQueued = HttpRequestResponse.httpRequestResponse(
+                HttpRequest.httpRequestFromUrl(ENDPOINT), BurpEmptyResponse.create());
+        when(http.sendRequest(any(HttpRequest.class),
+                argThat((RequestOptions options) -> options != null
+                        && RecordingRequestOptions.recorded(options).connectionId().isPresent())))
+                .thenReturn(closedWhileQueued);
+        return sentOptions().size();
+    }
+
+    private static HttpRequest postedToEndpoint(String method, String params) {
+        return HttpRequest.httpRequestFromUrl(ENDPOINT).withMethod("POST")
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"" + method + "\",\"params\":" + params + "}");
     }
 
     @ParameterizedTest
@@ -327,6 +373,127 @@ class ConnectionWiringTest {
         verify(http).sendRequest(argThat(request -> isCallTo(request, "tools/call") && carriesNoSentinel(request)
                         && ("Bearer " + SESSION_TOKEN).equals(request.headerValue("Authorization"))),
                 any(RequestOptions.class));
+    }
+
+    @Test
+    void aFuzzedOperationHeaderOnAScannerFramedRequestReachesTheServerAsSent() throws Exception {
+        connectModern();
+
+        sendManagedToolsCall("echo", framedAs("echo", Map.of(McpHeaders.NAME, "echo;payload")));
+
+        assertUpstreamToolsCall("echo", "echo;payload");
+    }
+
+    @Test
+    void aStaleOperationHeaderLeftByABodyPayloadIsFramedFromTheBodyWithoutAnEarlierRequest() throws Exception {
+        connectModern();
+
+        sendManagedToolsCall("echo'payload", framedAs("echo", Map.of(McpHeaders.NAME, "echo")));
+
+        assertUpstreamToolsCall("echo'payload", "echo'payload");
+    }
+
+    @Test
+    void anOperationHeaderOnARequestTheScannerDidNotFrameReachesTheServerAsTyped() throws Exception {
+        connectModern();
+
+        sendManagedToolsCall("echo", Map.of(McpHeaders.NAME, "edited"));
+
+        assertUpstreamToolsCall("echo", "edited");
+    }
+
+    @Test
+    void aProbeWhoseFuzzedProtocolVersionTheServerAnswersWith404KeepsTheLiveSession() throws Exception {
+        serveOnlyTheNegotiatedProtocolVersion();
+        wiring.start(shutdown);
+        wiring.clientManager().connect(new McpServerConfig(ENDPOINT, TransportType.STREAMABLE_HTTP,
+                new NoAuthStrategy()));
+
+        java.net.http.HttpResponse<String> reply = sendManagedToolsCallReply(framedAs("echo",
+                Map.of(McpHeaders.PROTOCOL_VERSION, FUZZED_PROTOCOL_VERSION)));
+
+        assertThat(reply.statusCode()).isEqualTo(404);
+        verify(http, times(1)).sendRequest(argThat(request -> isCallTo(request, "initialize")),
+                any(RequestOptions.class));
+    }
+
+    @Test
+    void aFuzzedOperationMethodHeaderOnAStreamableHttpSessionReachesTheServerWithoutReinitializing()
+            throws Exception {
+        wiring.start(shutdown);
+        wiring.clientManager().connect(new McpServerConfig(ENDPOINT, TransportType.STREAMABLE_HTTP,
+                new NoAuthStrategy()));
+
+        sendManagedToolsCall("echo", framedAs("echo", Map.of(McpHeaders.METHOD, "tools/call;payload")));
+
+        verify(http).sendRequest(argThat(request -> isCallTo(request, "tools/call")
+                && "tools/call;payload".equals(headerValueIgnoringCase(request, McpHeaders.METHOD))),
+                any(RequestOptions.class));
+        verify(http, times(1)).sendRequest(argThat(request -> isCallTo(request, "initialize")),
+                any(RequestOptions.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {McpHeaders.METHOD, McpHeaders.NAME, McpHeaders.PROTOCOL_VERSION})
+    void aFuzzedOperationHeaderOnAModernHttpSessionReachesTheServerAsSent(String fuzzedHeader) throws Exception {
+        connectModern();
+
+        sendManagedToolsCallReply(framedAs("echo", Map.of(fuzzedHeader, "fuzzed;payload")));
+
+        verify(http).sendRequest(argThat(request -> isCallTo(request, "tools/call")
+                && "fuzzed;payload".equals(headerValueIgnoringCase(request, fuzzedHeader))
+                && carriesNoSentinel(request)), any(RequestOptions.class));
+    }
+
+    private void serveOnlyTheNegotiatedProtocolVersion() {
+        ScriptedBurpHttp server = new ScriptedBurpHttp(request -> Optional.of(
+                "tools/call".equals(FakeMcpServer.method(request)) && carriesUnknownProtocolVersion(request)
+                        ? FakeMcpServer.exchange(request, 404, Map.of(), "Not Found")
+                        : FakeMcpServer.respond(request)));
+        when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
+                .thenAnswer(invocation -> server.sendRequest(invocation.getArgument(0, HttpRequest.class),
+                        invocation.getArgument(1, RequestOptions.class)));
+    }
+
+    private static boolean carriesUnknownProtocolVersion(ProtocolHttpRequest request) {
+        return request.headers().entrySet().stream()
+                .anyMatch(header -> header.getKey().equalsIgnoreCase(McpHeaders.PROTOCOL_VERSION)
+                        && !header.getValue().equals(FakeMcpServer.LEGACY_VERSION));
+    }
+
+    private void connectModern() {
+        wiring.start(shutdown);
+        wiring.clientManager().connect(new McpServerConfig(ENDPOINT, TransportType.MODERN_HTTP,
+                new BearerTokenAuthStrategy(SESSION_TOKEN)));
+    }
+
+    private static Map<String, String> framedAs(String toolName, Map<String, String> headers) {
+        Map<String, String> sent = new java.util.HashMap<>(headers);
+        sent.put(ScannerSentinels.FRAMED_OPERATION_HEADER, FramedOperation.encode(Map.of(
+                McpHeaders.METHOD, "tools/call", McpHeaders.NAME, toolName)));
+        return sent;
+    }
+
+    private void assertUpstreamToolsCall(String bodyName, String headerName) {
+        verify(http).sendRequest(argThat(request -> isCallTo(request, "tools/call")
+                && request.bodyToString().contains("\"name\":\"" + bodyName + "\"")
+                && headerName.equals(headerValueIgnoringCase(request, McpHeaders.NAME))
+                && carriesNoSentinel(request)), any(RequestOptions.class));
+    }
+
+    private void sendManagedToolsCall(String toolName, Map<String, String> headers) throws Exception {
+        assertThat(sendManagedToolsCallReply(toolName, headers).statusCode()).isEqualTo(200);
+    }
+
+    private java.net.http.HttpResponse<String> sendManagedToolsCallReply(Map<String, String> headers) throws Exception {
+        return sendManagedToolsCallReply("echo", headers);
+    }
+
+    private java.net.http.HttpResponse<String> sendManagedToolsCallReply(String toolName, Map<String, String> headers)
+            throws Exception {
+        Map<String, String> sent = new java.util.HashMap<>(wiring.sseProxy().auditHeaders(Map.of()));
+        sent.putAll(headers);
+        return ScanProxyClient.sendAuditedToolsCall(wiring.sseProxy().port(), sent, toolName);
     }
 
     @ParameterizedTest

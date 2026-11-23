@@ -1,10 +1,14 @@
 package com.mcpscanner.auth.oauth.discovery;
 
+import burp.api.montoya.http.Http;
+import com.mcpscanner.auth.oauth.safety.SuspiciousDestinationGate;
 import com.mcpscanner.logging.McpEventLog;
+import com.mcpscanner.testutil.ClosedPort;
 import com.nimbusds.oauth2.sdk.as.AuthorizationServerMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
@@ -15,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class OAuthMetadataDiscovererTest {
@@ -100,6 +105,19 @@ class OAuthMetadataDiscovererTest {
         assertThatThrownBy(() -> discoverer.discover(MCP_RESOURCE))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Http is required");
+    }
+
+    @Test
+    void theAuthProbeSendsItsStreamGetOutsideBurpWhenBurpNetworkingIsOff() throws IOException {
+        Http http = mock(Http.class);
+        OAuthMetadataDiscoverer discoverer = OAuthMetadataDiscoverer.defaultInstance(http, null,
+                (url, purpose) -> SuspiciousDestinationGate.Decision.allow(), () -> false);
+
+        AuthRequirement requirement = discoverer.requirementFor(
+                URI.create("http://127.0.0.1:" + ClosedPort.onLoopback() + "/mcp"), ChallengeStrategy.STREAM_GET);
+
+        assertThat(requirement).isInstanceOf(AuthRequirement.Unsupported.class);
+        verifyNoInteractions(http);
     }
 
     @Test

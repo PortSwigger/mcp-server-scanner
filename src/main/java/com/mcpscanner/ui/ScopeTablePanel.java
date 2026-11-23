@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.auth.oauth.ScopeSelection;
 import com.mcpscanner.config.ExtensionConfigStore.PersistedScope;
 
 import javax.swing.BorderFactory;
@@ -82,12 +83,16 @@ public final class ScopeTablePanel extends JPanel {
         return model.enabledScopes();
     }
 
+    public ScopeSelection scopeSelection() {
+        return model.scopeSelection();
+    }
+
     public void seed(List<PersistedScope> scopes) {
         model.seed(scopes);
     }
 
-    public List<PersistedScope> customScopesSnapshot() {
-        return model.customScopesSnapshot();
+    public List<PersistedScope> scopesSnapshot() {
+        return model.scopesSnapshot();
     }
 
     public void setOnChange(Runnable callback) {

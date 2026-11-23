@@ -4,7 +4,9 @@ import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.mcpscanner.http.BareRequests;
+import com.mcpscanner.http.EmptyResponse;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -13,28 +15,36 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 
 public final class SendCanary {
 
     private final Http http;
+    private final Function<Duration, Http> queuedBehindScanQueue;
     private final LongSupplier nanoClock;
 
-    public SendCanary(Http http) {
-        this(http, System::nanoTime);
+    public SendCanary(Http http, Function<Duration, Http> queuedBehindScanQueue) {
+        this(http, queuedBehindScanQueue, System::nanoTime);
     }
 
     SendCanary(Http http, LongSupplier nanoClock) {
+        this(http, wait -> http, nanoClock);
+    }
+
+    SendCanary(Http http, Function<Duration, Http> queuedBehindScanQueue, LongSupplier nanoClock) {
         this.http = http;
+        this.queuedBehindScanQueue = queuedBehindScanQueue;
         this.nanoClock = nanoClock;
     }
 
     public SendCanaryReport run(SendCanaryCommand command) {
         HttpRequest request = BareRequests.fromUrl(command.url());
+        Http sender = senderFor(command);
         ExecutorService senders = Executors.newFixedThreadPool(command.concurrency(), SendCanary::daemon);
         try {
             long started = nanoClock.getAsLong();
-            List<Future<TimedSend>> sends = senders.invokeAll(Collections.nCopies(command.count(), () -> timed(request)));
+            List<Future<TimedSend>> sends = senders.invokeAll(Collections.nCopies(command.count(), () -> timed(sender, request)));
             List<TimedSend> timed = completed(sends);
             return new SendCanaryReport(timed.stream().map(TimedSend::micros).toList(),
                     micros(nanoClock.getAsLong() - started),
@@ -47,16 +57,20 @@ public final class SendCanary {
         }
     }
 
-    private TimedSend timed(HttpRequest request) {
+    private Http senderFor(SendCanaryCommand command) {
+        return command.queued() ? queuedBehindScanQueue.apply(command.queueWait()) : http;
+    }
+
+    private TimedSend timed(Http sender, HttpRequest request) {
         long started = nanoClock.getAsLong();
-        boolean answered = answered(request);
+        boolean answered = answered(sender, request);
         return new TimedSend(micros(nanoClock.getAsLong() - started), answered);
     }
 
-    private boolean answered(HttpRequest request) {
+    private static boolean answered(Http sender, HttpRequest request) {
         try {
-            HttpRequestResponse exchange = http.sendRequest(request);
-            return exchange != null && exchange.response() != null;
+            HttpRequestResponse exchange = sender.sendRequest(request);
+            return exchange != null && exchange.response() != null && !EmptyResponse.is(exchange.response());
         } catch (RuntimeException failed) {
             return false;
         }

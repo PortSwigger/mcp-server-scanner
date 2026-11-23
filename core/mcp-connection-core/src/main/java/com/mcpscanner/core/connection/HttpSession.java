@@ -53,7 +53,13 @@ public final class HttpSession {
 
     private boolean missingSession(McpFlow.Session sentSession, McpRequests.Request request, McpFlow.HttpResponse response) {
         return response.status() == 404 && sentSession.sessionId() != null
-            && !McpRequests.MODERN_VERSION.equals(sentSession.version()) && !answersRequest(request, response);
+            && !McpRequests.MODERN_VERSION.equals(sentSession.version())
+            && carriesSessionVersion(sentSession, request) && !answersRequest(request, response);
+    }
+
+    private static boolean carriesSessionVersion(McpFlow.Session sentSession, McpRequests.Request request) {
+        return Headers.first(request.headers(), "MCP-Protocol-Version")
+            .map(sentSession.version()::equals).orElse(true);
     }
 
     private static boolean answersRequest(McpRequests.Request request, McpFlow.HttpResponse response) {

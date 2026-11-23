@@ -43,6 +43,7 @@ final class ScanLaunchPresenter {
     }
 
     private final McpScannerTabDependencies deps;
+    private final ScanServices scanning;
     private final ScanPlanner planner;
     private final Component parent;
     private final Host host;
@@ -53,13 +54,15 @@ final class ScanLaunchPresenter {
     private boolean inFlight;
     private RunningScan latest;
 
-    ScanLaunchPresenter(McpScannerTabDependencies deps, ScanPlanner planner, Component parent, Host host) {
+    ScanLaunchPresenter(McpScannerTabDependencies deps, ScanServices scanning, ScanPlanner planner, Component parent,
+                        Host host) {
         this.deps = deps;
+        this.scanning = scanning;
         this.planner = planner;
         this.parent = parent;
         this.host = host;
-        this.destructiveScans = new DestructiveScanGate(deps.configStore(), deps.destructiveScanPrompt(),
-                () -> ScanModeText.of(deps.scanModeSetting().current()).invoker());
+        this.destructiveScans = new DestructiveScanGate(deps.configStore(), scanning.destructiveScanPrompt(),
+                () -> ScanModeText.of(scanning.scanModeSetting().current()).invoker());
         this.plannedCounts = new PlannedRequestCounts<>(deps.uiReads());
     }
 
@@ -105,11 +108,11 @@ final class ScanLaunchPresenter {
     }
 
     private void launch(GeneratedScan scan, String summary) {
-        ScanMode mode = deps.scanModeSetting().current();
-        ScanConnection connection = deps.scanLauncher().captureConnection();
+        ScanMode mode = scanning.scanModeSetting().current();
+        ScanConnection connection = scanning.scanLauncher().captureConnection();
         AuthStrategy strategy = host.connectionAuth();
         String endpoint = deps.clientManager().scannerSession().resolvedEndpoint();
-        Supplier<RunningScan> started = deps.scanLauncher().captureScan(mode, endpoint, scan,
+        Supplier<RunningScan> started = scanning.scanLauncher().captureScan(mode, endpoint, scan,
                 CredentialedHeaders.of(deps.clientManager().scannerSession()::scannerHeaders, strategy), connection);
         if (!confirmDestructiveScan(scan.invokedTools(), endpoint)) {
             return;
@@ -123,7 +126,7 @@ final class ScanLaunchPresenter {
 
     private String startedMessage(String summary, ScanMode mode) {
         return "Scan started: " + summary + " with "
-                + ScanModeText.of(mode).checksRun(deps.checkRegistry().enabledActiveCheckCount());
+                + ScanModeText.of(mode).checksRun(scanning.checkRegistry().enabledActiveCheckCount());
     }
 
     private boolean confirmDestructiveScan(List<McpToolDefinition> selectedTools, String endpoint) {
@@ -218,7 +221,7 @@ final class ScanLaunchPresenter {
         }
 
         private ConnectionStatus startedStatus() {
-            if (deps.scanLauncher().waitsForPausedTasks(mode)) {
+            if (scanning.scanLauncher().waitsForPausedTasks(mode)) {
                 return ConnectionStatus.scanWaitingForPausedTasks(summary);
             }
             return ConnectionStatus.scanStarted(summary, ScanModeText.of(mode).resultsLocation());

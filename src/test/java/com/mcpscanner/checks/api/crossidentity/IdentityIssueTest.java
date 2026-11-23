@@ -47,11 +47,27 @@ class IdentityIssueTest {
     }
 
     @Test
+    void aMoreConfidentFindingOfTheSameItemReplacesTheIssueAlreadyFiled() {
+        AuditIssue tentative = rendered(resourceRead("notes://alice/private.md", "A"), ReplayedOperation.READ);
+        AuditIssue certain = withConfidence(AuditIssueConfidence.CERTAIN)
+                .render(OperationSeed.of(resourceRead("notes://alice/private.md", "A")).orElseThrow(),
+                        ReplayedOperation.READ, List.of(), List.of());
+
+        assertThat(IdentityIssue.consolidate(tentative, certain)).isEqualTo(ConsolidationAction.KEEP_NEW);
+        assertThat(IdentityIssue.consolidate(certain, tentative)).isEqualTo(ConsolidationAction.KEEP_EXISTING);
+    }
+
+    @Test
     void anotherItemAtTheSameUrlAndNameIsKeptBesideIt() {
         AuditIssue filed = rendered(resourceRead("notes://alice/private.md", "A"), ReplayedOperation.READ);
         AuditIssue other = rendered(resourceRead("notes://bob/private.md", "A"), ReplayedOperation.READ);
 
         assertThat(IdentityIssue.consolidate(filed, other)).isEqualTo(ConsolidationAction.KEEP_BOTH);
+    }
+
+    private static IdentityIssue withConfidence(AuditIssueConfidence confidence) {
+        return new IdentityIssue(ISSUE.name(), ISSUE.severity(), confidence, ISSUE.background(), ISSUE.strength(),
+                ISSUE.observation());
     }
 
     private static AuditIssue rendered(HttpRequest request, ReplayedOperation replayed) {

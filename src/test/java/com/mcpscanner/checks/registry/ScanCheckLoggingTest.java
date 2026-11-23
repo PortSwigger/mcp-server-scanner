@@ -21,15 +21,16 @@ class ScanCheckLoggingTest {
     }
 
     @Test
-    void emits_started_line_before_check_runs() {
+    void logs_the_started_and_issue_free_finish_lines_of_an_invocation_at_debug_only() {
         AuditResult empty = AuditResult.auditResult(List.of());
 
         ScanCheckLogging.runAndLog(eventLog, "demo-check", tally -> empty);
 
-        List<String> infos = infos();
-        assertThat(infos).hasSize(2);
-        assertThat(infos.get(0)).isEqualTo("Scan check: demo-check — started");
-        assertThat(infos.get(1))
+        assertThat(lines(McpEventLog.Level.INFO)).isEmpty();
+        List<String> debugs = lines(McpEventLog.Level.DEBUG);
+        assertThat(debugs).hasSize(2);
+        assertThat(debugs.get(0)).isEqualTo("Scan check: demo-check — started");
+        assertThat(debugs.get(1))
                 .startsWith("Scan check: demo-check — finished in ")
                 .endsWith("ms, 0 requests, 0 issues");
     }
@@ -42,8 +43,19 @@ class ScanCheckLoggingTest {
             return AuditResult.auditResult(List.of());
         });
 
-        assertThat(infos().get(1))
+        assertThat(lines(McpEventLog.Level.DEBUG).get(1))
                 .matches("Scan check: demo-check — finished in \\d+ms, 2 requests, 0 issues");
+    }
+
+    @Test
+    void a_thousand_issue_free_invocations_do_not_push_out_an_earlier_info_line() {
+        eventLog.info("Connect: browser consent check found nothing");
+
+        for (int invocation = 0; invocation < 1000; invocation++) {
+            ScanCheckLogging.runAndLog(eventLog, "demo-check", tally -> AuditResult.auditResult(List.of()));
+        }
+
+        assertThat(lines(McpEventLog.Level.INFO)).containsExactly("Connect: browser consent check found nothing");
     }
 
     @Test
@@ -64,9 +76,9 @@ class ScanCheckLoggingTest {
         assertThat(eventLog.snapshot()).noneMatch(McpEventLog.LogEntry::kept);
     }
 
-    private List<String> infos() {
+    private List<String> lines(McpEventLog.Level level) {
         return eventLog.snapshot().stream()
-                .filter(e -> e.level() == McpEventLog.Level.INFO)
+                .filter(e -> e.level() == level)
                 .map(McpEventLog.LogEntry::message)
                 .toList();
     }

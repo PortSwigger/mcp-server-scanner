@@ -99,6 +99,65 @@ class SlotLimitedEnvironmentTest {
         assertThat(slots.tryAcquire()).isPresent().get().satisfies(ArmSlot::close);
     }
 
+    @Test
+    void takesTheDelegatesReservationBeforeTheSlotAndReleasesBothWhenClosedUnstarted() {
+        MachineSlots slots = new MachineSlots(slotsDirectory, 1, Pause.sleeping(), Duration.ofMinutes(1), order::add);
+
+        new SlotLimitedEnvironment(reserving(slots), slots).reserve(target(), target().manifest().arms().get(0)).close();
+
+        assertThat(order).containsExactly("delegate reserved, slot free: true", "delegate reservation released");
+        assertThat(slots.tryAcquire()).isPresent().get().satisfies(ArmSlot::close);
+    }
+
+    @Test
+    void startsTheDelegatesReservationAndKeepsTheSlotUntilTeardown() {
+        MachineSlots slots = new MachineSlots(slotsDirectory, 1, Pause.sleeping(), Duration.ofMinutes(1), order::add);
+
+        RunningArm arm = new SlotLimitedEnvironment(reserving(slots), slots)
+                .start(target(), target().manifest().arms().get(0));
+        order.add("slot free while running: " + slots.tryAcquire().isPresent());
+        arm.close();
+
+        assertThat(order).containsExactly("delegate reserved, slot free: true", "start",
+                "slot free while running: false", "teardown");
+        assertThat(slots.tryAcquire()).isPresent().get().satisfies(ArmSlot::close);
+    }
+
+    @Test
+    void releasesTheDelegatesReservationWhenNoSlotCanBeTaken() {
+        MachineSlots slots = new MachineSlots(slotsDirectory, 1, Pause.sleeping(), Duration.ofMinutes(1), message -> {
+            throw new IllegalStateException("gave up waiting");
+        });
+        ArmSlot occupied = slots.tryAcquire().orElseThrow();
+
+        assertThatThrownBy(() -> new SlotLimitedEnvironment(reserving(slots), slots)
+                .reserve(target(), target().manifest().arms().get(0)))
+                .hasMessage("gave up waiting");
+        occupied.close();
+
+        assertThat(order).containsExactly("delegate reserved, slot free: false", "delegate reservation released");
+    }
+
+    private TargetEnvironment reserving(MachineSlots slots) {
+        TargetEnvironment recording = recording();
+        return new TargetEnvironment() {
+            @Override
+            public RunningArm start(LoadedTarget target, com.mcpscanner.cvetargets.manifest.TargetArm arm) {
+                return recording.start(target, arm);
+            }
+
+            @Override
+            public ReservedArm reserve(LoadedTarget target, com.mcpscanner.cvetargets.manifest.TargetArm arm) {
+                order.add("delegate reserved, slot free: " + slots.tryAcquire().map(slot -> {
+                    slot.close();
+                    return true;
+                }).orElse(false));
+                return new ReservedArm(() -> recording.start(target, arm),
+                        () -> order.add("delegate reservation released"));
+            }
+        };
+    }
+
     private TargetEnvironment recording() {
         return (target, arm) -> {
             order.add("start");

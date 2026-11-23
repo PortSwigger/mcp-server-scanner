@@ -2,6 +2,7 @@ package com.mcpscanner.config;
 
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
+import burp.api.montoya.persistence.Preferences;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.mcpscanner.mcp.McpObjectMapper;
@@ -19,57 +20,26 @@ public final class ExtensionConfigStore {
 
     public static final int DEFAULT_OAUTH_REDIRECT_PORT = 0;
 
-    private static final String KEY_ENDPOINT = "mcp.endpoint";
-    private static final String KEY_TRANSPORT = "mcp.transport";
-    private static final String KEY_AUTH_TYPE = "mcp.auth.type";
-    private static final String KEY_OAUTH_GRANT = "mcp.auth.oauth.grant";
-    private static final String KEY_OAUTH_GRANT_MIGRATED = "mcp.auth.oauth.grant.migrated";
-    private static final String KEY_REDIRECT_MODE = "mcp.redirect.mode";
-    private static final String KEY_SEND_TO_HANDLE_AUTH = "mcp.sendto.handle_auth";
-    private static final String KEY_ANSWER_SERVER_PINGS = "mcp.server_pings.answer";
-    private static final String KEY_USE_BURP_NETWORKING = "mcp.networking.use_burp";
-    private static final String KEY_AUTH_AUTO_DETECT = "mcp.auth.auto_detect";
-    private static final String KEY_AUTH_AUTO_DETECT_MIGRATED = "mcp.auth.auto_detect.migrated";
-    private static final String KEY_OAUTH_ISSUER = "mcp.oauth.issuer";
-    private static final String KEY_OAUTH_REDIRECT_PORT = "mcp.oauth.redirect_port";
-    private static final String KEY_OAUTH_SKIP_DCR = "mcp.oauth.skip_dcr";
-    private static final String KEY_OAUTH_REGISTRATION_MODE = "mcp.oauth.registration_mode";
-    private static final String KEY_OAUTH_CLIENT_ISSUER = "mcp.oauth.client_issuer";
-    private static final String KEY_OAUTH_METADATA_URL = "mcp.oauth.client_metadata_url";
-    private static final String KEY_OAUTH_CLIENT_ID = "mcp.oauth.client_id";
-    private static final String KEY_OAUTH_SCOPES = "mcp.oauth.scopes";
-    private static final String KEY_IDENTITIES = "mcp.identities";
-    private static final String KEY_PRIMARY_PROFILE = "mcp.identities.primary";
-    private static final String KEY_UNREADABLE_IDENTITIES_BACKUP = "mcp.identities.unreadable_backup";
-    private static final String KEY_CHECK_PREFIX = "mcp.check.";
-    private static final String KEY_CHECK_ENABLED_SUFFIX = ".enabled";
-    private static final String KEY_FAMILY_PREFIX = "mcp.family.";
-    private static final String KEY_HEADER_FIELDS_ENABLED = "mcp.fields.headers.enabled";
-    private static final String KEY_SCAN_MODE = "mcp.scan.mode";
-    private static final String KEY_MINING_PASSES = "mcp.mining.passes";
-    private static final String KEY_MINING_WRITE_TOOLS = "mcp.mining.write_tools";
-    private static final String KEY_MINED_IN_WRITE_TOOLS = "mcp.mining.mined_in_write_tools";
-    private static final String KEY_SCOPE_PREFIX = "mcp.scope.";
     private static final String KEY_SCOPE_TOOL_INFIX = ".tool.";
     private static final String KEY_SCOPE_SELECTED_SUFFIX = ".selected";
     private static final String KEY_SCOPE_DONT_ASK_SUFFIX = ".dontAskAgain";
     private static final String KEY_SCOPE_ACCESS_INFIX = ".access.";
     private static final String KEY_SCOPE_EXPECTATION_SUFFIX = ".expectation";
-    private static final String KEY_DCR_PREFIX = "mcp.dcr.";
     private static final String KEY_DCR_REG_TOKEN_SUFFIX = ".reg_token";
     private static final String KEY_DCR_REG_URI_SUFFIX = ".reg_uri";
 
     private static final TypeReference<List<PersistedScope>> SCOPE_LIST_TYPE = new TypeReference<>() {};
 
-    private final PersistedObject store;
+    private final LayeredSettings store;
     private final Logging logging;
     private final Map<String, String> dcrManagementTokens = new ConcurrentHashMap<>();
     private final List<Runnable> settingsChangeListeners = new CopyOnWriteArrayList<>();
     private final List<Runnable> endpointChangeListeners = new CopyOnWriteArrayList<>();
 
-    public ExtensionConfigStore(PersistedObject store, Logging logging) {
-        this.store = store;
+    public ExtensionConfigStore(PersistedObject project, Preferences userDefaults, Logging logging) {
+        this.store = new LayeredSettings(project, userDefaults);
         this.logging = logging;
+        store.startNewProjectFromUserDefaults();
         migrateRegistrationMode();
         deleteDcrManagementTokensSavedByOlderVersions();
     }
@@ -85,12 +55,12 @@ public final class ExtensionConfigStore {
     }
 
     public String endpoint() {
-        return store.getString(KEY_ENDPOINT);
+        return store.getString(SettingKey.ENDPOINT.key());
     }
 
     public void setEndpoint(String endpoint) {
         boolean changed = !Objects.equals(endpoint(), endpoint);
-        store.setString(KEY_ENDPOINT, endpoint);
+        store.setString(SettingKey.ENDPOINT.key(), endpoint);
         if (changed) {
             endpointChangeListeners.forEach(Runnable::run);
         }
@@ -101,40 +71,40 @@ public final class ExtensionConfigStore {
     }
 
     public String transport() {
-        return store.getString(KEY_TRANSPORT);
+        return store.getString(SettingKey.TRANSPORT.key());
     }
 
     public void setTransport(String transport) {
-        store.setString(KEY_TRANSPORT, transport);
+        store.setString(SettingKey.TRANSPORT.key(), transport);
     }
 
     public String authType() {
-        return store.getString(KEY_AUTH_TYPE);
+        return store.getString(SettingKey.AUTH_TYPE.key());
     }
 
     public void setAuthType(String authType) {
-        store.setString(KEY_AUTH_TYPE, authType);
+        store.setString(SettingKey.AUTH_TYPE.key(), authType);
     }
 
     public String oauthGrant() {
-        return store.getString(KEY_OAUTH_GRANT);
+        return store.getString(SettingKey.OAUTH_GRANT.key());
     }
 
     public void setOauthGrant(String grant) {
-        store.setString(KEY_OAUTH_GRANT, grant);
+        store.setString(SettingKey.OAUTH_GRANT.key(), grant);
     }
 
     public boolean oauthGrantMigrated() {
-        return Boolean.TRUE.equals(store.getBoolean(KEY_OAUTH_GRANT_MIGRATED));
+        return Boolean.TRUE.equals(store.getBoolean(SettingKey.OAUTH_GRANT_MIGRATED.key()));
     }
 
     public void retireOauthGrant() {
-        store.deleteString(KEY_OAUTH_GRANT);
-        store.setBoolean(KEY_OAUTH_GRANT_MIGRATED, true);
+        store.deleteString(SettingKey.OAUTH_GRANT.key());
+        store.setBoolean(SettingKey.OAUTH_GRANT_MIGRATED.key(), true);
     }
 
     public RedirectMode redirectMode() {
-        String saved = store.getString(KEY_REDIRECT_MODE);
+        String saved = store.getString(SettingKey.REDIRECT_MODE.key());
         if (saved == null) return RedirectMode.METHOD_PRESERVING_SAME_ORIGIN;
         try {
             return RedirectMode.valueOf(saved);
@@ -145,7 +115,7 @@ public final class ExtensionConfigStore {
     }
 
     public void setRedirectMode(RedirectMode mode) {
-        store.setString(KEY_REDIRECT_MODE, Objects.requireNonNull(mode).name());
+        store.setString(SettingKey.REDIRECT_MODE.key(), Objects.requireNonNull(mode).name());
         notifySettingsChanged();
     }
 
@@ -170,42 +140,50 @@ public final class ExtensionConfigStore {
     }
 
     public boolean handleSendToAuthentication() {
-        return Boolean.TRUE.equals(store.getBoolean(KEY_SEND_TO_HANDLE_AUTH));
+        return Boolean.TRUE.equals(store.getBoolean(SettingKey.SEND_TO_HANDLE_AUTH.key()));
     }
 
     public void setHandleSendToAuthentication(boolean handle) {
-        store.setBoolean(KEY_SEND_TO_HANDLE_AUTH, handle);
+        store.setBoolean(SettingKey.SEND_TO_HANDLE_AUTH.key(), handle);
         notifySettingsChanged();
     }
 
     public boolean answerServerPings() {
-        return !Boolean.FALSE.equals(store.getBoolean(KEY_ANSWER_SERVER_PINGS));
+        return !Boolean.FALSE.equals(store.getBoolean(SettingKey.ANSWER_SERVER_PINGS.key()));
     }
 
     public void setAnswerServerPings(boolean answer) {
-        store.setBoolean(KEY_ANSWER_SERVER_PINGS, answer);
+        store.setBoolean(SettingKey.ANSWER_SERVER_PINGS.key(), answer);
         notifySettingsChanged();
     }
 
     public boolean legacyAutoDetectAuth() {
-        return !Boolean.FALSE.equals(store.getBoolean(KEY_AUTH_AUTO_DETECT));
+        return !Boolean.FALSE.equals(store.getBoolean(SettingKey.AUTH_AUTO_DETECT.key()));
     }
 
     public boolean autoDetectMigrated() {
-        return Boolean.TRUE.equals(store.getBoolean(KEY_AUTH_AUTO_DETECT_MIGRATED));
+        return Boolean.TRUE.equals(store.getBoolean(SettingKey.AUTH_AUTO_DETECT_MIGRATED.key()));
     }
 
     public void markAutoDetectMigrated() {
-        store.setBoolean(KEY_AUTH_AUTO_DETECT_MIGRATED, true);
+        store.setBoolean(SettingKey.AUTH_AUTO_DETECT_MIGRATED.key(), true);
     }
 
     public boolean useBurpNetworking() {
-        return !Boolean.FALSE.equals(store.getBoolean(KEY_USE_BURP_NETWORKING));
+        return !Boolean.FALSE.equals(store.getBoolean(SettingKey.USE_BURP_NETWORKING.key()));
     }
 
     public void setUseBurpNetworking(boolean use) {
-        store.setBoolean(KEY_USE_BURP_NETWORKING, use);
+        store.setBoolean(SettingKey.USE_BURP_NETWORKING.key(), use);
         notifySettingsChanged();
+    }
+
+    public void saveAsUserDefaults() {
+        store.saveProjectValuesAsUserDefaults();
+    }
+
+    public void resetUserDefaults() {
+        store.clearUserDefaults();
     }
 
     public void addSettingsChangeListener(Runnable listener) {
@@ -217,34 +195,34 @@ public final class ExtensionConfigStore {
     }
 
     public String oauthIssuer() {
-        return store.getString(KEY_OAUTH_ISSUER);
+        return store.getString(SettingKey.OAUTH_ISSUER.key());
     }
 
     public void setOauthIssuer(String issuer) {
-        store.setString(KEY_OAUTH_ISSUER, issuer);
+        store.setString(SettingKey.OAUTH_ISSUER.key(), issuer);
     }
 
     public int oauthRedirectPort() {
-        Integer port = store.getInteger(KEY_OAUTH_REDIRECT_PORT);
+        Integer port = store.getInteger(SettingKey.OAUTH_REDIRECT_PORT.key());
         return port != null ? port : DEFAULT_OAUTH_REDIRECT_PORT;
     }
 
     public void setOauthRedirectPort(int port) {
-        store.setInteger(KEY_OAUTH_REDIRECT_PORT, port);
+        store.setInteger(SettingKey.OAUTH_REDIRECT_PORT.key(), port);
     }
 
     public boolean oauthSkipDcr() {
-        Boolean skip = store.getBoolean(KEY_OAUTH_SKIP_DCR);
+        Boolean skip = store.getBoolean(SettingKey.OAUTH_SKIP_DCR.key());
         return skip != null && skip;
     }
 
     public RegistrationMode oauthRegistrationMode() {
-        String saved = store.getString(KEY_OAUTH_REGISTRATION_MODE);
+        String saved = store.getString(SettingKey.OAUTH_REGISTRATION_MODE.key());
         return saved == null ? legacyRegistrationMode() : parseRegistrationMode(saved).orElse(RegistrationMode.AUTO);
     }
 
     private void migrateRegistrationMode() {
-        String saved = store.getString(KEY_OAUTH_REGISTRATION_MODE);
+        String saved = store.getString(SettingKey.OAUTH_REGISTRATION_MODE.key());
         if (saved == null) {
             migrateLegacyRegistrationChoice();
         } else if (parseRegistrationMode(saved).isEmpty()) {
@@ -276,31 +254,31 @@ public final class ExtensionConfigStore {
     }
 
     public void setOauthRegistrationMode(RegistrationMode mode) {
-        store.setString(KEY_OAUTH_REGISTRATION_MODE, mode.name());
+        store.setString(SettingKey.OAUTH_REGISTRATION_MODE.key(), mode.name());
     }
 
     public String oauthClientIssuer() {
-        return store.getString(KEY_OAUTH_CLIENT_ISSUER);
+        return store.getString(SettingKey.OAUTH_CLIENT_ISSUER.key());
     }
 
     public void setOauthClientIssuer(String issuer) {
-        store.setString(KEY_OAUTH_CLIENT_ISSUER, issuer);
+        store.setString(SettingKey.OAUTH_CLIENT_ISSUER.key(), issuer);
     }
 
     public String oauthClientMetadataUrl() {
-        return store.getString(KEY_OAUTH_METADATA_URL);
+        return store.getString(SettingKey.OAUTH_METADATA_URL.key());
     }
 
     public void setOauthClientMetadataUrl(String url) {
-        store.setString(KEY_OAUTH_METADATA_URL, url);
+        store.setString(SettingKey.OAUTH_METADATA_URL.key(), url);
     }
 
     public String oauthClientId() {
-        return store.getString(KEY_OAUTH_CLIENT_ID);
+        return store.getString(SettingKey.OAUTH_CLIENT_ID.key());
     }
 
     public void setOauthClientId(String clientId) {
-        store.setString(KEY_OAUTH_CLIENT_ID, clientId);
+        store.setString(SettingKey.OAUTH_CLIENT_ID.key(), clientId);
     }
 
     public String dcrRegistrationManagementToken(String issuer) {
@@ -312,12 +290,12 @@ public final class ExtensionConfigStore {
     }
 
     private void deleteDcrManagementTokensSavedByOlderVersions() {
-        store.stringKeys().stream().filter(ExtensionConfigStore::isDcrRegTokenKey).toList()
+        store.projectStringKeys().stream().filter(ExtensionConfigStore::isDcrRegTokenKey).toList()
                 .forEach(store::deleteString);
     }
 
     private static boolean isDcrRegTokenKey(String key) {
-        return key.startsWith(KEY_DCR_PREFIX) && key.endsWith(KEY_DCR_REG_TOKEN_SUFFIX);
+        return key.startsWith(SettingKey.DCR_REGISTRATION.prefix()) && key.endsWith(KEY_DCR_REG_TOKEN_SUFFIX);
     }
 
     public String dcrRegistrationClientUri(String issuer) {
@@ -329,7 +307,7 @@ public final class ExtensionConfigStore {
     }
 
     public List<PersistedScope> scopes() {
-        String json = store.getString(KEY_OAUTH_SCOPES);
+        String json = store.getString(SettingKey.OAUTH_SCOPES.key());
         if (json == null || json.isBlank()) {
             return List.of();
         }
@@ -343,90 +321,98 @@ public final class ExtensionConfigStore {
 
     public void setScopes(List<PersistedScope> scopes) {
         try {
-            store.setString(KEY_OAUTH_SCOPES, McpObjectMapper.INSTANCE.writeValueAsString(scopes));
+            store.setString(SettingKey.OAUTH_SCOPES.key(), McpObjectMapper.INSTANCE.writeValueAsString(scopes));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Failed to serialize scopes", e);
         }
     }
 
     public String identitiesJson() {
-        return store.getString(KEY_IDENTITIES);
+        return store.getString(SettingKey.IDENTITIES.key());
     }
 
     public void setIdentitiesJson(String json) {
-        store.setString(KEY_IDENTITIES, json);
+        store.setString(SettingKey.IDENTITIES.key(), json);
     }
 
     public String primaryProfileJson() {
-        return store.getString(KEY_PRIMARY_PROFILE);
+        return store.getString(SettingKey.PRIMARY_PROFILE.key());
     }
 
     public void clearPrimaryProfileJson() {
-        store.deleteString(KEY_PRIMARY_PROFILE);
+        store.deleteString(SettingKey.PRIMARY_PROFILE.key());
     }
 
     public String unreadableIdentitiesBackupJson() {
-        return store.getString(KEY_UNREADABLE_IDENTITIES_BACKUP);
+        return store.getString(SettingKey.UNREADABLE_IDENTITIES_BACKUP.key());
     }
 
     public void setUnreadableIdentitiesBackupJson(String json) {
-        store.setString(KEY_UNREADABLE_IDENTITIES_BACKUP, json);
+        store.setString(SettingKey.UNREADABLE_IDENTITIES_BACKUP.key(), json);
     }
 
     public Boolean checkEnabled(String id) {
-        return store.getBoolean(KEY_CHECK_PREFIX + id + KEY_CHECK_ENABLED_SUFFIX);
+        return store.getBoolean(SettingKey.CHECK_ENABLED.key(id));
     }
 
     public void setCheckEnabled(String id, boolean enabled) {
-        store.setBoolean(KEY_CHECK_PREFIX + id + KEY_CHECK_ENABLED_SUFFIX, enabled);
+        store.setBoolean(SettingKey.CHECK_ENABLED.key(id), enabled);
     }
 
     public Boolean requestFamilyEnabled(String familyId) {
-        return store.getBoolean(KEY_FAMILY_PREFIX + familyId + KEY_CHECK_ENABLED_SUFFIX);
+        return store.getBoolean(SettingKey.REQUEST_FAMILY_ENABLED.key(familyId));
     }
 
     public void setRequestFamilyEnabled(String familyId, boolean enabled) {
-        store.setBoolean(KEY_FAMILY_PREFIX + familyId + KEY_CHECK_ENABLED_SUFFIX, enabled);
+        store.setBoolean(SettingKey.REQUEST_FAMILY_ENABLED.key(familyId), enabled);
     }
 
     public Boolean headerFieldsEnabled() {
-        return store.getBoolean(KEY_HEADER_FIELDS_ENABLED);
+        return store.getBoolean(SettingKey.HEADER_FIELDS_ENABLED.key());
     }
 
     public void setHeaderFieldsEnabled(boolean enabled) {
-        store.setBoolean(KEY_HEADER_FIELDS_ENABLED, enabled);
+        store.setBoolean(SettingKey.HEADER_FIELDS_ENABLED.key(), enabled);
+    }
+
+    public Boolean metaEnvelopeFuzzedOnEveryRequest() {
+        return store.getBoolean(SettingKey.META_ENVELOPE_EVERY_REQUEST.key());
+    }
+
+    public void setMetaEnvelopeFuzzedOnEveryRequest(boolean enabled) {
+        store.setBoolean(SettingKey.META_ENVELOPE_EVERY_REQUEST.key(), enabled);
     }
 
     public String scanMode() {
-        return store.getString(KEY_SCAN_MODE);
+        return store.getString(SettingKey.SCAN_MODE.key());
     }
 
     public void setScanMode(String mode) {
-        store.setString(KEY_SCAN_MODE, mode);
+        store.setString(SettingKey.SCAN_MODE.key(), mode);
     }
 
     public String miningPasses() {
-        return store.getString(KEY_MINING_PASSES);
+        return store.getString(SettingKey.MINING_PASSES.key());
     }
 
     public void setMiningPasses(String passes) {
-        store.setString(KEY_MINING_PASSES, passes);
+        store.setString(SettingKey.MINING_PASSES.key(), passes);
     }
 
     public String miningWriteTools() {
-        return store.getString(KEY_MINING_WRITE_TOOLS);
+        return store.getString(SettingKey.MINING_WRITE_TOOLS.key());
     }
 
     public void setMiningWriteTools(String writeTools) {
-        store.setString(KEY_MINING_WRITE_TOOLS, writeTools);
+        store.setString(SettingKey.MINING_WRITE_TOOLS.key(), writeTools);
     }
 
     public boolean minedIdsInWriteTools() {
-        return Boolean.TRUE.equals(store.getBoolean(KEY_MINED_IN_WRITE_TOOLS));
+        return Boolean.TRUE.equals(store.getBoolean(SettingKey.MINED_IN_WRITE_TOOLS.key()));
     }
 
     public void setMinedIdsInWriteTools(boolean use) {
-        store.setBoolean(KEY_MINED_IN_WRITE_TOOLS, use);
+        store.setBoolean(SettingKey.MINED_IN_WRITE_TOOLS.key(), use);
     }
 
     public Boolean toolSelected(String endpoint, String toolName) {
@@ -455,35 +441,43 @@ public final class ExtensionConfigStore {
     }
 
     public int clearDontAskAgainForAllServers() {
-        List<String> keys = store.booleanKeys().stream().filter(ExtensionConfigStore::isDontAskAgainKey).toList();
+        List<String> keys = store.projectBooleanKeys().stream().filter(ExtensionConfigStore::isDontAskAgainKey).toList();
         keys.forEach(store::deleteBoolean);
         return keys.size();
     }
 
     private static boolean isDontAskAgainKey(String key) {
-        return key.startsWith(KEY_SCOPE_PREFIX) && key.endsWith(KEY_SCOPE_DONT_ASK_SUFFIX);
+        return key.startsWith(SettingKey.SERVER_SCOPED.prefix()) && key.endsWith(KEY_SCOPE_DONT_ASK_SUFFIX);
     }
 
     private static HashedKey dcrRegTokenKey(String issuer) {
-        return HashedKey.of(KEY_DCR_PREFIX, issuer, KEY_DCR_REG_TOKEN_SUFFIX);
+        return HashedKey.of(SettingKey.DCR_REGISTRATION.prefix(), issuer, KEY_DCR_REG_TOKEN_SUFFIX);
+    }
+
+    public boolean signedInConsentOptedIn() {
+        return Boolean.TRUE.equals(store.getBoolean(SettingKey.OAUTH_CONSENT_SIGNED_IN.key()));
+    }
+
+    public void setSignedInConsentOptedIn(boolean optedIn) {
+        store.setBoolean(SettingKey.OAUTH_CONSENT_SIGNED_IN.key(), optedIn);
     }
 
     private static HashedKey dcrRegUriKey(String issuer) {
-        return HashedKey.of(KEY_DCR_PREFIX, issuer, KEY_DCR_REG_URI_SUFFIX);
+        return HashedKey.of(SettingKey.DCR_REGISTRATION.prefix(), issuer, KEY_DCR_REG_URI_SUFFIX);
     }
 
     private static HashedKey toolSelectedKey(String endpoint, String toolName) {
-        return HashedKey.of(KEY_SCOPE_PREFIX, endpointOrEmpty(endpoint),
+        return HashedKey.of(SettingKey.SERVER_SCOPED.prefix(), endpointOrEmpty(endpoint),
                 KEY_SCOPE_TOOL_INFIX + toolName + KEY_SCOPE_SELECTED_SUFFIX);
     }
 
     private static HashedKey accessExpectationKey(String endpoint, String item) {
-        return HashedKey.of(KEY_SCOPE_PREFIX, endpointOrEmpty(endpoint),
+        return HashedKey.of(SettingKey.SERVER_SCOPED.prefix(), endpointOrEmpty(endpoint),
                 KEY_SCOPE_ACCESS_INFIX + item + KEY_SCOPE_EXPECTATION_SUFFIX);
     }
 
     private static HashedKey dontAskAgainKey(String endpoint) {
-        return HashedKey.of(KEY_SCOPE_PREFIX, endpointOrEmpty(endpoint), KEY_SCOPE_DONT_ASK_SUFFIX);
+        return HashedKey.of(SettingKey.SERVER_SCOPED.prefix(), endpointOrEmpty(endpoint), KEY_SCOPE_DONT_ASK_SUFFIX);
     }
 
     private static String endpointOrEmpty(String endpoint) {

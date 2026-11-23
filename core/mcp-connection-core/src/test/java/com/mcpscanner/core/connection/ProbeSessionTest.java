@@ -33,6 +33,7 @@ public final class ProbeSessionTest {
         failedCleanupIsSuppressedBehindTheHandshakeFailure();
         sseSessionIdIsDecodedWhereverItAppears();
         emptySseSessionIdIsNoSessionId();
+        sseSessionIdIsAlsoAvailableAsSent();
         System.out.println("ProbeSessionTest passed");
     }
 
@@ -213,6 +214,11 @@ public final class ProbeSessionTest {
     private static void sseSessionIdIsDecodedWhereverItAppears() {
         equal(Optional.of("a+b"), SseSessionIds.from("/messages/?x=1&session_id=a%2Bb"));
         equal(Optional.of("t s"), SseSessionIds.from("http://host/message?transport=sse&sessionId=t%20s"));
+    }
+
+    private static void sseSessionIdIsAlsoAvailableAsSent() {
+        equal(Optional.of("a%2Bb%3D%3D"), SseSessionIds.sentFrom("/messages/?x=1&session_id=a%2Bb%3D%3D"));
+        equal(Optional.empty(), SseSessionIds.sentFrom("/message?sessionId="));
     }
 
     private static void emptySseSessionIdIsNoSessionId() {

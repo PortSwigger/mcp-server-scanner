@@ -28,7 +28,7 @@ public final class StaleConnectionResendingTransport implements ProtocolHttpTran
 
     public static StaleConnectionResendingTransport whenResendable(ProtocolHttpTransport delegate,
                                                                    ResendableRequests resendableRequests) {
-        return when(delegate, request -> !request.hasBody() || resendableRequests.resendable(request.body()));
+        return when(delegate, request -> resendableRequests.resendable(request.method(), request.body()));
     }
 
     @Override

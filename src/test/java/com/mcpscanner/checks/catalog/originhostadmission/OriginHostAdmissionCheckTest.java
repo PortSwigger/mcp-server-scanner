@@ -252,12 +252,14 @@ class OriginHostAdmissionCheckTest {
     }
 
     @Test
-    void evidenceHoldsTheBaselineTheAdmittedProbesAndTheControl() {
+    void evidenceHoldsOnlyTheBaselineAndTheFirstAdmittedProbeAndNamesTheOthers() {
         AuditIssue origin = issueNamed(ORIGIN_ISSUE, check(NoAuthStrategy::new), LOOPBACK_URL);
 
-        assertThat(origin.requestResponses()).hasSize(5);
+        assertThat(origin.requestResponses()).hasSize(2);
+        assertThat(origin.requestResponses().get(0).request().hasHeader("Origin")).isFalse();
         assertThat(origin.requestResponses().get(1).request().headerValue("Origin")).isEqualTo("http://evil.example");
-        assertThat(origin.requestResponses().get(4).request().hasHeader("Origin")).isFalse();
+        assertThat(origin.detail()).contains("Origin: null", "Origin: http://attacker.example:1337",
+                "final control", "the first admitted probe are attached");
     }
 
     @Test

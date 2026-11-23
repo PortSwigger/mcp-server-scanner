@@ -9,6 +9,7 @@ import com.mcpscanner.checks.api.HostCheck;
 import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.shared.scancontext.ScanNotices;
 import com.mcpscanner.http.ConnectionReuse;
+import com.mcpscanner.http.ScanQueueBypass;
 import com.mcpscanner.http.UpstreamExchanges;
 import com.mcpscanner.logging.McpEventLog;
 
@@ -49,8 +50,16 @@ public final class HostCheckAdapter extends McpCheckAdapter<HostCheck> {
     public HostCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, HostCheck check,
                 CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
                 ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices, ProbeCalls probeCalls) {
+        this(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
+                auditNotices, probeCalls, ScanQueueBypass.NONE);
+    }
+
+    public HostCheckAdapter(ScanCheckSettings settings, McpEventLog eventLog, HostCheck check,
+                CheckInstrumentation instrumentation, UpstreamExchanges upstreamExchanges,
+                ConnectionReuse connectionReuse, IssueDestination issuesBurpWouldDrop, ScanNotices auditNotices,
+                ProbeCalls probeCalls, ScanQueueBypass scanQueueBypass) {
         super(settings, eventLog, check, instrumentation, upstreamExchanges, connectionReuse, issuesBurpWouldDrop,
-                auditNotices, probeCalls);
+                auditNotices, probeCalls, scanQueueBypass);
         this.hostAudits = new HostAudits(check, log());
     }
 

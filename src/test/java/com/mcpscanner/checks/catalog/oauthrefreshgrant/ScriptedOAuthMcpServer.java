@@ -48,6 +48,7 @@ final class ScriptedOAuthMcpServer {
     boolean acceptsUnissuedRefreshTokens;
     boolean mcpEndpointOpenToAnonymous;
     boolean mcpEndpointRefusesProbeTokens;
+    boolean mcpEndpointRefusesTokensIssuedWithoutSecret;
     int staleRefreshTokenPresentations;
     boolean servesMetadata = true;
     boolean throttlesMetadata;
@@ -65,6 +66,7 @@ final class ScriptedOAuthMcpServer {
     private final Map<String, String> refreshTokens = new HashMap<>();
     private final Map<String, String> accessTokens = new HashMap<>();
     private final Set<String> probeTokens = new java.util.HashSet<>();
+    private final Set<String> secretlessTokens = new java.util.HashSet<>();
     private int issued;
 
     ScriptedOAuthMcpServer() {
@@ -150,7 +152,11 @@ final class ScriptedOAuthMcpServer {
             return json(400, Map.of("error", "invalid_scope"));
         }
         boolean probe = !clientAuthenticatedCorrectly(secret) || !scopes(scope).equals(scopes(grantScope));
-        return json(200, issue(form.get("refresh_token"), scope, probe));
+        Map<String, Object> issuedBody = issue(form.get("refresh_token"), scope, probe);
+        if (secret == null || secret.isEmpty()) {
+            secretlessTokens.add((String) issuedBody.get("access_token"));
+        }
+        return json(200, issuedBody);
     }
 
     private boolean clientAuthenticatedCorrectly(String secret) {
@@ -212,7 +218,9 @@ final class ScriptedOAuthMcpServer {
         String authorization = request.headerValue("Authorization");
         boolean authenticated = authorization != null && authorization.startsWith("Bearer ")
                 && accessTokens.containsKey(authorization.substring("Bearer ".length()))
-                && !(mcpEndpointRefusesProbeTokens && probeTokens.contains(authorization.substring("Bearer ".length())));
+                && !(mcpEndpointRefusesProbeTokens && probeTokens.contains(authorization.substring("Bearer ".length())))
+                && !(mcpEndpointRefusesTokensIssuedWithoutSecret
+                        && secretlessTokens.contains(authorization.substring("Bearer ".length())));
         if (!authenticated && !mcpEndpointOpenToAnonymous) {
             return json(401, Map.of("error", "unauthorized"));
         }

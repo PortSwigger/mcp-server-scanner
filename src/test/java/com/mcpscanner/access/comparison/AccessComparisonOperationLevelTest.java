@@ -194,6 +194,24 @@ class AccessComparisonOperationLevelTest {
     }
 
     @Test
+    void theVersionGatedFindingCarriesTheIdentitysRefusalAtTheCapturedVersionBeforeItsLegacySuccess() {
+        HttpRequest seed = ADMIN_CALL.withAddedHeader("MCP-Protocol-Version", "2025-11-25");
+
+        var run = new ComparisonHarness().with(as("C", PrincipalRole.LOWER))
+                .ledger(new RecordingLedger().expecting(AccessExpectation.ANY_SIGNED_IN).listing("c", true))
+                .run(FakeServers.versionDependentScope(false), seed);
+
+        assertThat(run.issues()).singleElement().satisfies(issue -> {
+            assertThat(issue.requestResponses()).extracting(exchange -> principal(exchange.request()))
+                    .containsExactly("A", null, "C", "C");
+            assertThat(issue.requestResponses()).extracting(exchange -> exchange.request().headerValue("MCP-Protocol-Version"))
+                    .endsWith("2025-11-25", "2024-11-05");
+            assertThat(issue.requestResponses().get(2).response().bodyToString()).contains("insufficient scopes");
+            assertThat(issue.requestResponses().get(3).response().bodyToString()).contains("ADMIN-EFFECT");
+        });
+    }
+
+    @Test
     void identityRefusedAtEveryProtocolVersionIsNotReportedWhateverIsExpected() {
         HttpRequest seed = ADMIN_CALL.withAddedHeader("MCP-Protocol-Version", "2025-11-25");
 

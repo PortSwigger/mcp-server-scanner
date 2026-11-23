@@ -2,9 +2,9 @@ package com.mcpscanner.checks.shared.stream;
 
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
-
+import com.mcpscanner.http.evidence.WireRecord;
 import com.mcpscanner.mcp.TooManyRequests;
+
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -20,6 +20,10 @@ public record StreamOpening(HttpRequestResponse exchange, boolean heldOpen, bool
 
     static StreamOpening unanswered(HttpRequest request) {
         return new StreamOpening(HttpRequestResponse.httpRequestResponse(request, null), false);
+    }
+
+    static StreamOpening unanswered(WireRecord sent) {
+        return new StreamOpening(sent.evidence(), false);
     }
 
     static StreamOpening unsent(HttpRequest request) {
@@ -59,7 +63,7 @@ public record StreamOpening(HttpRequestResponse exchange, boolean heldOpen, bool
                 .orElse(false);
     }
 
-    static StreamOpening answered(HttpRequest request, HttpResponse response, boolean heldOpen) {
-        return new StreamOpening(HttpRequestResponse.httpRequestResponse(request, response), heldOpen);
+    static StreamOpening answered(WireRecord exchange, boolean heldOpen) {
+        return new StreamOpening(exchange.evidence(), heldOpen);
     }
 }

@@ -29,7 +29,7 @@ final class EnforcementEvidence {
 
     void recordRefusal(AuditSubject subject, ProbeExchange refusal) {
         if (oracle.successful(subject.baseline()) && !ServerErrorAnswer.of(refusal.last())) {
-            if (refusals.putIfAbsent(subject.host(), refusal.last()) == null) {
+            if (refusals.putIfAbsent(subject.host(), refusal.answer()) == null) {
                 retainBeyondInvocation(currentGeneration());
             }
         }

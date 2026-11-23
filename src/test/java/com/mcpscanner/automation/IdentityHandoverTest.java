@@ -45,7 +45,7 @@ class IdentityHandoverTest {
 
     @Test
     void connectsAsTheNamedUserWithItsMarkerOwnedObjectsAndCredential() {
-        handover.beforeConnect(aliceAndBob(), ALICE_TOKEN);
+        handover.beforeConnect(aliceAndBob(), ALICE_TOKEN, ALICE_TOKEN.strategy());
 
         Identity alice = registry.primaryUser();
         assertThat(alice.name()).isEqualTo("alice");
@@ -58,7 +58,7 @@ class IdentityHandoverTest {
 
     @Test
     void comparesEveryOtherUserWithItsOwnCredentialInTheCheckRoster() {
-        handover.beforeConnect(aliceAndBob(), ALICE_TOKEN);
+        handover.beforeConnect(aliceAndBob(), ALICE_TOKEN, ALICE_TOKEN.strategy());
 
         PrincipalRoster roster = new IdentityRosterSource(new CurrentAuthHolder(), registry).get();
         assertThat(roster.primary().ownedObjects().all()).containsExactly(Map.entry("id", "a-1"));
@@ -75,11 +75,11 @@ class IdentityHandoverTest {
 
     @Test
     void replacesTheUsersAnEarlierCommandHandedOver() {
-        handover.beforeConnect(aliceAndBob(), ALICE_TOKEN);
+        handover.beforeConnect(aliceAndBob(), ALICE_TOKEN, ALICE_TOKEN.strategy());
 
         handover.beforeConnect(new CommandIdentities(user("alice", null, null), List.of(
                 user("carol", IdentityRole.LOWER, new CommandAuth("carol-token", null))), null, null, null),
-                ALICE_TOKEN);
+                ALICE_TOKEN, ALICE_TOKEN.strategy());
 
         assertThat(registry.otherUsers()).extracting(Identity::name).containsExactly("carol");
         assertThat(registry.primaryUser().privateMarker()).isEmpty();
@@ -87,9 +87,9 @@ class IdentityHandoverTest {
 
     @Test
     void aCommandWithoutIdentitiesLeavesOnlyTheConnectAsUser() {
-        handover.beforeConnect(aliceAndBob(), ALICE_TOKEN);
+        handover.beforeConnect(aliceAndBob(), ALICE_TOKEN, ALICE_TOKEN.strategy());
 
-        handover.beforeConnect(CommandIdentities.NONE, ALICE_TOKEN);
+        handover.beforeConnect(CommandIdentities.NONE, ALICE_TOKEN, ALICE_TOKEN.strategy());
 
         assertThat(registry.otherUsers()).isEmpty();
         assertThat(registry.primaryUser().name()).isEqualTo("alice");

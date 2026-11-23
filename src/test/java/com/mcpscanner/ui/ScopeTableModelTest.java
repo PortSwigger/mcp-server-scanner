@@ -57,6 +57,58 @@ class ScopeTableModelTest {
     }
 
     @Test
+    void rediscoveryKeepsAnUntickedDiscoveredScopeUntickedAndTicksNewOnes() {
+        ScopeTableModel model = new ScopeTableModel();
+        model.replaceDiscovered(List.of("mcp:tools", "mcp:admin"));
+        model.setValueAt(Boolean.FALSE, 1, ScopeTableModel.COLUMN_ENABLED);
+
+        model.replaceDiscovered(List.of("mcp:tools", "mcp:admin", "mcp:prompts"));
+
+        assertThat(model.scopeNames()).containsExactly("mcp:tools", "mcp:admin", "mcp:prompts");
+        assertThat(model.enabledScopes()).containsExactly("mcp:tools", "mcp:prompts");
+    }
+
+    @Test
+    void snapshotCarriesDiscoveredAndCustomRowsWithTheirTicks() {
+        ScopeTableModel model = new ScopeTableModel();
+        model.replaceDiscovered(List.of("mcp:tools", "mcp:admin"));
+        model.setEnabled(1, false);
+        model.addCustomScope("custom1");
+
+        assertThat(model.scopesSnapshot()).containsExactly(
+                new PersistedScope("mcp:tools", true, "discovered"),
+                new PersistedScope("mcp:admin", false, "discovered"),
+                new PersistedScope("custom1", true, "custom"));
+    }
+
+    @Test
+    void theSelectionDeclinesUntickedRowsOfAnySourceAndListsTickedCustomRows() {
+        ScopeTableModel model = new ScopeTableModel();
+        model.replaceDiscovered(List.of("mcp:tools", "mcp:admin"));
+        model.addCustomScope("offline_access");
+        model.setEnabled(1, false);
+        model.setEnabled(2, false);
+
+        model.addCustomScope("custom1");
+
+        assertThat(model.scopeSelection().declined()).containsExactlyInAnyOrder("mcp:admin", "offline_access");
+        assertThat(model.scopeSelection().customTicked()).containsExactly("custom1");
+    }
+
+    @Test
+    void removingDiscoveredScopesDropsTickedAndUntickedOnesAndKeepsCustomRows() {
+        ScopeTableModel model = new ScopeTableModel();
+        model.replaceDiscovered(List.of("mcp:tools", "mcp:admin"));
+        model.setEnabled(1, false);
+        model.addCustomScope("custom1");
+
+        assertThat(model.removeDiscovered()).isTrue();
+
+        assertThat(model.scopeNames()).containsExactly("custom1");
+        assertThat(model.removeDiscovered()).isFalse();
+    }
+
+    @Test
     void enabledScopesReturnsOnlyChecked() {
         ScopeTableModel model = new ScopeTableModel();
         model.replaceDiscovered(List.of("a", "b"));

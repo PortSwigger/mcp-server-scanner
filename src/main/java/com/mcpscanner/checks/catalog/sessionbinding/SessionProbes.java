@@ -37,8 +37,9 @@ final class SessionProbes {
         String sessionId = SessionHeaders.carriedBy(ownerSession.get()).orElseThrow();
         OperationReply bearer = probe.reply(SessionHeaders.inSession(kit.anonymousSessionless(), sessionId));
         OperationReply hijacked = probe.reply(SessionHeaders.inSession(probe.asPrincipal(), sessionId));
-        if (reboundToIdentity(ownerReply, hijacked)) {
-            confirmRebind(ownerReply, bearer, hijacked);
+        Optional<OperationReply> identitysOwnReply = reboundToIdentity(ownerReply, hijacked);
+        if (identitysOwnReply.isPresent()) {
+            confirmRebind(ownerReply, bearer, hijacked, identitysOwnReply.get());
             probe.decide(BINDING + ":skipped_rebinding_server");
             probe.skip(liveSessionNotProbed("the server rebinds a session to the presented credential"));
             return Optional.of(probe.settled(Verdict.CONCLUSIVE));
@@ -55,19 +56,20 @@ final class SessionProbes {
         return SkipReason.notApplicable(why + ", so the live session is not probed");
     }
 
-    private boolean reboundToIdentity(OperationReply ownerReply, OperationReply hijacked) {
+    private Optional<OperationReply> reboundToIdentity(OperationReply ownerReply, OperationReply hijacked) {
         if (!hijacked.accepted() || hijacked.result() == null || ownerReply.sameReply(hijacked)) {
-            return false;
+            return Optional.empty();
         }
-        Optional<HttpRequest> own = probe.kit().sessions().fresh(probe.asPrincipal());
-        boolean identitysReply = own.isPresent() && hijacked.sameReply(probe.reply(own.get()));
-        if (!identitysReply) {
+        Optional<OperationReply> identitysReply = probe.kit().sessions().fresh(probe.asPrincipal())
+                .map(probe::reply).filter(hijacked::sameReply);
+        if (identitysReply.isEmpty()) {
             probe.decide(REBIND + ":not_peer_reply");
         }
         return identitysReply;
     }
 
-    private void confirmRebind(OperationReply ownerReply, OperationReply bearer, OperationReply hijacked) {
+    private void confirmRebind(OperationReply ownerReply, OperationReply bearer, OperationReply hijacked,
+                               OperationReply identitysOwnReply) {
         if (!ownerReply.sameResult(bearer)) {
             probe.decide(REBIND + ":session_not_bearer");
             return;
@@ -85,9 +87,12 @@ final class SessionProbes {
                         + "on that session (answered with the same reply " + identity + " gets in its own session), "
                         + "two repeated credential-free requests on the same session returned " + identity
                         + "'s reply instead: " + identity + "'s credential replaced the principal bound to the session. "
+                        + "The first request in the evidence is the credential-free request and the second sends "
+                        + identity + "'s credential on the session; the third request in the evidence is " + identity
+                        + "'s reply in its own session. Of the two repeated requests, the last request in the "
+                        + "evidence is the first of them; the second, identical, is not attached. "
                         + "The scanner's own session was not used for this probe.",
-                List.of(ownerReply.exchange(), bearer.exchange(), hijacked.exchange(), after.exchange(),
-                        repeated.exchange())));
+                List.of(bearer.exchange(), hijacked.exchange(), identitysOwnReply.exchange(), after.exchange())));
     }
 
     private Verdict liveSessionBinding() {

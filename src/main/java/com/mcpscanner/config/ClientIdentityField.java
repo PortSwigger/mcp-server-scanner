@@ -18,14 +18,13 @@ public enum ClientIdentityField {
     TOS_URI(Section.OAUTH, "oauth.tos_uri", "Terms of service URL", "", Rule.HTTP_URL),
     POLICY_URI(Section.OAUTH, "oauth.policy_uri", "Privacy policy URL", "", Rule.HTTP_URL),
     CONTACT(Section.OAUTH, "oauth.contact", "Contact email", "", Rule.OPTIONAL),
-    SOFTWARE_ID(Section.OAUTH, "oauth.software_id", "Software ID", "", Rule.OPTIONAL),
+    SOFTWARE_ID(Section.OAUTH, "oauth.software_id", "Software ID", ExtensionMetadata.SOFTWARE_ID, Rule.OPTIONAL),
     SOFTWARE_VERSION(Section.OAUTH, "oauth.software_version", "Software version", "", Rule.OPTIONAL);
 
     public enum Section { HANDSHAKE, OAUTH }
 
     private enum Rule { OPTIONAL, REQUIRED, HTTP_URL, ICON_URL }
 
-    private static final String KEY_PREFIX = "mcp.client.";
     private static final List<String> HTTP_SCHEMES = List.of("http", "https");
 
     private final Section section;
@@ -36,7 +35,7 @@ public enum ClientIdentityField {
 
     ClientIdentityField(Section section, String key, String label, String defaultValue, Rule rule) {
         this.section = section;
-        this.key = KEY_PREFIX + key;
+        this.key = SettingKey.CLIENT_IDENTITY.key(key);
         this.label = label;
         this.defaultValue = defaultValue;
         this.rule = rule;

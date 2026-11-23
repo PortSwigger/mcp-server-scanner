@@ -16,7 +16,9 @@ import javax.swing.JPanel;
 import javax.swing.JTextArea;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 final class PromptArgumentsView extends JPanel {
 
@@ -30,14 +32,15 @@ final class PromptArgumentsView extends JPanel {
     private final PromptArgumentGrid grid = new PromptArgumentGrid();
     private final JTextArea callShape = callShapeBox();
     private final DetailSection callShapeSection = DetailSection.of("Call shape", callShape);
-    private final WrappingText hint = Placeholders.wrapping(HINT);
+    private final Optional<WrappingText> hint;
     private final WrappingText noArguments = Placeholders.wrapping(NO_ARGUMENTS);
 
-    PromptArgumentsView() {
+    PromptArgumentsView(InventoryTicks ticks) {
         super(new BorderLayout());
+        hint = ticks.ifScanning(() -> Placeholders.wrapping(HINT));
         setOpaque(false);
         Box stack = Box.createVerticalBox();
-        for (JComponent part : List.of(summary, grid, callShapeSection, hint, noArguments)) {
+        for (JComponent part : parts()) {
             part.setAlignmentX(Component.LEFT_ALIGNMENT);
             stack.add(part);
             stack.add(Box.createVerticalStrut(GAP));
@@ -69,8 +72,16 @@ final class PromptArgumentsView extends JPanel {
     }
 
     private void showArgumentParts(boolean hasArguments) {
-        List.of(summary, grid, callShapeSection, hint).forEach(part -> part.setVisible(hasArguments));
+        List.of(summary, grid, callShapeSection).forEach(part -> part.setVisible(hasArguments));
+        hint.ifPresent(part -> part.setVisible(hasArguments));
         noArguments.setVisible(!hasArguments);
+    }
+
+    private List<JComponent> parts() {
+        List<JComponent> parts = new ArrayList<>(List.of(summary, grid, callShapeSection));
+        hint.ifPresent(parts::add);
+        parts.add(noArguments);
+        return parts;
     }
 
     private static JTextArea callShapeBox() {

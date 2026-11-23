@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,7 +18,7 @@ class AuthorizationRequestFactoryTest {
 
     private static AuthorizationServer server(URI authorizationEndpoint, Optional<String> scope) {
         return new AuthorizationServer(URI.create("https://auth.example.com"), authorizationEndpoint,
-                Optional.empty(), Optional.empty(), Optional.empty(), RESOURCE, scope);
+                Optional.empty(), Optional.empty(), Optional.empty(), RESOURCE, scope, List.of());
     }
 
     private static URI build(AuthorizationServer server, AuthorizationVariant variant) {

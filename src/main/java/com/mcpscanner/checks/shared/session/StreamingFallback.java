@@ -70,9 +70,10 @@ public final class StreamingFallback {
     }
 
     private HttpRequestResponse outsideBurp(Http http, HttpRequest probe) {
-        Optional<HttpRequestResponse> sent = clientFor(probe).send(ScannerSentinelRemoval.from(probe));
+        HttpRequest stripped = ScannerSentinelRemoval.from(probe);
+        Optional<HttpRequestResponse> sent = clientFor(stripped).send(stripped);
         sent.ifPresent(exchange -> OutsideBurpSends.report(http, exchange));
-        return sent.orElseGet(() -> HttpRequestResponse.httpRequestResponse(probe, null));
+        return sent.orElseGet(() -> HttpRequestResponse.httpRequestResponse(stripped, null));
     }
 
     private OutsideBurpClient clientFor(HttpRequest probe) {

@@ -1,5 +1,6 @@
 package com.mcpscanner.checks.catalog.oauthauthorizationconsent;
 
+import burp.api.montoya.http.message.HttpRequestResponse;
 import com.mcpscanner.checks.api.OAuthSkipLog;
 import com.mcpscanner.checks.api.SkipReason;
 import com.mcpscanner.checks.shared.oauth.AuthorizationServer;
@@ -67,23 +68,36 @@ final class ConsentAudit {
     private List<ConsentFinding> redeemed(CodeRedeemer redeemer, ProbeClient client, IssuedCode code,
                                           FindingDraft draft, boolean sessionCreated) {
         Redemption redemption = redeemer.redeem(code);
-        redemption.exchange().ifPresent(exchange -> draft.evidence(List.of(exchange)));
         return redemption.accessToken()
-                .map(token -> judged(redeemer, client, code, token, draft, sessionCreated))
+                .map(token -> judged(redeemer, client, code, redemption, draft, sessionCreated))
                 .orElseGet(() -> List.of(draft.fact(AuthorizationFacts.unredeemed(redemption))
-                        .as(unredeemedKind(sessionCreated))));
+                        .fact(AuthorizationFacts.REDEMPTION_NOT_ATTACHED).as(unredeemedKind(sessionCreated))));
     }
 
-    private List<ConsentFinding> judged(CodeRedeemer redeemer, ProbeClient client, IssuedCode code, String token,
-                                        FindingDraft draft, boolean sessionCreated) {
-        AccessJudgement judgement = access.judge(token);
+    private List<ConsentFinding> judged(CodeRedeemer redeemer, ProbeClient client, IssuedCode code,
+                                        Redemption redemption, FindingDraft draft, boolean sessionCreated) {
+        AccessJudgement judgement = access.judge(redemption.accessToken().orElseThrow());
+        FindingKind kind = FindingKind.forAccess(judgement.access(), sessionCreated);
+        draft.fact(AuthorizationFacts.access(judgement));
+        if (kind.attachesTokenUse()) {
+            draft.evidence(tokenUse(redemption, judgement));
+        } else {
+            draft.fact(AuthorizationFacts.ONLY_TRAIL_ATTACHED);
+        }
         List<ConsentFinding> findings = new ArrayList<>();
-        findings.add(draft.fact(AuthorizationFacts.access(judgement)).evidence(judgement.evidence())
-                .as(FindingKind.forAccess(judgement.access(), sessionCreated)));
+        findings.add(draft.as(kind));
         if (judgement.access() == Access.GRANTS_ACCESS) {
-            new CodeReuseProbe(authorizer, redeemer, access).probe(client, code, token).ifPresent(findings::add);
+            new CodeReuseProbe(authorizer, redeemer, access).probe(client, code, redemption)
+                    .ifPresent(findings::add);
         }
         return findings;
+    }
+
+    private static List<HttpRequestResponse> tokenUse(Redemption redemption, AccessJudgement judgement) {
+        List<HttpRequestResponse> exchanges = new ArrayList<>();
+        redemption.exchange().ifPresent(exchanges::add);
+        exchanges.addAll(judgement.evidence());
+        return exchanges;
     }
 
     private static FindingKind unredeemedKind(boolean sessionCreated) {

@@ -23,17 +23,24 @@ public final class IsolatedCatalogDiscovery {
     }
 
     public ConnectResult discover(McpServerConfig config) {
-        McpScannerSession session = newSession();
+        return discoverRecorded(config).catalog();
+    }
+
+    public RecordedCatalog discoverRecorded(McpServerConfig config) {
+        ToolsListRecorder recorder = new ToolsListRecorder(httpTransport);
+        McpScannerSession session = newSession(recorder);
         try {
-            session.connect(config);
-            return new McpDiscoveryClient(session, eventLog, settings.resourceCaps()).discoverCatalog();
+            return new ToolsListRecordings(recorder).record(session, () -> {
+                session.connect(config);
+                return new McpDiscoveryClient(session, eventLog, settings.resourceCaps()).discoverCatalog();
+            });
         } finally {
             session.disconnect();
         }
     }
 
-    private McpScannerSession newSession() {
-        McpScannerSession session = new McpScannerSession(sseClient, httpTransport, eventLog, () -> true,
+    private McpScannerSession newSession(ProtocolHttpTransport transport) {
+        McpScannerSession session = new McpScannerSession(sseClient, transport, eventLog, () -> true,
                 identityProvider);
         settings.applyTo(session);
         return session;

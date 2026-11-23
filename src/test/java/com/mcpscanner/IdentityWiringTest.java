@@ -1,5 +1,6 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.RequestOptions;
@@ -46,20 +47,24 @@ class IdentityWiringTest {
     private ExtensionFoundation foundation;
     private ConnectionWiring connection;
     private IdentityWiring identities;
+    private IdentityDiscoveryWiring discovery;
 
     @BeforeEach
     void setUp() {
         MontoyaTestFactory.install();
         when(api.http()).thenReturn(http);
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         when(savedSettings.getBoolean("mcp.networking.use_burp")).thenReturn(null);
         when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
                 .thenAnswer(invocation -> fakeServer.sendRequest(invocation.getArgument(0, HttpRequest.class),
                         invocation.getArgument(1, RequestOptions.class)));
         foundation = ExtensionFoundation.create(api);
         connection = ConnectionWiring.create(api, foundation);
-        identities = IdentityWiring.create(api, foundation, connection, OAuthWiring.create(api, foundation, connection.burpHttp()));
+        identities = IdentityWiring.create(foundation, OAuthWiring.create(api, foundation, connection.burpHttp()));
+        discovery = IdentityDiscoveryWiring.create(foundation, connection);
         connection.start(shutdown);
+        discovery.addShutdownHooks(shutdown);
         identities.addShutdownHooks(shutdown);
     }
 
@@ -77,7 +82,7 @@ class IdentityWiringTest {
         connection.clientManager().connect(new McpServerConfig(ENDPOINT, transport,
                 new BearerTokenAuthStrategy("alice")));
 
-        await().until(() -> identities.listings().outcome(bob.id())
+        await().until(() -> discovery.listings().outcome(bob.id())
                 .filter(DiscoveryOutcome.Listed.class::isInstance).isPresent());
         verify(http).sendRequest(argThat(request -> request.bodyToString().contains("tools/list")
                 && "Bearer bob".equals(request.headerValue("Authorization"))), any(RequestOptions.class));
@@ -89,20 +94,22 @@ class IdentityWiringTest {
     void disconnectingThePrimaryClearsTheListings(TransportType transport) {
         connection.clientManager().connect(new McpServerConfig(ENDPOINT, transport,
                 new BearerTokenAuthStrategy("alice")));
-        assertThat(identities.listings().outcomes()).isNotEmpty();
+        assertThat(discovery.listings().outcomes()).isNotEmpty();
 
         connection.clientManager().disconnect();
 
-        assertThat(identities.listings().outcomes()).isEmpty();
+        assertThat(discovery.listings().outcomes()).isEmpty();
     }
 
     @Test
     void identityCredentialsSurviveADisconnectSoConnectingAsAnotherUserUsesThem() {
-        AccessWiring access = AccessWiring.create(foundation, connection, identities.listings());
-        ScanFieldWiring fields = ScanFieldWiring.create(api, foundation);
-        connection.resetOnDisconnect(ScanningWiring.create(api, foundation, connection, access, fields,
-                EngineWiring.create(api, foundation, connection.burpHttp(), fields.everyField()),
-                com.mcpscanner.checks.registry.CheckInstrumentation.NONE, java.util.function.UnaryOperator.identity())
+        AccessWiring access = AccessWiring.create(foundation, connection, discovery.listings());
+        RequestBuildingWiring requests = RequestBuildingWiring.create(foundation, connection, access.authHolder());
+        connection.resetOnDisconnect(requests.sessionResets());
+        connection.resetOnDisconnect(ScanningWiring.create(api, foundation, connection, requests, access,
+                ScanFoundation.create(api, foundation, connection),
+                com.mcpscanner.checks.registry.CheckInstrumentation.NONE, java.util.function.UnaryOperator.identity(),
+                com.mcpscanner.checks.api.SignedInConsent.OPTED_OUT)
                 .sessionResets());
         connection.resetOnDisconnect(access.sessionResets());
         BearerTokenAuthStrategy bobToken = new BearerTokenAuthStrategy("bob");

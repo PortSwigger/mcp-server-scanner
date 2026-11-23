@@ -119,7 +119,7 @@ class AutoAuthEndToEndTest {
         RecordingRealHttp http = new RecordingRealHttp();
         SuspiciousDestinationGate allowFixture = (url, purpose) -> SuspiciousDestinationGate.Decision.allow();
         OAuthMetadataDiscoverer discoverer = OAuthMetadataDiscoverer.defaultInstance(
-                http, eventLog, allowFixture);
+                http, eventLog, allowFixture, () -> true);
         OAuthAuthorizationFlow flow = new OAuthAuthorizationFlow(CallbackListenerFactory.defaultFactory(),
                 BrowserLauncher.validated(this::approveInBrowser, allowFixture), Clock.systemUTC(), allowFixture,
                 eventLog, http);

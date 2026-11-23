@@ -30,9 +30,10 @@ final class HangingIndentLog extends JTextPane {
         hang(start, line.length());
     }
 
-    void removeFirstLine() {
-        Element firstLine = getDocument().getDefaultRootElement().getElement(0);
-        remove(0, firstLine.getEndOffset());
+    void removeLines(int first, int count) {
+        Element lines = getDocument().getDefaultRootElement();
+        int start = lines.getElement(first).getStartOffset();
+        remove(start, lines.getElement(first + count - 1).getEndOffset() - start);
     }
 
     @Override

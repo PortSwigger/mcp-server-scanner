@@ -88,14 +88,31 @@ class OAuthRedirectPolicyIssuesTest {
     }
 
     @Test
-    void evidenceKeepsTheExchangesOfEveryFinding() {
-        List<HttpRequestResponse> first = exchanges(5);
-        List<HttpRequestResponse> second = exchanges(5);
+    void evidenceIsOnlyTheFirstFindingsExchanges() {
+        List<HttpRequestResponse> first = exchanges(3);
+        List<HttpRequestResponse> second = exchanges(3);
 
         AuditIssue issue = assembler.issues(List.of(
                 finding(FindingKind.CODE_DELIVERY, "a", first),
                 finding(FindingKind.CODE_DELIVERY, "b", second))).get(0);
 
-        assertThat(issue.requestResponses()).hasSize(10).containsAll(first).containsAll(second);
+        assertThat(issue.requestResponses()).containsExactlyElementsOf(first);
+    }
+
+    @Test
+    void detailNamesTheFirstCaseAsTheAttachedOneWhenSeveralCasesWereFound() {
+        AuditIssue issue = assembler.issues(List.of(
+                finding(FindingKind.CODE_DELIVERY, "first summary", exchanges(3)),
+                finding(FindingKind.CODE_DELIVERY, "second summary", exchanges(3)))).get(0);
+
+        assertThat(issue.detail()).containsSubsequence("second summary",
+                "The attached exchanges show only the first case listed: first summary.");
+    }
+
+    @Test
+    void detailNamesNoAttachedCaseForASingleFinding() {
+        AuditIssue issue = assembler.issues(List.of(finding(FindingKind.CODE_DELIVERY, "only", exchanges(3)))).get(0);
+
+        assertThat(issue.detail()).doesNotContain("The attached exchanges");
     }
 }

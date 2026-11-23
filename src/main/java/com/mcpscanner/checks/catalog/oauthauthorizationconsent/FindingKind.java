@@ -5,7 +5,7 @@ import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 
 import java.util.Optional;
 
-enum FindingKind {
+enum FindingKind implements ConsentIssueKind {
 
     TOKEN_GRANTS_ACCESS(FindingKind.AUTHORIZATION_ISSUE, AuditIssueSeverity.HIGH, AuditIssueConfidence.CERTAIN,
             FindingKind.UNATTENDED + " The code redeemed to an access token that turned an MCP request refused "
@@ -71,11 +71,17 @@ enum FindingKind {
         return access == Access.GRANTS_ACCESS ? TOKEN_GRANTS_ACCESS : CODE_ISSUED;
     }
 
-    String issueName() {
+    boolean attachesTokenUse() {
+        return this == TOKEN_GRANTS_ACCESS || this == ENDPOINT_ALREADY_OPEN;
+    }
+
+    @Override
+    public String issueName() {
         return issueName;
     }
 
-    AuditIssueSeverity severity() {
+    @Override
+    public AuditIssueSeverity severity() {
         return severity;
     }
 
@@ -83,15 +89,18 @@ enum FindingKind {
         return confidence;
     }
 
-    String observation() {
+    @Override
+    public String observation() {
         return observation;
     }
 
-    String remediation() {
+    @Override
+    public String remediation() {
         return remediation;
     }
 
-    Optional<String> limits() {
+    @Override
+    public Optional<String> limits() {
         return limits;
     }
 }

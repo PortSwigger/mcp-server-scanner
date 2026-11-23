@@ -1,6 +1,7 @@
 package com.mcpscanner.ui.widgets;
 
 import java.util.concurrent.Executor;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -8,16 +9,16 @@ public final class UiReads {
 
     private final ReadScheduler scheduler;
     private final Executor edt;
-    private final Consumer<String> debug;
+    private final BiConsumer<String, Throwable> failures;
 
-    public UiReads(ReadScheduler scheduler, Executor edt, Consumer<String> debug) {
+    public UiReads(ReadScheduler scheduler, Executor edt, BiConsumer<String, Throwable> failures) {
         this.scheduler = scheduler;
         this.edt = edt;
-        this.debug = debug;
+        this.failures = failures;
     }
 
-    public static UiReads background(ReadScheduler scheduler, Consumer<String> debug) {
-        return new UiReads(scheduler, Edt::run, debug);
+    public static UiReads background(ReadScheduler scheduler, BiConsumer<String, Throwable> failures) {
+        return new UiReads(scheduler, Edt::run, failures);
     }
 
     public void run(Runnable work) {
@@ -51,7 +52,7 @@ public final class UiReads {
         try {
             work.run();
         } catch (RuntimeException failure) {
-            debug.accept("UI background work failed: " + failure.getClass().getSimpleName());
+            failures.accept("UI background work failed: " + failure.getClass().getSimpleName(), failure);
         }
     }
 }

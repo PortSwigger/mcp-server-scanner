@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mcpscanner.checks.shared.jsonrpc.McpReply;
+import com.mcpscanner.checks.shared.jsonrpc.ReplyBody;
 
 import java.util.Optional;
 
@@ -39,7 +40,7 @@ final class ReplySignature {
             return "no-response";
         }
         String body = McpReply.in(response).message().map(ReplySignature::withoutId).map(JsonNode::toString)
-                .orElseGet(response::bodyToString);
+                .orElseGet(() -> ReplyBody.text(response));
         return "failure " + response.statusCode() + ":" + mask.mask(timings.mask(body), payload);
     }
 

@@ -268,4 +268,32 @@ class ClientRegistrarTest {
 
         assertThat(http.sentTo(ENDPOINT.toString())).hasSize(1);
     }
+
+    private ClientCredentials credentialsAnswering(String body) {
+        return registerAnswering(json(201, body)).client().orElseThrow().credentials();
+    }
+
+    @Test
+    void aClientIssuedNoSecretIsPublic() {
+        assertThat(credentialsAnswering(ACCEPTED_BODY)).isEqualTo(ClientCredentials.publicClient("c1"));
+    }
+
+    @Test
+    void anIssuedSecretIsSentInTheFormWhenTheServerNamesNoneOrPost() {
+        assertThat(credentialsAnswering("{\"client_id\":\"c1\",\"client_secret\":\"s1\","
+                + "\"token_endpoint_auth_method\":\"none\"}").secret())
+                .contains(new ClientSecret("s1", ClientSecretMethod.POST));
+        assertThat(credentialsAnswering("{\"client_id\":\"c1\",\"client_secret\":\"s1\","
+                + "\"token_endpoint_auth_method\":\"client_secret_post\"}").secret())
+                .contains(new ClientSecret("s1", ClientSecretMethod.POST));
+    }
+
+    @Test
+    void anIssuedSecretIsSentAsBasicWhenTheServerNamesBasicOrNoMethod() {
+        assertThat(credentialsAnswering("{\"client_id\":\"c1\",\"client_secret\":\"s1\","
+                + "\"token_endpoint_auth_method\":\"client_secret_basic\"}").secret())
+                .contains(new ClientSecret("s1", ClientSecretMethod.BASIC));
+        assertThat(credentialsAnswering("{\"client_id\":\"c1\",\"client_secret\":\"s1\"}").secret())
+                .contains(new ClientSecret("s1", ClientSecretMethod.BASIC));
+    }
 }

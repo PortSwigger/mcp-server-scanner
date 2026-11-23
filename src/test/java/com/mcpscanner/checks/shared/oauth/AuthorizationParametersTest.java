@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,7 +13,8 @@ class AuthorizationParametersTest {
 
     private static final AuthorizationServer SERVER = new AuthorizationServer(URI.create("https://as.example"),
             URI.create("https://as.example/authorize?tenant=t1"), Optional.empty(),
-            Optional.empty(), Optional.empty(), URI.create("https://mcp.example/mcp"), Optional.of("read write"));
+            Optional.empty(), Optional.empty(), URI.create("https://mcp.example/mcp"), Optional.of("read write"),
+            List.of());
 
     @Test
     void carriesTheS256CodeRequestParametersInOrder() {
@@ -40,7 +42,8 @@ class AuthorizationParametersTest {
     @Test
     void omitsTheScopeWhenNoneWasDiscovered() {
         AuthorizationServer noScope = new AuthorizationServer(SERVER.issuer(), SERVER.authorizationEndpoint(),
-                Optional.empty(), Optional.empty(), Optional.empty(), SERVER.resource(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty(), SERVER.resource(), Optional.empty(),
+                List.of());
 
         assertThat(AuthorizationParameters.of(noScope, "code", "c", URI.create("http://127.0.0.1/cb"), "s"))
                 .doesNotContainKey("scope");

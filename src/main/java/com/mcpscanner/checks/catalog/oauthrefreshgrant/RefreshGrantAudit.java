@@ -7,13 +7,11 @@ import com.mcpscanner.auth.AuthStrategy;
 import com.mcpscanner.auth.grant.RefreshGrantStore;
 import com.mcpscanner.checks.api.CheckLog;
 import com.mcpscanner.checks.api.SkipReason;
-import com.mcpscanner.checks.shared.redaction.ExchangeRedactor;
 import com.mcpscanner.mcp.McpRequestDetector;
 import com.mcpscanner.mcp.TooManyRequests;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -41,18 +39,12 @@ final class RefreshGrantAudit {
     List<AuditIssue> run(RefreshGrantStore store) {
         RefreshExchanger exchanger = new RefreshExchanger(http, new RefreshRequestFactory(metadata.tokenEndpoint()));
         TokenUsability usability = new TokenUsability(http, hostBase.request(), authStrategy);
-        Optional<RecordedEvidence> recorded = store.withExclusiveGrant(live -> {
+        Optional<RefreshEvidence> evidence = store.withExclusiveGrant(live -> {
             usability.primeWithLiveSession();
-            SecretRecordingGrant recording = new SecretRecordingGrant(live);
-            RefreshEvidence evidence = new RefreshGrantProbe(exchanger, metadata, usability::judge, log)
-                    .run(recording);
-            recording.recordCurrentGrant();
-            return new RecordedEvidence(evidence, recording.secrets());
+            return new RefreshGrantProbe(exchanger, metadata, usability::judge, log).run(live);
         });
-        recorded.ifPresentOrElse(evidence -> logOutcome(evidence.evidence()),
-                () -> log.notRun(subject(), NO_LIVE_GRANT));
-        return recorded.map(evidence -> issues(evidence.evidence(), new ExchangeRedactor(evidence.secrets())))
-                .orElse(List.of());
+        evidence.ifPresentOrElse(this::logOutcome, () -> log.notRun(subject(), NO_LIVE_GRANT));
+        return evidence.map(this::issues).orElse(List.of());
     }
 
     private void logUnissuedControl(RefreshExchange control) {
@@ -69,12 +61,9 @@ final class RefreshGrantAudit {
         return hostBase.request().url();
     }
 
-    private record RecordedEvidence(RefreshEvidence evidence, Set<String> secrets) {
-    }
-
-    private List<AuditIssue> issues(RefreshEvidence evidence, ExchangeRedactor redactor) {
+    private List<AuditIssue> issues(RefreshEvidence evidence) {
         RefreshFindings findings = new RefreshFindings(metadata);
-        OAuthRefreshGrantIssues issues = new OAuthRefreshGrantIssues(McpRequestDetector.extractBaseUrl(hostBase), redactor);
+        OAuthRefreshGrantIssues issues = new OAuthRefreshGrantIssues(McpRequestDetector.extractBaseUrl(hostBase));
         return Stream.concat(
                 findings.clientAuthentication(evidence).map(issues::clientAuthentication).stream(),
                 findings.scopeExpansion(evidence).map(issues::scopeExpansion).stream()).toList();

@@ -77,8 +77,8 @@ public final class SqlInjectionCheck implements InsertionPointCheck, ConnectionS
             log.notRun(subject, NOT_MCP);
             return List.of();
         }
-        return rateLimited.run(subject, streamedReplies.around(http), guarded -> {
-            ProbeField field = new ProbeField(baseRequestResponse, insertionPoint, guarded);
+        return rateLimited.run(subject, streamedReplies.around(http), sends -> {
+            ProbeField field = new ProbeField(baseRequestResponse, insertionPoint, sends);
             return probe(field).map(finding -> issues.render(finding, baseRequestResponse.request(),
                     insertionPointNames.nameOf(baseRequestResponse.request(), insertionPoint))).stream().toList();
         });

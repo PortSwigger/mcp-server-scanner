@@ -154,15 +154,27 @@ class OAuthRedirectPolicyCheckTest {
 
             audit();
 
-            verify(eventLog).info(PREFIX + "skipped the https-callback, script-scheme and wildcard redirect tests for "
+            verify(eventLog).info(PREFIX + "skipped the any-host registration, https-callback, script-scheme and wildcard "
+                    + "redirect tests for "
                     + MCP + " (prerequisite missing: dynamic client registration did not register an https callback)");
             verify(eventLog, never()).info(contains("loopback-callback"));
         }
 
         @Test
-        void reportsNothingAgainstAStrictServer() {
+        void reportsOnlyAnyHostRegistrationAgainstAServerThatMatchesRedirectsExactly() {
             publishMetadata(FakeAuthorizationServer.AUTHORIZATION_ENDPOINT.toString(), true);
             server.registering(uris -> uris.stream().allMatch(uri -> uri.startsWith("http"))
+                    ? RegistrationReply.ECHO : RegistrationReply.REJECT);
+
+            assertThat(audit()).extracting(AuditIssue::name)
+                    .containsExactly(FindingKind.ANY_HOST_REGISTRATION.issueName());
+            assertThat(server.authorizations()).isNotEmpty();
+        }
+
+        @Test
+        void reportsNothingAgainstAServerThatRegistersOnlyLoopbackRedirects() {
+            publishMetadata(FakeAuthorizationServer.AUTHORIZATION_ENDPOINT.toString(), true);
+            server.registering(uris -> uris.stream().allMatch(uri -> uri.startsWith("http://127.0.0.1"))
                     ? RegistrationReply.ECHO : RegistrationReply.REJECT);
 
             assertThat(audit()).isEmpty();
@@ -177,7 +189,8 @@ class OAuthRedirectPolicyCheckTest {
             assertThat(audit()).extracting(AuditIssue::name).containsExactly(
                     FindingKind.CODE_DELIVERY.issueName(),
                     FindingKind.ERROR_DELIVERY.issueName(),
-                    FindingKind.SCRIPT_SCHEME_REGISTRATION.issueName());
+                    FindingKind.SCRIPT_SCHEME_REGISTRATION.issueName(),
+                    FindingKind.ANY_HOST_REGISTRATION.issueName());
         }
 
         @Test

@@ -7,6 +7,11 @@ final class AuthorizationFacts {
     static final String NO_TOKEN_ENDPOINT =
             "The authorization server advertises no token endpoint, so the code was not redeemed.";
 
+    static final String ONLY_TRAIL_ATTACHED = "The redemption and tools/list requests are not attached; the "
+            + "evidence is the authorization redirect trail.";
+    static final String REDEMPTION_NOT_ATTACHED = "The redemption is not attached; the evidence is the "
+            + "authorization redirect trail.";
+
     private AuthorizationFacts() {
     }
 

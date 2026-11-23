@@ -1,7 +1,9 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.Http;
+import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.RequestOptions;
 import burp.api.montoya.http.handler.HttpHandler;
@@ -14,7 +16,6 @@ import burp.api.montoya.sitemap.SiteMap;
 import burp.api.montoya.sitemap.SiteMapFilter;
 import com.mcpscanner.checks.registry.CheckInstrumentation;
 import com.mcpscanner.client.McpScannerSession;
-import com.mcpscanner.engine.McpScanEngine;
 import com.mcpscanner.logging.McpEventLog;
 import com.mcpscanner.mcp.McpToolDefinition;
 import com.mcpscanner.proxy.McpHttpHandler;
@@ -62,12 +63,14 @@ final class WiredExtension implements AutoCloseable {
     private final List<AuditIssue> siteMap = new CopyOnWriteArrayList<>();
     private final List<String> burpOutput = new CopyOnWriteArrayList<>();
     private final List<String> burpErrors = new CopyOnWriteArrayList<>();
+    private final List<String> everyLogLine = new CopyOnWriteArrayList<>();
     private final ShutdownHooks shutdown = new ShutdownHooks(failure -> {
         throw new AssertionError(failure);
     });
     private ExtensionFoundation foundation;
     private ConnectionWiring connection;
     private IdentityWiring identities;
+    private IdentityDiscoveryWiring identityDiscovery;
     private AccessWiring access;
     private ScanningWiring scanning;
 
@@ -93,6 +96,7 @@ final class WiredExtension implements AutoCloseable {
         PersistedObject savedSettings = InMemoryPersistedObject.create();
         savedSettings.setBoolean("mcp.networking.use_burp", useBurpNetworking);
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         when(api.http()).thenReturn(http);
         Logging logging = recordingLogging();
         when(api.logging()).thenReturn(logging);
@@ -116,8 +120,8 @@ final class WiredExtension implements AutoCloseable {
         return connection;
     }
 
-    IdentityWiring identities() {
-        return identities;
+    IdentityDiscoveryWiring identityDiscovery() {
+        return identityDiscovery;
     }
 
     AccessWiring access() {
@@ -142,6 +146,11 @@ final class WiredExtension implements AutoCloseable {
 
     List<McpEventLog.LogEntry> logEntries() {
         return foundation.eventLog().snapshot();
+    }
+
+    List<String> everyLogLineOnceTheScanFinished() {
+        await().atMost(RUN_BOUND).until(() -> everyLogLine.stream().anyMatch(line -> line.contains("finished — ")));
+        return List.copyOf(everyLogLine);
     }
 
     List<String> logged() {
@@ -196,6 +205,9 @@ final class WiredExtension implements AutoCloseable {
                 ClientCertificateBurpHttp.withoutClientCertificate());
         when(http.sendRequest(any(HttpRequest.class)))
                 .thenAnswer(invocation -> burp.sendRequest(invocation.getArgument(0, HttpRequest.class)));
+        when(http.sendRequest(any(HttpRequest.class), any(HttpMode.class), anyString()))
+                .thenAnswer(invocation -> burp.sendRequest(invocation.getArgument(0, HttpRequest.class),
+                        invocation.getArgument(1, HttpMode.class), invocation.getArgument(2, String.class)));
         when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
                 .thenAnswer(invocation -> burp.sendRequest(invocation.getArgument(0, HttpRequest.class),
                         invocation.getArgument(1, RequestOptions.class)));
@@ -210,16 +222,19 @@ final class WiredExtension implements AutoCloseable {
 
     private void wire() {
         foundation = ExtensionFoundation.create(api);
+        foundation.eventLog().subscribe(entry -> everyLogLine.add(entry.message()));
         connection = ConnectionWiring.create(api, foundation);
-        identities = IdentityWiring.create(api, foundation, connection,
-                OAuthWiring.create(api, foundation, connection.burpHttp()));
-        access = AccessWiring.create(foundation, connection, identities.listings());
-        ScanFieldWiring fields = ScanFieldWiring.create(api, foundation);
-        McpScanEngine engine = EngineWiring.create(api, foundation, connection.burpHttp(), fields.everyField());
-        scanning = ScanningWiring.create(api, foundation, connection, access, fields, engine,
-                CheckInstrumentation.NONE, UnaryOperator.identity());
-        EngineWiring.registerChecks(engine, scanning.checkRegistry(), shutdown);
+        identities = IdentityWiring.create(foundation, OAuthWiring.create(api, foundation, connection.burpHttp()));
+        identityDiscovery = IdentityDiscoveryWiring.create(foundation, connection);
+        access = AccessWiring.create(foundation, connection, identityDiscovery.listings());
+        ScanFoundation scan = ScanFoundation.create(api, foundation, connection);
+        scanning = ScanningWiring.create(api, foundation, connection,
+                RequestBuildingWiring.create(foundation, connection, access.authHolder()), access, scan,
+                CheckInstrumentation.NONE, UnaryOperator.identity(),
+                com.mcpscanner.checks.api.SignedInConsent.OPTED_OUT);
+        EngineWiring.registerChecks(scan.engine(), scanning.checkRegistry(), shutdown);
         connection.start(shutdown);
+        identityDiscovery.addShutdownHooks(shutdown);
         identities.addShutdownHooks(shutdown);
         access.addShutdownHooks(shutdown);
     }

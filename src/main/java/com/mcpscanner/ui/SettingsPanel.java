@@ -7,7 +7,6 @@ import com.mcpscanner.config.ExtensionConfigStore;
 import com.mcpscanner.config.CapKind;
 import com.mcpscanner.config.ResourceCap;
 import com.mcpscanner.mcp.ScannerSentinels;
-import com.mcpscanner.ui.widgets.Plurals;
 import com.mcpscanner.ui.widgets.WrapLayout;
 import com.mcpscanner.ui.widgets.WrappingText;
 
@@ -27,7 +26,10 @@ import java.awt.FlowLayout;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public final class SettingsPanel extends JPanel {
     private static final String SEND_TO_AUTHENTICATION_LABEL =
@@ -51,43 +53,50 @@ public final class SettingsPanel extends JPanel {
                     + "always go directly. Changes apply from the next request.";
     private static final Set<String> KEYWORDS = Set.of("MCP", "Redirect", "Proxy", "POST body", "Repeater",
             "Send to", "Authentication", "Limits", "Discovery", "SSE", "Traversal", "Ping", "TLS", "Network",
-            "Streaming", "Workers", "Concurrency", "Extension scan", "Collect IDs");
+            "Streaming", "Defaults", "New projects");
+    private static final Set<String> SCANNING_KEYWORDS = Set.of("Workers", "Concurrency", "Extension scan",
+            "Collect IDs");
     private static final String RESOURCE_LIMITS_EXPLANATION =
             "Safety limits against hostile servers. Raise one if the Logger reports it truncated a scan or "
-                    + "discovery. Leave blank to restore the default. Collect IDs requests per user is 0 by "
-                    + "default: Collect IDs sends whatever its passes need; set a number to stop each user sooner.";
+                    + "discovery. Leave blank to use your saved default, or the built-in one.";
+    private static final String COLLECT_IDS_LIMIT_EXPLANATION = " Collect IDs requests per user is 0 by "
+            + "default: Collect IDs sends whatever its passes need; set a number to stop each user sooner.";
     private static final String EXTENSION_SCAN_WORKERS_EXPLANATION =
             "How many checks extension scans run at once; each sends its requests one after another. Raise it to "
                     + "scan faster, lower it to go easier on the server. Running scans share these workers: a change "
                     + "takes effect when the next scan starts, and then applies to every scan still running. Nothing "
-                    + "in progress is interrupted. Leave blank to restore the default.";
-    private static final String SCAN_WARNINGS_LABEL = "Scan warnings";
-    private static final String SCAN_WARNINGS_EXPLANATION =
-            "Before scanning tools the server doesn't mark as read-only, the extension asks you to confirm, because "
-                    + "scanning can change or delete data. Ticking \"Don't ask me again for this server\" skips "
-                    + "that question for that server. Reset to ask again on every server.";
-    static final String RESET_SCAN_WARNINGS = "Reset \u201cDon't ask again\u201d";
+                    + "in progress is interrupted. Leave blank to use your saved default, or the built-in one.";
+    static final String RESET_SCAN_WARNINGS = ScanWarningsSettings.RESET;
     private static final String BURP_SETTINGS_HINT =
             "Also in Burp: Settings > Extensions > " + ExtensionMetadata.NAME;
 
     private final ExtensionConfigStore configStore;
+    private final SettingsScope scope;
     private final JComboBox<RedirectMode> redirectModeSelector = new JComboBox<>(RedirectMode.values());
     private final WrappingText redirectExplanation = explanation(RedirectMode.METHOD_PRESERVING_SAME_ORIGIN.description());
     private final Map<ResourceCap, ResourceCapField> capFields = new EnumMap<>(ResourceCap.class);
     private final JCheckBox sendToAuthenticationCheckbox = new JCheckBox(SEND_TO_AUTHENTICATION_LABEL);
     private final JCheckBox serverPingsCheckbox = new JCheckBox(SERVER_PINGS_LABEL);
     private final JCheckBox burpNetworkingCheckbox = new JCheckBox(BurpNetworkingSetting.NAME);
-    private final JButton resetScanWarningsButton = new JButton(RESET_SCAN_WARNINGS);
-    private final JLabel scanWarningsStatus = new JLabel(" ");
+    private final Optional<ScanWarningsSettings> scanWarnings;
+    private final UserDefaultsSettings userDefaults;
     private final JButton burpSettingsButton = new JButton("Open Burp Settings");
     private final JPanel burpSettingsRow = burpSettingsRow();
     private boolean updatingFromConfig;
     private boolean savingToConfig;
 
     public SettingsPanel(ExtensionConfigStore configStore) {
+        this(configStore, SettingsScope.WITH_SCANNING);
+    }
+
+    public SettingsPanel(ExtensionConfigStore configStore, SettingsScope scope) {
         super(new BorderLayout());
         this.configStore = configStore;
-        Arrays.stream(ResourceCap.values())
+        this.scope = scope;
+        this.scanWarnings = scope.includesScanning() ? Optional.of(new ScanWarningsSettings(configStore))
+                : Optional.empty();
+        this.userDefaults = new UserDefaultsSettings(configStore, scope);
+        Arrays.stream(ResourceCap.values()).filter(scope::shows)
                 .forEach(cap -> capFields.put(cap, new ResourceCapField(cap, configStore, this::whileSaving)));
 
         JPanel settings = new JPanel();
@@ -96,12 +105,10 @@ public final class SettingsPanel extends JPanel {
         settings.add(redirectRow());
         settings.add(redirectExplanation);
         settings.add(Box.createVerticalStrut(16));
-        settings.add(explanation(RESOURCE_LIMITS_EXPLANATION));
+        settings.add(explanation(resourceLimitsExplanation()));
         addCapRows(settings, CapKind.SAFETY_LIMIT);
         settings.add(Box.createVerticalStrut(16));
-        addCapRows(settings, CapKind.SCAN_THROUGHPUT);
-        settings.add(explanation(EXTENSION_SCAN_WORKERS_EXPLANATION));
-        settings.add(Box.createVerticalStrut(16));
+        addScanThroughput(settings);
         settings.add(checkboxRow(sendToAuthenticationCheckbox));
         settings.add(explanation(SEND_TO_AUTHENTICATION_EXPLANATION));
         settings.add(Box.createVerticalStrut(16));
@@ -111,8 +118,8 @@ public final class SettingsPanel extends JPanel {
         settings.add(checkboxRow(burpNetworkingCheckbox));
         settings.add(explanation(BURP_NETWORKING_EXPLANATION));
         settings.add(Box.createVerticalStrut(16));
-        addScanWarnings(settings);
-        settings.add(Box.createVerticalStrut(16));
+        scanWarnings.ifPresent(warnings -> addScanWarnings(settings, warnings));
+        addUserDefaults(settings);
         settings.add(burpSettingsRow);
         add(settings, BorderLayout.NORTH);
 
@@ -126,7 +133,6 @@ public final class SettingsPanel extends JPanel {
         sendToAuthenticationCheckbox.addActionListener(event -> saveSendToAuthentication());
         serverPingsCheckbox.addActionListener(event -> saveServerPings());
         burpNetworkingCheckbox.addActionListener(event -> saveBurpNetworking());
-        resetScanWarningsButton.addActionListener(event -> resetScanWarnings());
         configStore.addSettingsChangeListener(() -> {
             if (!savingToConfig) {
                 if (SwingUtilities.isEventDispatchThread()) {
@@ -147,7 +153,7 @@ public final class SettingsPanel extends JPanel {
 
             @Override
             public Set<String> keywords() {
-                return KEYWORDS;
+                return searchKeywords();
             }
         };
     }
@@ -184,8 +190,28 @@ public final class SettingsPanel extends JPanel {
         return labelAbove("Follow MCP redirects", redirectModeSelector);
     }
 
+    private Set<String> searchKeywords() {
+        return scope.includesScanning()
+                ? Stream.concat(KEYWORDS.stream(), SCANNING_KEYWORDS.stream()).collect(Collectors.toSet())
+                : KEYWORDS;
+    }
+
+    private String resourceLimitsExplanation() {
+        return scope.includesScanning() ? RESOURCE_LIMITS_EXPLANATION + COLLECT_IDS_LIMIT_EXPLANATION
+                : RESOURCE_LIMITS_EXPLANATION;
+    }
+
+    private void addScanThroughput(JPanel settings) {
+        if (scope.includesScanning()) {
+            addCapRows(settings, CapKind.SCAN_THROUGHPUT);
+            settings.add(explanation(EXTENSION_SCAN_WORKERS_EXPLANATION));
+            settings.add(Box.createVerticalStrut(16));
+        }
+    }
+
     private void addCapRows(JPanel settings, CapKind kind) {
-        ResourceCap.ofKind(kind).forEach(cap -> addCapRow(settings, capFields.get(cap)));
+        ResourceCap.ofKind(kind).stream().filter(capFields::containsKey)
+                .forEach(cap -> addCapRow(settings, capFields.get(cap)));
     }
 
     private static void addCapRow(JPanel settings, ResourceCapField capField) {
@@ -205,22 +231,28 @@ public final class SettingsPanel extends JPanel {
         return row;
     }
 
-    private void addScanWarnings(JPanel settings) {
-        settings.add(labelAbove(SCAN_WARNINGS_LABEL, resetScanWarningsButton));
-        settings.add(explanation(SCAN_WARNINGS_EXPLANATION));
-        scanWarningsStatus.setAlignmentX(LEFT_ALIGNMENT);
-        settings.add(scanWarningsStatus);
+    private static void addScanWarnings(JPanel settings, ScanWarningsSettings warnings) {
+        settings.add(labelAbove(ScanWarningsSettings.LABEL, warnings.resetButton()));
+        settings.add(explanation(ScanWarningsSettings.EXPLANATION));
+        warnings.status().setAlignmentX(LEFT_ALIGNMENT);
+        settings.add(warnings.status());
+        settings.add(Box.createVerticalStrut(16));
+    }
+
+    private void addUserDefaults(JPanel settings) {
+        JPanel buttons = optionRow();
+        buttons.add(userDefaults.saveButton());
+        buttons.add(Box.createHorizontalStrut(8));
+        buttons.add(userDefaults.resetButton());
+        settings.add(labelAbove(UserDefaultsSettings.LABEL, buttons));
+        settings.add(explanation(userDefaults.explanation()));
+        userDefaults.status().setAlignmentX(LEFT_ALIGNMENT);
+        settings.add(userDefaults.status());
+        settings.add(Box.createVerticalStrut(16));
     }
 
     private void explainSelectedRedirectMode() {
         redirectExplanation.setText(((RedirectMode) redirectModeSelector.getSelectedItem()).description());
-    }
-
-    private void resetScanWarnings() {
-        int cleared = configStore.clearDontAskAgainForAllServers();
-        scanWarningsStatus.setText(cleared == 0
-                ? "No server had \u201cDon't ask again\u201d set."
-                : "Scan warnings turned back on for " + Plurals.count(cleared, "server") + ".");
     }
 
     private static JPanel checkboxRow(JCheckBox checkbox) {
@@ -295,11 +327,27 @@ public final class SettingsPanel extends JPanel {
     }
 
     JButton resetScanWarningsButtonForTest() {
-        return resetScanWarningsButton;
+        return scanWarnings.orElseThrow().resetButton();
+    }
+
+    JButton saveUserDefaultsButtonForTest() {
+        return userDefaults.saveButton();
+    }
+
+    JButton resetUserDefaultsButtonForTest() {
+        return userDefaults.resetButton();
+    }
+
+    String userDefaultsExplanationForTest() {
+        return userDefaults.explanation();
+    }
+
+    JLabel userDefaultsStatusForTest() {
+        return userDefaults.status();
     }
 
     JLabel scanWarningsStatusForTest() {
-        return scanWarningsStatus;
+        return scanWarnings.orElseThrow().status();
     }
 
     JCheckBox burpNetworkingCheckboxForTest() {

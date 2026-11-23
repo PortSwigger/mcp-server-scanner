@@ -85,8 +85,24 @@ class WildcardHostProbeTest {
                     .contains(".example.org/scancheck-wildcard-")
                     .contains(".client.example.com/scancheck-unlisted-")
                     .endsWith("were rejected");
-            assertThat(finding.evidence()).hasSize(9);
         });
+    }
+
+    @Test
+    void expansionEvidenceIsRegistrationControlOnceThenTheThreeProbes() {
+        expandWildcardsAndOtherwise(AuthorizationReply.REJECT);
+
+        RedirectFinding finding = run().get(0);
+
+        assertThat(FakeAuthorizationServer.registeredRedirectUris(finding.evidence().get(0).request()))
+                .anySatisfy(pattern -> assertThat(pattern).startsWith("https://*.client.example.com/"));
+        assertThat(finding.evidence().subList(1, finding.evidence().size()))
+                .extracting(exchange -> QueryParameters.of(exchange.request().url()).get("redirect_uri"))
+                .satisfiesExactly(
+                        control -> assertThat(control).startsWith("https://client.example.com/scancheck-control-"),
+                        matched -> assertThat(matched).contains(".client.example.com/scancheck-wildcard-"),
+                        unmatchedHost -> assertThat(unmatchedHost).contains(".example.org/scancheck-wildcard-"),
+                        unmatchedPath -> assertThat(unmatchedPath).contains(".client.example.com/scancheck-unlisted-"));
     }
 
     @Test

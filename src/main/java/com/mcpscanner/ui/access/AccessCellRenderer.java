@@ -53,8 +53,8 @@ final class AccessCellRenderer extends DefaultTableCellRenderer {
         if (column instanceof AccessColumn.Identity identity) {
             return AccessCellText.identity(row, identity.principal());
         }
-        if (column instanceof AccessColumn.Anonymous) {
-            return AccessCellText.anonymous(row.anonymous());
+        if (column instanceof AccessColumn.Synthetic synthetic) {
+            return AccessCellText.synthetic(row.synthetic(synthetic.principalId()));
         }
         return column instanceof AccessColumn.Item ? AccessCellText.item(row.item()) : AccessCellText.expectation(row);
     }
@@ -67,6 +67,7 @@ final class AccessCellRenderer extends DefaultTableCellRenderer {
         if (column instanceof AccessColumn.Identity identity) {
             return Optional.of(row.cell(identity.principal().id()));
         }
-        return column instanceof AccessColumn.Anonymous ? Optional.of(row.anonymous()) : Optional.empty();
+        return column instanceof AccessColumn.Synthetic synthetic ? Optional.of(row.synthetic(synthetic.principalId()))
+                : Optional.empty();
     }
 }

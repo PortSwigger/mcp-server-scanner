@@ -1,6 +1,8 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.BurpSuiteEdition;
 import burp.api.montoya.extension.Extension;
 import burp.api.montoya.extension.ExtensionUnloadingHandler;
 import burp.api.montoya.http.Http;
@@ -60,9 +62,11 @@ class TestAutomationWiringTest {
         MontoyaTestFactory.install();
         rendered = RenderedRequests.capture();
         when(api.extension()).thenReturn(extension);
+        when(api.burpSuite().version().edition()).thenReturn(BurpSuiteEdition.PROFESSIONAL);
         when(api.http()).thenReturn(http);
         settings = InMemoryPersistedObject.create();
         when(api.persistence().extensionData()).thenReturn(settings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         when(api.scanner().startAudit(any())).thenReturn(audit);
         when(api.siteMap().issues()).thenReturn(List.of());
         when(audit.statusMessage()).thenReturn("scanning");
@@ -146,7 +150,23 @@ class TestAutomationWiringTest {
 
         assertThat(report.statusCode()).as(report.body()).isEqualTo(200);
         verify(http).sendRequest(any(HttpRequest.class));
-        verify(http, times(2)).sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1), eq("mcp-scanner-http://127.0.0.1:9"));
+        ArgumentCaptor<String> connectionIds = ArgumentCaptor.forClass(String.class);
+        verify(http, times(2)).sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1), connectionIds.capture());
+        assertThat(connectionIds.getAllValues()).containsOnly(connectionIds.getValue())
+                .allSatisfy(id -> assertThat(id).startsWith("mcp-scanner-http://127.0.0.1:9-"));
+    }
+
+    @Test
+    void authProbeSendsTheStreamGetThroughTheExtensionsBurpHttpWhenBurpNetworkingIsOn() throws Exception {
+        int port = initializeWithAutomation();
+
+        HttpResponse<String> report = post(port, "/auth-probe",
+                "{\"url\":\"%s\",\"useBurpNetworking\":true}".formatted(ENDPOINT));
+
+        assertThat(report.statusCode()).as(report.body()).isEqualTo(200);
+        assertThat(report.body()).contains("\"requirement\":", "\"elapsedMillis\":");
+        verify(http).sendRequest(argThat((HttpRequest sent) -> sent.method().equals("GET")
+                && "text/event-stream".equals(sent.headerValue("Accept"))), any(RequestOptions.class));
     }
 
     @Test

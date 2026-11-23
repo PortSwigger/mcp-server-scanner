@@ -1,6 +1,8 @@
 package com.mcpscanner.ui;
 
 import com.mcpscanner.logging.McpEventLog;
+import com.mcpscanner.logging.RetainedLogEntries;
+import com.mcpscanner.logging.RetainedLogEntries.Eviction;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -16,9 +18,6 @@ import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Optional;
 import java.util.function.Consumer;
 
 public final class LoggerPanel extends JPanel {
@@ -28,7 +27,7 @@ public final class LoggerPanel extends JPanel {
 
     private final HangingIndentLog textArea = new HangingIndentLog(LogLine.PREFIX_COLUMNS);
     private final JScrollPane scrollPane;
-    private final Deque<McpEventLog.LogEntry> entries = new ArrayDeque<>();
+    private final RetainedLogEntries entries = new RetainedLogEntries(MAX_ENTRIES);
     private final JComboBox<LogLevelFilter> levelFilter = new JComboBox<>(LogLevelFilter.values());
     private final JButton clearButton = new JButton("Clear");
     private final McpEventLog eventLog;
@@ -44,7 +43,7 @@ public final class LoggerPanel extends JPanel {
         add(scrollPane, BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
 
-        eventLog.subscribe(logListener).forEach(this::remember);
+        eventLog.subscribe(logListener).forEach(entries::add);
         levelFilter.addActionListener(event -> rerender());
         rerender();
     }
@@ -90,8 +89,7 @@ public final class LoggerPanel extends JPanel {
 
     private void appendOnEdt(McpEventLog.LogEntry entry) {
         LogLevelFilter filter = selectedFilter();
-        remember(entry).filter(evicted -> filter.accepts(evicted.level()))
-                .ifPresent(evicted -> textArea.removeFirstLine());
+        entries.add(entry).ifPresent(eviction -> forgetLine(eviction, filter));
         if (!filter.accepts(entry.level())) {
             return;
         }
@@ -102,15 +100,21 @@ public final class LoggerPanel extends JPanel {
         }
     }
 
-    private Optional<McpEventLog.LogEntry> remember(McpEventLog.LogEntry entry) {
-        entries.addLast(entry);
-        return entries.size() > MAX_ENTRIES ? Optional.of(entries.removeFirst()) : Optional.empty();
+    private void forgetLine(Eviction eviction, LogLevelFilter filter) {
+        if (filter.accepts(eviction.entry().level())) {
+            textArea.removeLines(shownLinesBefore(eviction.position(), filter), LogLine.lineCount(eviction.entry()));
+        }
+    }
+
+    private int shownLinesBefore(int position, LogLevelFilter filter) {
+        return entries.snapshot().subList(0, position).stream()
+                .filter(entry -> filter.accepts(entry.level())).mapToInt(LogLine::lineCount).sum();
     }
 
     private void rerender() {
         LogLevelFilter filter = selectedFilter();
         StringBuilder text = new StringBuilder();
-        entries.stream().filter(entry -> filter.accepts(entry.level()))
+        entries.snapshot().stream().filter(entry -> filter.accepts(entry.level()))
                 .forEach(entry -> text.append(LogLine.of(entry)));
         textArea.replaceAll(text.toString());
         textArea.setCaretPosition(textArea.getDocument().getLength());

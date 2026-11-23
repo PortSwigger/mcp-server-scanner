@@ -60,6 +60,17 @@ class RequestFamiliesPanelTest {
     }
 
     @Test
+    void showsAnUntickedMetaEnvelopeSwitchThatTurnsFuzzingOnEveryRequestOn() {
+        RequestFamiliesPanel panel = new RequestFamiliesPanel(settings);
+        AbstractButton metaBox = box(panel, RequestFamiliesPanel.META_ENVELOPE_LABEL);
+
+        assertThat(metaBox.isSelected()).isFalse();
+        metaBox.doClick();
+
+        assertThat(settings.metaEnvelopeFuzzedOnEveryRequest()).isTrue();
+    }
+
+    @Test
     void untickingAGroupMasterSwitchesOnlyThatGroupOff() {
         box(new RequestFamiliesPanel(settings), RequestFamilyGroup.NOTIFICATIONS.title()).doClick();
 

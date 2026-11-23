@@ -6,6 +6,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mcpscanner.testutil.SpentRateLimitQuota;
 import com.mcpscanner.mcp.McpObjectMapper;
 import com.mcpscanner.mcp.ScannerSentinels;
 
@@ -58,6 +59,7 @@ public final class SimulatedMcpServer {
     private boolean liveStreamMessagesUnguarded;
     private boolean unknownCursorsRejected;
     private String publicCatalogPath;
+    private String quotaSpentPath;
     private final Map<String, String> cannedAnswers = new HashMap<>();
     private boolean emptyCatalog;
     private boolean appPageFallback;
@@ -206,6 +208,11 @@ public final class SimulatedMcpServer {
         return this;
     }
 
+    public SimulatedMcpServer advertisingASpentRateLimitQuotaOn(String path) {
+        quotaSpentPath = path;
+        return this;
+    }
+
     public SimulatedMcpServer answeringUnknownPathsWithAnAppPage() {
         appPageFallback = true;
         return this;
@@ -270,7 +277,11 @@ public final class SimulatedMcpServer {
 
     public HttpRequestResponse exchange(HttpRequest request) {
         received.add(request);
-        return HttpRequestResponse.httpRequestResponse(request, HttpResponse.httpResponse(respond(request)));
+        String raw = respond(request);
+        if (request.pathWithoutQuery().equals(quotaSpentPath)) {
+            raw = SpentRateLimitQuota.addedTo(raw);
+        }
+        return HttpRequestResponse.httpRequestResponse(request, HttpResponse.httpResponse(raw));
     }
 
     public List<HttpRequest> received() {

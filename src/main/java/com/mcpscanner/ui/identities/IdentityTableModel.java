@@ -1,6 +1,6 @@
 package com.mcpscanner.ui.identities;
 
-import com.mcpscanner.identity.AnonymousComparison;
+import com.mcpscanner.checks.api.Principal;
 import com.mcpscanner.identity.Identity;
 import com.mcpscanner.identity.IdentityRole;
 
@@ -92,7 +92,7 @@ final class IdentityTableModel extends AbstractTableModel {
         IdentityRow identityRow = rows.get(row);
         return switch (column) {
             case COMPARE -> identityRow.identity().map(Identity::compared).orElse(true);
-            case NAME -> identityRow.identity().map(Identity::name).orElse(AnonymousComparison.NAME);
+            case NAME -> identityRow.identity().map(Identity::name).orElse(Principal.ANONYMOUS_NAME);
             case ACCESS -> identityRow.identity().map(identity -> shortRole(identity.role())).orElse(NO_ACCESS_LEVEL);
             case AUTH -> identityRow.identity().map(identity -> AuthLabels.identityKindShort(identity.authKind()))
                     .orElse("None");

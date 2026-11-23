@@ -34,7 +34,8 @@ public record SharedTargetArm(List<ManifestArm> members) {
                         lead.readiness().call()),
                 largest(TargetManifest::readTimeoutSeconds), largest(TargetManifest::armTimeoutSeconds),
                 largest(TargetManifest::footprintMb), largest(TargetManifest::maxCatalogItems), everySeed(),
-                lead.identities(), List.of(arm()), lead.notes(), lead.smoke(), lead.checkAccess(), lead.downloads()));
+                lead.identities(), List.of(arm()), lead.notes(), lead.smoke(), lead.checkAccess(), lead.downloads(),
+                lead.signedInSession()));
     }
 
     private int largest(ToIntFunction<TargetManifest> limit) {

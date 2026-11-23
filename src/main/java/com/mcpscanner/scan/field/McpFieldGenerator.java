@@ -40,6 +40,7 @@ public final class McpFieldGenerator {
     private final TemplateExpansionRegistry templateExpansions;
     private final BurpNativeJsonRpcFields burpNativeFields;
     private final AddedArgumentRegistry addedArguments;
+    private final MetaEnvelopeRegistry metaEnvelopes;
 
     public McpFieldGenerator(BooleanSupplier headerFieldsEnabled) {
         this(headerFieldsEnabled, new TemplateExpansionRegistry(), BurpNativeJsonRpcFields.ABSENT);
@@ -52,18 +53,26 @@ public final class McpFieldGenerator {
 
     public McpFieldGenerator(BooleanSupplier headerFieldsEnabled, TemplateExpansionRegistry templateExpansions,
                              BurpNativeJsonRpcFields burpNativeFields, AddedArgumentRegistry addedArguments) {
+        this(headerFieldsEnabled, templateExpansions, burpNativeFields, addedArguments, new MetaEnvelopeRegistry());
+    }
+
+    public McpFieldGenerator(BooleanSupplier headerFieldsEnabled, TemplateExpansionRegistry templateExpansions,
+                             BurpNativeJsonRpcFields burpNativeFields, AddedArgumentRegistry addedArguments,
+                             MetaEnvelopeRegistry metaEnvelopes) {
         this.headerFieldsEnabled = headerFieldsEnabled;
         this.templateExpansions = templateExpansions;
         this.burpNativeFields = burpNativeFields;
         this.addedArguments = addedArguments;
+        this.metaEnvelopes = metaEnvelopes;
     }
 
     public List<AuditInsertionPoint> fieldsOf(HttpRequest request) {
-        Optional<ArgumentPath> added = addedArguments.addedTo(request.bodyToString());
+        String body = request.bodyToString();
+        Optional<ArgumentPath> added = addedArguments.addedTo(body);
         if (added.isPresent()) {
             return addedArgumentField(request, added.get());
         }
-        List<AuditInsertionPoint> fields = bodyFields(request);
+        List<AuditInsertionPoint> fields = bodyFields(request, metaEnvelopes.fuzzesEnvelopeOf(body));
         if (headerFieldsEnabled.getAsBoolean()) {
             fields.addAll(headerFields(request));
         }
@@ -79,12 +88,15 @@ public final class McpFieldGenerator {
                 .<AuditInsertionPoint>map(leaf -> new JsonFieldInsertionPoint(request, leaf)).toList();
     }
 
-    private List<AuditInsertionPoint> bodyFields(HttpRequest request) {
+    private List<AuditInsertionPoint> bodyFields(HttpRequest request, boolean fuzzesEnvelope) {
         byte[] body = request.body().getBytes();
         String method = methodOf(body);
         Optional<BurpJsonRpcArguments> burpArguments = burpNativeFields.argumentsIn(body);
         List<AuditInsertionPoint> fields = new ArrayList<>();
         for (JsonLeaf leaf : JsonLeafLocator.paramsLeaves(body)) {
+            if (!fuzzesEnvelope && MetaEnvelope.contains(leaf)) {
+                continue;
+            }
             if (!fuzzedByBurp(burpArguments, leaf)) {
                 fields.add(new JsonFieldInsertionPoint(request, leaf));
             }

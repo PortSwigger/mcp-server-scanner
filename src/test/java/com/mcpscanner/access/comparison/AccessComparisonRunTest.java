@@ -28,9 +28,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import static com.mcpscanner.checks.api.crossidentity.FakeMcpTarget.method;
 import static com.mcpscanner.checks.api.crossidentity.FakeMcpTarget.principal;
@@ -106,14 +111,15 @@ class AccessComparisonRunTest {
     }
 
     @Test
-    void unusableOwnerReplySendsNothingAndRecordsNotRunEverywhere() {
+    void unusableOwnerReplySkipsTheIdentityReplaysButStillCallsWithoutCredentials() {
         FakeMcpTarget target = new FakeMcpTarget(request -> FakeReply.toolError("broken"));
 
         compareOnce(target, toolCall("a", "{}", "A"));
 
-        assertThat(target.sent()).hasSize(1);
+        assertThat(target.sent()).hasSize(2);
+        assertThat(target.sent().get(1).headerValue("Authorization")).isNull();
         assertThat(ledger.outcomes()).containsEntry("b", AccessOutcome.NOT_RUN)
-                .containsEntry(RecordingLedger.ANONYMOUS, AccessOutcome.NOT_RUN);
+                .containsEntry(RecordingLedger.ANONYMOUS, AccessOutcome.REFUSED);
     }
 
     @Test
@@ -299,6 +305,69 @@ class AccessComparisonRunTest {
         }
 
         assertThat(target.sent()).filteredOn(request -> "initialize".equals(method(request))).hasSize(2);
+    }
+
+    @Test
+    void comparingWithAPoolSendsEveryComparedIdentitysReplayAtTheSameTime() {
+        compared.add(ComparisonHarness.peer("D"));
+        CountDownLatch bothReplaying = new CountDownLatch(2);
+        AtomicInteger metTheOther = new AtomicInteger();
+        FakeMcpTarget target = new FakeMcpTarget(replaysMeeting(bothReplaying, metTheOther));
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        try (AccessComparisonRun run = check().begin(target.http())) {
+            run.compare(target.exchange(toolCall("a", "{}", "A")), pool);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(metTheOther).hasValue(2);
+        assertThat(ledger.outcomes()).containsEntry("b", AccessOutcome.DIFFERENT_RESULT)
+                .containsEntry("d", AccessOutcome.DIFFERENT_RESULT);
+    }
+
+    @Test
+    void comparingWithoutAPoolSendsOneComparedIdentitysReplayAtATime() {
+        compared.add(ComparisonHarness.peer("D"));
+        AtomicInteger inFlight = new AtomicInteger();
+        AtomicInteger mostInFlight = new AtomicInteger();
+        CallerServer server = CallerServer.stateless(caller -> FakeReply.result("note of " + caller));
+        FakeMcpTarget target = new FakeMcpTarget(request -> {
+            mostInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
+            try {
+                return server.apply(request);
+            } finally {
+                inFlight.decrementAndGet();
+            }
+        });
+
+        compareOnce(target, toolCall("a", "{}", "A"));
+
+        assertThat(mostInFlight).hasValue(1);
+        assertThat(target.sent()).extracting(FakeMcpTarget::principal).containsExactly("A", null, "B", "D");
+    }
+
+    private static Function<HttpRequest, FakeReply> replaysMeeting(CountDownLatch bothReplaying,
+                                                                 AtomicInteger metTheOther) {
+        CallerServer server = CallerServer.stateless(caller -> FakeReply.result("note of " + caller));
+        return request -> {
+            if (Set.of("B", "D").contains(String.valueOf(principal(request)))) {
+                bothReplaying.countDown();
+                if (awaited(bothReplaying)) {
+                    metTheOther.incrementAndGet();
+                }
+            }
+            return server.apply(request);
+        };
+    }
+
+    private static boolean awaited(CountDownLatch latch) {
+        try {
+            return latch.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private List<AuditIssue> compareOnce(FakeMcpTarget target, HttpRequest ownerRequest) {

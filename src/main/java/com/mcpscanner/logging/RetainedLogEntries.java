@@ -2,40 +2,51 @@ package com.mcpscanner.logging;
 
 import com.mcpscanner.logging.McpEventLog.LogEntry;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.IntStream;
 
-final class RetainedLogEntries {
+public final class RetainedLogEntries {
 
-    enum Retention { DISPOSABLE, ROUTINE, KEPT }
+    public record Eviction(LogEntry entry, int position) {}
+
+    private enum Retention { DISPOSABLE, ROUTINE, KEPT }
 
     private final int capacity;
     private final int keptCapacity;
-    private final Deque<LogEntry> entries;
+    private final List<LogEntry> entries;
     private final Map<Retention, Integer> counts = new EnumMap<>(Retention.class);
 
-    RetainedLogEntries(int capacity) {
+    public RetainedLogEntries(int capacity) {
         this.capacity = capacity;
         this.keptCapacity = capacity / 2;
-        this.entries = new ArrayDeque<>(capacity);
+        this.entries = new ArrayList<>(capacity);
+        resetCounts();
+    }
+
+    public Optional<Eviction> add(LogEntry entry) {
+        Optional<Eviction> eviction = entries.size() == capacity ? evict(victim()) : Optional.empty();
+        entries.add(entry);
+        counts.merge(retentionOf(entry), 1, Integer::sum);
+        return eviction;
+    }
+
+    public List<LogEntry> snapshot() {
+        return List.copyOf(entries);
+    }
+
+    public void clear() {
+        entries.clear();
+        resetCounts();
+    }
+
+    private void resetCounts() {
         for (Retention retention : Retention.values()) {
             counts.put(retention, 0);
         }
-    }
-
-    void add(LogEntry entry) {
-        if (entries.size() == capacity) {
-            evict(victim());
-        }
-        entries.addLast(entry);
-        counts.merge(retentionOf(entry), 1, Integer::sum);
-    }
-
-    List<LogEntry> snapshot() {
-        return List.copyOf(entries);
     }
 
     private Retention victim() {
@@ -48,13 +59,14 @@ final class RetainedLogEntries {
         return Retention.ROUTINE;
     }
 
-    private void evict(Retention victim) {
-        entries.stream()
-                .filter(entry -> retentionOf(entry) == victim)
+    private Optional<Eviction> evict(Retention victim) {
+        return IntStream.range(0, entries.size())
+                .filter(position -> retentionOf(entries.get(position)) == victim)
+                .boxed()
                 .findFirst()
-                .ifPresent(entry -> {
-                    entries.removeFirstOccurrence(entry);
+                .map(position -> {
                     counts.merge(victim, -1, Integer::sum);
+                    return new Eviction(entries.remove(position.intValue()), position);
                 });
     }
 

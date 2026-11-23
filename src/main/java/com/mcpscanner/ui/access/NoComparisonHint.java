@@ -12,7 +12,7 @@ final class NoComparisonHint extends JPanel {
 
     private static final String BEFORE_LINK = "Tick Compare on another user in ";
     private static final String LINK = "Users";
-    private static final String AFTER_LINK = " to check access";
+    private static final String AFTER_LINK = " to compare signed-in users too";
 
     private final JLabel before = muted(BEFORE_LINK);
     private final HyperlinkLabel identities = new HyperlinkLabel(LINK);

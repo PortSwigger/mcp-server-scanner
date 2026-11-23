@@ -4,11 +4,15 @@ import burp.api.montoya.http.Http;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import com.mcpscanner.testutil.BurpEmptyResponse;
 import com.mcpscanner.testutil.MontoyaTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -19,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SendCanaryTest {
@@ -63,6 +68,36 @@ class SendCanaryTest {
     }
 
     @Test
+    void countsAnEmptyReplyAsUnanswered() {
+        HttpResponse emptyReply = BurpEmptyResponse.create();
+        HttpRequestResponse empty = mock(HttpRequestResponse.class);
+        when(empty.response()).thenReturn(emptyReply);
+        when(http.sendRequest(any(HttpRequest.class))).thenReturn(empty);
+
+        SendCanaryReport report = new SendCanary(http, clock::get).run(new SendCanaryCommand(URL, 1, 1));
+
+        assertThat(report.unanswered()).isEqualTo(1);
+    }
+
+    @Test
+    void sendsThroughAnHttpQueuedForTheCommandsScanQueueWait() {
+        Http queued = mock(Http.class);
+        List<Duration> queueWaits = new ArrayList<>();
+        HttpRequestResponse answered = answered();
+        when(queued.sendRequest(any(HttpRequest.class))).thenReturn(answered);
+
+        SendCanaryReport report = new SendCanary(http, wait -> {
+            queueWaits.add(wait);
+            return queued;
+        }, clock::get).run(new SendCanaryCommand(URL, 2, 1, 3_000));
+
+        assertThat(queueWaits).containsExactly(Duration.ofSeconds(3));
+        verify(queued, times(2)).sendRequest(any(HttpRequest.class));
+        verifyNoInteractions(http);
+        assertThat(report.unanswered()).isZero();
+    }
+
+    @Test
     void keepsTheRequestedNumberOfSendsInFlightAtOnce() {
         CountDownLatch allInFlight = new CountDownLatch(3);
         when(http.sendRequest(any(HttpRequest.class))).thenAnswer(invocation -> {
@@ -85,11 +120,16 @@ class SendCanaryTest {
         assertThatThrownBy(() -> new SendCanaryCommand(URL, 1, 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new SendCanaryCommand(URL, 1, SendCanaryCommand.MAX_CONCURRENCY + 1))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SendCanaryCommand(URL, 1, 1, -1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SendCanaryCommand(URL, 1, 1, SendCanaryCommand.MAX_QUEUE_WAIT_MILLIS + 1))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private static HttpRequestResponse answered() {
+        HttpResponse response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn((short) 200);
         HttpRequestResponse exchange = mock(HttpRequestResponse.class);
-        when(exchange.response()).thenReturn(mock(HttpResponse.class));
+        when(exchange.response()).thenReturn(response);
         return exchange;
     }
 }

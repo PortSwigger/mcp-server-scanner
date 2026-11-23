@@ -3,8 +3,6 @@ package com.mcpscanner.cvetargets.manifest;
 import com.mcpscanner.checks.api.PrincipalRole;
 import com.mcpscanner.mcp.McpMethods;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -26,13 +24,8 @@ final class IdentitySetupValidator {
     }
 
     private static void checkProvisionScript(LoadedTarget target, IdentitySetup identities, List<String> violations) {
-        if (identities.provision() == null) {
-            return;
-        }
-        Path script = target.directory().resolve(identities.provision()).normalize();
-        if (!script.startsWith(target.directory().normalize()) || !Files.isRegularFile(script)) {
-            violations.add(PREFIX + "provision script " + identities.provision()
-                    + " does not exist in the target directory");
+        if (identities.provision() != null) {
+            TargetScripts.requireInTargetDirectory(target, "identities", identities.provision(), violations);
         }
     }
 
@@ -40,7 +33,7 @@ final class IdentitySetupValidator {
         if (!(manifest.auth().token() instanceof ProvisionedToken)) {
             return;
         }
-        if (manifest.identities().provision() == null) {
+        if (manifest.identities().provision() == null && !manifest.signedInSession().declared()) {
             violations.add(PREFIX + "a provisioned auth token needs a provision script");
         }
         if (!manifest.auth().headers().isEmpty()) {

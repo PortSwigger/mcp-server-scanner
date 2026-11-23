@@ -27,14 +27,19 @@ final class ToolDetailPanel extends AbstractDetailPanel<McpToolDefinition> {
     private final JComponent parametersTab = ScrollableForm.wrap(parameters);
     private final JComponent outputSchemaTab = ScrollableForm.wrap(outputSchema);
     private final JComponent detailsTab = ScrollableForm.wrap(details);
-    private final JComponent argumentsHint = buildArgumentsHint();
+    private final Optional<JComponent> argumentsHint;
     private final JComponent descriptionTab;
 
     ToolDetailPanel() {
+        this(InventoryTicks.SCAN_SELECTION);
+    }
+
+    ToolDetailPanel(InventoryTicks ticks) {
         super(new DetailSubject<>("tool", McpToolDefinition::name, McpToolDefinition::description,
-                McpToolDefinition::raw, "tools/list"));
+                McpToolDefinition::raw, "tools/list"), ticks);
+        argumentsHint = ticks.ifScanning(ToolDetailPanel::buildArgumentsHint);
         descriptionTab = ScrollableForm.wrapAtTop(description());
-        installDetailCard(argumentsHint);
+        installDetailCard(argumentsHint.stream().toArray(JComponent[]::new));
     }
 
     @Override
@@ -70,13 +75,13 @@ final class ToolDetailPanel extends AbstractDetailPanel<McpToolDefinition> {
     }
 
     JComponent argumentsHint() {
-        return argumentsHint;
+        return argumentsHint.orElseThrow();
     }
 
     private void addParametersTab(McpToolDefinition tool, DetailTabs tabs) {
         parameters.show(inputSchemaOf(tool), session().protocolVersion());
         boolean declaresParameters = parameters.hasContent();
-        argumentsHint.setVisible(declaresParameters);
+        argumentsHint.ifPresent(hint -> hint.setVisible(declaresParameters));
         tabs.addWhen(declaresParameters, "Parameters (" + parameters.parameterCount() + ")", parametersTab);
     }
 

@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.auth.oauth.OAuthSession;
@@ -64,7 +65,7 @@ class DcrRegistrationsTest {
     @Test
     void aRegistrationPersistsNoManagementTokenButStillOffersItWhileLoaded() {
         PersistedObject persisted = mock(PersistedObject.class);
-        DcrRegistrations real = new DcrRegistrations(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        DcrRegistrations real = new DcrRegistrations(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
 
         real.remember(URI.create(ISSUER), session(Optional.of("mgmt-secret"), Optional.of("https://issuer.example/c/1")));
 

@@ -63,6 +63,26 @@ class ResendableRequestsTest {
         assertThat(requests.resendable(body)).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"GET", "HEAD", "OPTIONS", "get"})
+    void aBodylessSafeHttpMethodIsResendable(String httpMethod) {
+        assertThat(requests.resendable(httpMethod, null)).isTrue();
+        assertThat(requests.resendable(httpMethod, "")).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DELETE", "POST", "PUT", "PATCH"})
+    void aBodylessUnsafeHttpMethodIsNeverResendable(String httpMethod) {
+        assertThat(requests.resendable(httpMethod, null)).isFalse();
+        assertThat(requests.resendable(httpMethod, "")).isFalse();
+    }
+
+    @Test
+    void aRequestWithABodyIsDecidedByItsJsonRpcMethod() {
+        assertThat(requests.resendable("POST", request("tools/list", "{}"))).isTrue();
+        assertThat(requests.resendable("POST", toolCall("write_note"))).isFalse();
+    }
+
     private static McpToolDefinition tool(String name, ToolAnnotations annotations) {
         return new McpToolDefinition(name, "", "{}", List.of(), annotations);
     }

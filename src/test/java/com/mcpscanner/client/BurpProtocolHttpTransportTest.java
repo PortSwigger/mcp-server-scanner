@@ -508,6 +508,24 @@ class BurpProtocolHttpTransportTest {
         }
     }
 
+    @Test
+    void attachesBurpsOwnExchangeAsTheWireRecord() throws Exception {
+        String raw = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\n"
+                + "2\r\n{}\r\n0\r\n\r\n";
+        HttpRequest[] sentByBurp = new HttpRequest[1];
+        when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class))).thenAnswer(inv -> {
+            sentByBurp[0] = inv.getArgument(0);
+            return HttpRequestResponse.httpRequestResponse(sentByBurp[0], HttpResponse.httpResponse(raw));
+        });
+
+        ProtocolHttpResponse response = transport().send(post("{}"), TIMEOUT);
+
+        HttpRequestResponse evidence = response.wire().orElseThrow().evidence();
+        assertThat(evidence.request().toByteArray().getBytes()).isEqualTo(sentByBurp[0].toByteArray().getBytes());
+        assertThat(new String(evidence.response().toByteArray().getBytes(), StandardCharsets.ISO_8859_1))
+                .isEqualTo(raw);
+    }
+
     private void respondWith(String rawResponse) {
         when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
                 .thenAnswer(inv -> HttpRequestResponse.httpRequestResponse(

@@ -1,5 +1,6 @@
 package com.mcpscanner.ui;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.persistence.PersistedObject;
 import com.mcpscanner.config.ClientIdentity;
@@ -21,7 +22,7 @@ class ClientIdentityPanelTest {
     @BeforeEach
     void setUp() {
         persisted = mock(PersistedObject.class);
-        panel = new ClientIdentityPanel(new ExtensionConfigStore(persisted, mock(Logging.class)));
+        panel = new ClientIdentityPanel(new ExtensionConfigStore(persisted, new InMemoryPreferences(), mock(Logging.class)));
     }
 
     @Test

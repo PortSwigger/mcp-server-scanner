@@ -4,22 +4,22 @@ import java.util.Arrays;
 import java.util.List;
 
 public enum ResourceCap {
-    PROXY_POST_BODY_BYTES("mcp.proxy.post_body_limit_bytes", "Maximum proxy POST body",
+    PROXY_POST_BODY_BYTES(SettingKey.CAP_PROXY_POST_BODY, "Maximum proxy POST body",
             32L * 1024 * 1024, Integer.MAX_VALUE - 1L, CapUnit.BYTES, CapKind.SAFETY_LIMIT),
-    SSE_PENDING_RESPONSE_BYTES("mcp.cap.sse_pending_response_bytes", "Unclaimed SSE response buffer",
+    SSE_PENDING_RESPONSE_BYTES(SettingKey.CAP_SSE_PENDING_RESPONSE, "Unclaimed SSE response buffer",
             64L * 1024 * 1024, Long.MAX_VALUE, CapUnit.BYTES, CapKind.SAFETY_LIMIT),
-    DISCOVERY_TOTAL_BYTES("mcp.cap.discovery_total_bytes", "Discovery data per list",
+    DISCOVERY_TOTAL_BYTES(SettingKey.CAP_DISCOVERY_TOTAL, "Discovery data per list",
             256L * 1024 * 1024, Long.MAX_VALUE, CapUnit.BYTES, CapKind.SAFETY_LIMIT),
-    DISCOVERY_MAX_PAGES("mcp.cap.discovery_max_pages", "Discovery pages per list",
+    DISCOVERY_MAX_PAGES(SettingKey.CAP_DISCOVERY_MAX_PAGES, "Discovery pages per list",
             100, Integer.MAX_VALUE, CapUnit.COUNT, CapKind.SAFETY_LIMIT),
-    MINING_REQUESTS_PER_USER("mcp.mining.requests_per_user", "Collect IDs requests per user",
+    MINING_REQUESTS_PER_USER(SettingKey.CAP_MINING_REQUESTS_PER_USER, "Collect IDs requests per user",
             0, 0, Integer.MAX_VALUE, CapUnit.COUNT, CapKind.SAFETY_LIMIT),
-    EXTENSION_SCAN_WORKERS("mcp.scan.engine_workers", "Extension scan workers", 10, 50, CapUnit.COUNT,
+    EXTENSION_SCAN_WORKERS(SettingKey.CAP_EXTENSION_SCAN_WORKERS, "Extension scan workers", 10, 50, CapUnit.COUNT,
             CapKind.SCAN_THROUGHPUT);
 
     private static final long LOWEST_POSITIVE = 1;
 
-    private final String key;
+    private final SettingKey key;
     private final String label;
     private final long defaultValue;
     private final long minValue;
@@ -27,11 +27,11 @@ public enum ResourceCap {
     private final CapUnit unit;
     private final CapKind kind;
 
-    ResourceCap(String key, String label, long defaultValue, long maxValue, CapUnit unit, CapKind kind) {
+    ResourceCap(SettingKey key, String label, long defaultValue, long maxValue, CapUnit unit, CapKind kind) {
         this(key, label, defaultValue, LOWEST_POSITIVE, maxValue, unit, kind);
     }
 
-    ResourceCap(String key, String label, long defaultValue, long minValue, long maxValue, CapUnit unit,
+    ResourceCap(SettingKey key, String label, long defaultValue, long minValue, long maxValue, CapUnit unit,
                 CapKind kind) {
         this.key = key;
         this.label = label;
@@ -55,7 +55,7 @@ public enum ResourceCap {
     }
 
     public String key() {
-        return key;
+        return key.key();
     }
 
     public String label() {

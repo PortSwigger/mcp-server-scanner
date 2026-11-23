@@ -25,7 +25,7 @@ final class FakeAuthorizationServer {
     static final URI REGISTRATION_ENDPOINT = URI.create("https://auth.example.com/register");
     static final URI RESOURCE = URI.create("https://mcp.example.com/mcp");
 
-    enum RegistrationReply { ECHO, OMIT_REDIRECT_URIS, REJECT, FAIL }
+    enum RegistrationReply { ECHO, OMIT_REDIRECT_URIS, REWRITE_REDIRECT_URIS, REJECT, UNAUTHORIZED, FAIL }
 
     enum AuthorizationReply { DELIVER, DELIVER_NORMALISED, DELIVER_ERROR, REJECT, FAIL }
 
@@ -44,6 +44,8 @@ final class FakeAuthorizationServer {
     private RegistrationPolicy registrationPolicy = redirectUris -> RegistrationReply.ECHO;
     private RedirectPolicy redirectPolicy = exactMatch();
     private boolean managesClients;
+    private boolean issuesClientSecrets;
+    private boolean issuesUnmanagedRegistrationTokens;
     private boolean throttlesAuthorization;
 
     FakeAuthorizationServer() {
@@ -82,6 +84,16 @@ final class FakeAuthorizationServer {
         return this;
     }
 
+    FakeAuthorizationServer withClientSecrets() {
+        this.issuesClientSecrets = true;
+        return this;
+    }
+
+    FakeAuthorizationServer issuingUnmanagedRegistrationTokens() {
+        this.issuesUnmanagedRegistrationTokens = true;
+        return this;
+    }
+
     FakeAuthorizationServer throttlingAuthorization() {
         this.throttlesAuthorization = true;
         return this;
@@ -114,7 +126,7 @@ final class FakeAuthorizationServer {
     AuthorizationServer server() {
         return new AuthorizationServer(ISSUER, AUTHORIZATION_ENDPOINT, Optional.of(REGISTRATION_ENDPOINT), Optional.empty(),
                 Optional.empty(), RESOURCE,
-                Optional.empty());
+                Optional.empty(), List.of());
     }
 
     ProbeClientRegistrar registrar() {
@@ -142,7 +154,9 @@ final class FakeAuthorizationServer {
         return switch (registrationPolicy.reply(redirectUris)) {
             case ECHO -> registered(redirectUris, redirectUris);
             case OMIT_REDIRECT_URIS -> registered(redirectUris, List.of());
+            case REWRITE_REDIRECT_URIS -> registered(redirectUris, List.of(ISSUER + "/callback"));
             case REJECT -> RawResponses.json(400, "{\"error\":\"invalid_redirect_uri\"}");
+            case UNAUTHORIZED -> RawResponses.json(401, "{\"error\":\"invalid_token\"}");
             case FAIL -> RawResponses.status(500);
         };
     }
@@ -153,6 +167,13 @@ final class FakeAuthorizationServer {
         ObjectNode body = JSON.createObjectNode().put("client_id", clientId);
         ArrayNode uris = body.putArray("redirect_uris");
         echoed.forEach(uris::add);
+        if (issuesUnmanagedRegistrationTokens) {
+            body.put("registration_client_uri", "http://internal-as:8080/register/" + clientId)
+                    .put("registration_access_token", "rat-" + clientId);
+        }
+        if (issuesClientSecrets) {
+            body.put("client_secret", "secret-" + clientId);
+        }
         if (managesClients) {
             URI management = URI.create(REGISTRATION_ENDPOINT + "/" + clientId);
             body.put("registration_client_uri", management.toString()).put("registration_access_token", "rat-" + clientId);

@@ -25,12 +25,13 @@ record InteractionEvidence(List<Interaction> interactions) {
                 : InteractionStrength.DNS_LOOKUP_ONLY;
     }
 
-    List<String> forwardedCredentialHeaders() {
+    List<String> forwardedCredentialHeaders(ProbeUserInfo suppliedByProbe) {
         return interactions.stream()
                 .map(InteractionDescription::httpRequestOf)
                 .flatMap(Optional::stream)
                 .flatMap(request -> request.headers().stream())
                 .filter(InteractionEvidence::carriesCredential)
+                .filter(header -> !suppliedByProbe.supplied(header))
                 .map(HttpHeader::name)
                 .distinct()
                 .toList();

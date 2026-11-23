@@ -1,5 +1,6 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.Http;
 import burp.api.montoya.http.RequestOptions;
@@ -67,6 +68,7 @@ class ScanningWiringTest {
         MontoyaTestFactory.install();
         PersistedObject savedSettings = InMemoryPersistedObject.create();
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         when(api.http()).thenReturn(http);
         when(http.sendRequest(any(HttpRequest.class), any(RequestOptions.class)))
                 .thenAnswer(invocation -> fakeServer.sendRequest(invocation.getArgument(0, HttpRequest.class),
@@ -74,10 +76,11 @@ class ScanningWiringTest {
         foundation = ExtensionFoundation.create(api);
         connection = ConnectionWiring.create(api, foundation);
         access = AccessWiring.create(foundation, connection, new IdentityListings());
-        ScanFieldWiring fields = ScanFieldWiring.create(api, foundation);
-        scanning = ScanningWiring.create(api, foundation, connection, access, fields,
-                EngineWiring.create(api, foundation, connection.burpHttp(), fields.everyField()),
-                CheckInstrumentation.NONE, java.util.function.UnaryOperator.identity());
+        scanning = ScanningWiring.create(api, foundation, connection,
+                RequestBuildingWiring.create(foundation, connection, access.authHolder()), access,
+                ScanFoundation.create(api, foundation, connection),
+                CheckInstrumentation.NONE, java.util.function.UnaryOperator.identity(),
+                com.mcpscanner.checks.api.SignedInConsent.OPTED_OUT);
     }
 
     @Test

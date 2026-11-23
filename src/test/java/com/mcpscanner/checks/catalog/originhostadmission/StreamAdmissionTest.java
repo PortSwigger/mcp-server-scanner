@@ -55,8 +55,9 @@ class StreamAdmissionTest {
         assertThat(stream.severity()).isEqualTo(AuditIssueSeverity.INFORMATION);
         assertThat(stream.confidence()).isEqualTo(AuditIssueConfidence.FIRM);
         assertThat(stream.detail()).contains("Origin: http://evil.example", "Origin: null", "event stream",
-                "outside Burp");
-        assertThat(stream.requestResponses()).hasSize(5);
+                "outside Burp", "final control", "the first admitted foreign opening are attached");
+        assertThat(stream.requestResponses()).extracting(exchange -> exchange.request().headerValue("Origin"))
+                .containsExactly(OWN_ORIGIN, "http://evil.example");
     }
 
     @Test

@@ -13,4 +13,8 @@ interface ConnectCommand {
     Boolean useBurpNetworking();
 
     CommandIdentities identities();
+
+    default SignedInSessionCommand signedInSession() {
+        return SignedInSessionCommand.NONE;
+    }
 }

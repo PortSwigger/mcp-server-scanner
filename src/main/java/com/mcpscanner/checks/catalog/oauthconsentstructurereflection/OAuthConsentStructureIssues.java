@@ -1,13 +1,11 @@
 package com.mcpscanner.checks.catalog.oauthconsentstructurereflection;
 
-import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import com.mcpscanner.checks.api.CheckDescriptor;
 import com.mcpscanner.checks.issue.IssueBodyBuilder;
 import com.mcpscanner.checks.issue.IssueMetadataRenderer;
 import com.mcpscanner.checks.shared.oauth.HttpUris;
 
-import java.util.ArrayList;
 import java.util.List;
 
 final class OAuthConsentStructureIssues {
@@ -34,7 +32,7 @@ final class OAuthConsentStructureIssues {
                         descriptor.references()),
                 null,
                 descriptor.headlineSeverity(),
-                exchanges(evidence));
+                ConsentStructureExchanges.of(reflection, evidence));
     }
 
     private static String detail(FieldReflection reflection, ConsentStructureEvidence evidence) {
@@ -43,9 +41,7 @@ final class OAuthConsentStructureIssues {
                 .paragraph("The authorization server placed " + reflection.field().origin() + " into the page at "
                         + evidence.page().url() + " without encoding it for its HTML context. The scanner sent an "
                         + "inert marker, " + marker.payload() + ", and an HTML parser found it on the page as "
-                        + reflection.placement().parsedAs() + " ("
-                        + (reflection.placement() == StructurePlacement.ELEMENT
-                        ? marker.elementName() : marker.attributeName())
+                        + reflection.placement().parsedAs() + " (" + reflection.parsedName()
                         + ") outside script, comment, raw-text and inert containers.")
                 .paragraph(provenance(reflection.field(), evidence))
                 .paragraph("This shows that markup can be injected into the page. It does not show that script "
@@ -73,13 +69,5 @@ final class OAuthConsentStructureIssues {
                 .paragraph("Serve consent and authorization pages with a Content-Security-Policy whose "
                         + "script-src blocks inline script, as defence in depth.")
                 .build();
-    }
-
-    private static List<HttpRequestResponse> exchanges(ConsentStructureEvidence evidence) {
-        List<HttpRequestResponse> exchanges = new ArrayList<>();
-        exchanges.add(evidence.client().evidence());
-        exchanges.addAll(evidence.page().exchanges());
-        exchanges.add(evidence.control().finalExchange());
-        return exchanges;
     }
 }

@@ -1,6 +1,8 @@
 package com.mcpscanner;
 
+import com.mcpscanner.testutil.InMemoryPreferences;
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.BurpSuiteEdition;
 import burp.api.montoya.extension.Extension;
 import burp.api.montoya.extension.ExtensionUnloadingHandler;
 import burp.api.montoya.http.Http;
@@ -70,8 +72,10 @@ class CheckAccessAutomationWiringTest {
         MontoyaTestFactory.install();
         renderRequestsAsImmutable();
         when(api.extension()).thenReturn(extension);
+        when(api.burpSuite().version().edition()).thenReturn(BurpSuiteEdition.PROFESSIONAL);
         PersistedObject savedSettings = InMemoryPersistedObject.create();
         when(api.persistence().extensionData()).thenReturn(savedSettings);
+        when(api.persistence().preferences()).thenReturn(new InMemoryPreferences());
         when(api.http()).thenReturn(http);
         SiteMap burpSiteMap = mock(SiteMap.class);
         when(api.siteMap()).thenReturn(burpSiteMap);

@@ -23,6 +23,10 @@ final class RunTally {
         listener.progress(++checked, total);
     }
 
+    void raised(int runIssues) {
+        issues += runIssues;
+    }
+
     boolean stopped() {
         return stopReason.isPresent();
     }

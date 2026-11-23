@@ -32,6 +32,7 @@ final class OutboundRequestIssues {
             + "host. A lookup can come from a validator that resolves a host and then refuses it, or from "
             + "infrastructure that inspects requests, so confirm that a request is actually made before relying "
             + "on this.";
+    private static final String ATTACHED = "The attached request is the %s probe.";
     private static final String CREDENTIALS = "The outbound request carried credential headers, which were sent to "
             + "the host the scanner chose: ";
 
@@ -49,19 +50,29 @@ final class OutboundRequestIssues {
         }
         InteractionEvidence evidence = new InteractionEvidence(triggering.stream()
                 .flatMap(probe -> observed.of(probe.payload()).stream()).toList());
-        List<String> credentials = evidence.forwardedCredentialHeaders();
+        List<String> credentials = forwardedCredentialHeaders(triggering, observed);
         FieldCategory category = field.category().reported(!credentials.isEmpty());
         IssueRating rating = category.rating(evidence.strength(), !credentials.isEmpty());
+        SentProbe strongest = strongest(triggering, observed);
         return Optional.of(new OutboundFinding(AuditIssue.auditIssue(category.issueName(),
-                detail(field, category, triggering, observed, evidence, credentials), category.remediation(),
+                detail(field, category, triggering, strongest, observed, evidence, credentials),
+                category.remediation(),
                 base.request().url(), rating.severity(), rating.confidence(),
                 IssueMetadataRenderer.background(descriptor.issueBackground(), descriptor.cwes(),
                         descriptor.references()),
-                null, rating.severity(), exchanges(triggering)), evidence.strength()));
+                null, rating.severity(), new ArrayList<>(List.of(strongest.exchange()))), evidence.strength()));
+    }
+
+    private static List<String> forwardedCredentialHeaders(List<SentProbe> triggering, ObservedInteractions observed) {
+        return triggering.stream()
+                .flatMap(probe -> new InteractionEvidence(observed.of(probe.payload()))
+                        .forwardedCredentialHeaders(ProbeUserInfo.of(probe.value())).stream())
+                .distinct()
+                .toList();
     }
 
     private static String detail(ProbedField field, FieldCategory category, List<SentProbe> triggering,
-                                 ObservedInteractions observed,
+                                 SentProbe attached, ObservedInteractions observed,
                                  InteractionEvidence evidence, List<String> credentials) {
         IssueBodyBuilder body = new IssueBodyBuilder().paragraph(FIELD_PREFIX + field.subject());
         if (field.operation().isEmpty()) {
@@ -70,6 +81,7 @@ final class OutboundRequestIssues {
         body.paragraph(PROBE_METHOD)
                 .findings(triggering.stream().flatMap(probe -> observed.of(probe.payload()).stream()
                         .map(interaction -> describe(probe, interaction))).toList())
+                .paragraph(ATTACHED.formatted(attached.form().label()))
                 .paragraph(evidence.strength() == InteractionStrength.HTTP_REQUEST ? HTTP_PROVEN : LOOKUP_ONLY);
         if (!credentials.isEmpty()) {
             body.paragraph(CREDENTIALS + String.join(", ", credentials) + ".");
@@ -81,7 +93,11 @@ final class OutboundRequestIssues {
         return probe.form().label() + " " + probe.value() + ": " + InteractionDescription.of(interaction);
     }
 
-    private static List<HttpRequestResponse> exchanges(List<SentProbe> triggering) {
-        return new ArrayList<>(triggering.stream().map(SentProbe::exchange).toList());
+    private static SentProbe strongest(List<SentProbe> triggering, ObservedInteractions observed) {
+        return triggering.stream()
+                .filter(probe -> new InteractionEvidence(observed.of(probe.payload())).strength()
+                        == InteractionStrength.HTTP_REQUEST)
+                .findFirst()
+                .orElse(triggering.get(0));
     }
 }

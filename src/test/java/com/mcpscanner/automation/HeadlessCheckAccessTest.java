@@ -49,7 +49,7 @@ class HeadlessCheckAccessTest {
             new IdentityHandover(new IdentityRegistry(new IdentityStore(InMemoryPersistedObject.configStore(),
                     McpEventLog.noop())), new WriteReplayConfirmations(), (item, expectation) -> { },
                     itemSeeds::seedWith),
-            new CurrentAuthHolder());
+            new CurrentAuthHolder(), mock(SignedInSessionSeed.class));
     private final CheckAccessProgress progress = new CheckAccessProgress();
     private final List<String> steps = new ArrayList<>();
     private final List<Runnable> queued = new ArrayList<>();
