@@ -3,7 +3,7 @@ ExtensionType: 1
 Name: MCP Server Scanner
 RepoName: mcp-server-scanner
 ScreenVersion: 2.2.0
-SerialVersion: 7
+SerialVersion: 8
 MinPlatformVersion: 29
 ProOnly: False
 Author: Peter Hendy, PortSwigger
